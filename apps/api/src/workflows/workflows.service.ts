@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
   compileRuntimeManifest,
   createWorkflowGraph,
@@ -18,6 +18,10 @@ import {
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
 import { MemoryService } from "../memory/memory.service";
+import {
+  PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY,
+  type PublishedWorkflowManifestRepository,
+} from "./published-workflow-manifest.repository";
 
 export interface PublishWorkflowRequest {
   actorUserId?: string | undefined;
@@ -40,6 +44,8 @@ export class WorkflowsService {
   constructor(
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
     private readonly memoryService: MemoryService,
+    @Inject(PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY)
+    private readonly publishedWorkflowManifestRepository: PublishedWorkflowManifestRepository,
   ) {}
 
   async publishWorkflow(input: {
@@ -109,12 +115,21 @@ export class WorkflowsService {
       });
     }
 
+    await this.publishedWorkflowManifestRepository.save(manifest);
+
     return {
       publishedVersion: candidatePublishedVersion,
       manifest,
       grantValidation,
       knowledgeConflictValidation,
     };
+  }
+
+  getPublishedManifest(input: {
+    organizationId: string;
+    publishedVersionId: string;
+  }) {
+    return this.publishedWorkflowManifestRepository.load(input);
   }
 }
 

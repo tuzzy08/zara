@@ -42,7 +42,7 @@ This preview is not a published runtime manifest yet, but it stays structurally 
 
 - cost_optimized: default sandwich runtime using STT, text model/router, and TTS.
 - balanced: sandwich runtime with stronger model/TTS defaults.
-- premium_realtime: provider-owned speech-to-speech selected only by explicit policy. OpenAI Realtime is the default provider, and Google Gemini Live can be selected per concrete agent while provider credentials and WebSocket URLs stay server-side.
+- premium_realtime: provider-owned speech-to-speech selected only by platform-admin policy. OpenAI Realtime is the default provider, and Google Gemini Live can be selected per agent class while provider credentials, model selection, and WebSocket URLs stay server-side. Tenant workflow provider/model metadata never overrides this policy.
 
 For live sandbox execution, the default provider mapping for sandwich profiles is:
 
@@ -96,7 +96,7 @@ The shared runtime package now includes an in-memory call event stream for sandb
 
 ## Sandbox Selection
 
-The tenant web app keeps a browser-local published workflow registry until API-backed workflow version storage is available. Publishing from the builder writes the immutable workspace-scoped workflow version into that registry and adopts the returned published graph on the canvas. The workflow builder opens blank by default; operators explicitly load saved versions from the toolbar, and `Run in sandbox` uses the matching unchanged published version or opens the publish flow for unpublished/dirty drafts. The sandbox can also refresh and select from available published versions in the active workspace, then compiles the chosen version into a runtime manifest before starting a test session.
+Publishing stores the exact immutable compiled runtime manifest in Postgres under its tenant and published-version identity, while the tenant web app retains workflow summaries for builder navigation. The workflow builder opens blank by default; operators explicitly load saved versions from the toolbar, and `Run in sandbox` uses the matching unchanged published version or opens the publish flow for unpublished/dirty drafts. PSTN execution loads only the server-persisted manifest for the dispatch's exact published version; draft graphs are never runtime authority.
 
 Sandbox cost estimates are componentized by telephony, STT, model input, model output, TTS, and storage. Missing provider pricing makes the estimate incomplete and can block publish or call start when tenant budgets enforce blocking limits.
 

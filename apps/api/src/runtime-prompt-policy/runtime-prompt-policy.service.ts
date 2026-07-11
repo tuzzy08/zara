@@ -110,6 +110,7 @@ export class RuntimePromptPolicyService {
       .map((template) => ({
         agentClass: template.agentClass,
         label: template.label,
+        realtimeProvider: template.modelDefaults.realtime.provider,
         routingProfile: {
           description: template.routingProfile.description,
           examples: [...template.routingProfile.examples],

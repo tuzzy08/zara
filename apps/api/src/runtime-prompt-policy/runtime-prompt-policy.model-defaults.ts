@@ -31,27 +31,19 @@ export function applyRuntimePromptPolicyModelDefaultsToManifest(
         }
 
         const defaults = template.modelDefaults;
-        const hasExplicitTextProvider = typeof roleConfig["modelProvider"] === "string";
+        const tenantOwnedRoleConfig = omitPlatformModelFields(roleConfig);
 
         return {
           ...node,
           config: {
             ...node.config,
             role: {
-              ...roleConfig,
-              ...(hasExplicitTextProvider ? {} : { defaultModelTier: defaults.text.modelTier }),
-              modelProvider: roleConfig["modelProvider"] ?? defaults.text.provider,
-              ...(resolveString(roleConfig["modelId"]) !== undefined
-                ? { modelId: resolveString(roleConfig["modelId"]) }
-                : defaults.text.modelId !== undefined
-                  ? { modelId: defaults.text.modelId }
-                  : {}),
-              realtimeProvider: roleConfig["realtimeProvider"] ?? defaults.realtime.provider,
-              ...(resolveString(roleConfig["realtimeModelId"]) !== undefined
-                ? { realtimeModelId: resolveString(roleConfig["realtimeModelId"]) }
-                : defaults.realtime.modelId !== undefined
-                  ? { realtimeModelId: defaults.realtime.modelId }
-                  : {}),
+              ...tenantOwnedRoleConfig,
+              defaultModelTier: defaults.text.modelTier,
+              modelProvider: defaults.text.provider,
+              ...(defaults.text.modelId !== undefined ? { modelId: defaults.text.modelId } : {}),
+              realtimeProvider: defaults.realtime.provider,
+              ...(defaults.realtime.modelId !== undefined ? { realtimeModelId: defaults.realtime.modelId } : {}),
             },
           },
         };
@@ -60,6 +52,12 @@ export function applyRuntimePromptPolicyModelDefaultsToManifest(
   };
 }
 
-function resolveString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+function omitPlatformModelFields(roleConfig: Record<string, unknown>) {
+  const result = { ...roleConfig };
+  delete result["defaultModelTier"];
+  delete result["modelProvider"];
+  delete result["modelId"];
+  delete result["realtimeProvider"];
+  delete result["realtimeModelId"];
+  return result;
 }

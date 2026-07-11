@@ -15,6 +15,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         organizationId: "tenant-1",
         workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
+        mediaProfile: "pstn",
         session: {
           sessionId: "session-1",
           manifestId: "manifest-1",
@@ -77,8 +78,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
             },
             output: {
               format: {
-                type: "audio/pcm",
-                rate: 24000,
+                type: "audio/pcmu",
               },
               voice: "cedar",
               speed: 0.9,

@@ -63,6 +63,7 @@ describe("reusable tenant agents", () => {
           {
             agentClass: "retention",
             label: "Retention",
+            realtimeProvider: "gemini-live",
           },
         ],
       }), {
@@ -77,6 +78,7 @@ describe("reusable tenant agents", () => {
       expect.objectContaining({
         agentClass: "retention",
         label: "Retention",
+        realtimeProvider: "gemini-live",
       }),
     ]);
     expect(fetchMock).toHaveBeenCalledWith(

@@ -440,7 +440,7 @@ describe("WorkflowBuilderScreen", () => {
       agentClasses: [
         { agentClass: "custom", label: "Custom" },
         { agentClass: "billing", label: "Billing" },
-        { agentClass: "retention", label: "Retention" },
+        { agentClass: "retention", label: "Retention", realtimeProvider: "gemini-live" },
       ],
       reusableAgents: [],
     }));
@@ -463,6 +463,9 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
+    fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
+      target: { value: "premium-realtime" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
 
     expect(await screen.findByLabelText("Reusable agent")).toBeTruthy();
@@ -472,6 +475,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(classSelect.value).toBe("custom");
     await waitFor(() => expect(within(classSelect).getByRole("option", { name: "Retention" })).toBeTruthy());
     fireEvent.change(classSelect, { target: { value: "retention" } });
+    expect(screen.getByLabelText("Gemini Live voice")).toBeTruthy();
 
     expect(screen.queryByText("Model config")).toBeNull();
     expect(screen.queryByLabelText("Model tier")).toBeNull();

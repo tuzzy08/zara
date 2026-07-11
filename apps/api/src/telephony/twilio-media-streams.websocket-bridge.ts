@@ -31,6 +31,7 @@ import {
   logTwilioPstnDiagnostic,
   warnTwilioPstnDiagnostic,
 } from "./twilio-pstn-diagnostics";
+import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
 
 type TwilioMediaStreamSessionEvent =
   | TwilioMediaStreamBridgeEvent
@@ -45,6 +46,7 @@ interface TwilioMediaStreamAuthorization {
   callSessionId: string;
   expectedCallSid: string;
   connectionId?: string | undefined;
+  runtimePath: "pstn-sandwich" | "pstn-premium-realtime";
 }
 
 interface TwilioMediaStreamAttachment {
@@ -54,6 +56,7 @@ interface TwilioMediaStreamAttachment {
   authorization?: TwilioMediaStreamAuthorization | undefined;
   events: TwilioMediaStreamSessionEvent[];
   processing: Promise<void>;
+  recordedPhoneTestCheckpoints: Set<"inboundFrameReceived" | "outboundAudioSent">;
 }
 
 @Injectable()
@@ -68,6 +71,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
   constructor(
     private readonly httpAdapterHost: HttpAdapterHost,
     private readonly telephonyService: TelephonyService,
+    private readonly premiumCallExecution: PstnPremiumCallExecution,
     @Optional()
     @Inject(pstnCallObservabilityRecorderToken)
     private readonly pstnObservabilityRecorder?: PstnCallObservabilityRecorder,
@@ -99,11 +103,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
   sendOutboundMedia(input: { callSessionId: string; frame: PstnAudioFrame }) {
     const attachment = this.requireAttachment(input.callSessionId);
     attachment.client.send(JSON.stringify(attachment.bridge.outboundMedia(input.frame)));
-    void this.telephonyService.recordPstnPhoneTestCheckpoint({
-      organizationId: attachment.authorization.organizationId,
-      callSessionId: attachment.authorization.callSessionId,
-      checkpoint: "outboundAudioSent",
-    });
+    this.recordPhoneTestCheckpointOnce(attachment, "outboundAudioSent");
   }
 
   sendMark(input: { callSessionId: string; name: string }) {
@@ -159,6 +159,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         callSessionId,
         events: [],
         processing: Promise.resolve(),
+        recordedPhoneTestCheckpoints: new Set(),
       };
       this.attachments.set(callSessionId, attachment);
       this.eventHistory.set(callSessionId, attachment.events);
@@ -168,6 +169,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
 
       client.once("close", (code, reason) => {
         this.attachments.delete(callSessionId);
+        if (attachment.authorization?.runtimePath === "pstn-premium-realtime") {
+          void this.premiumCallExecution.stop({ callSessionId });
+        }
         logTwilioPstnDiagnostic(this.logger, "media_socket_closed", {
           callSessionId,
           code,
@@ -265,6 +269,28 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         status: "active",
         at: result.event.receivedAt,
       });
+      if (attachment.authorization.runtimePath === "pstn-premium-realtime") {
+        await this.premiumCallExecution.start({
+          organizationId: attachment.authorization.organizationId,
+          dispatchId: attachment.authorization.dispatchId,
+          callSessionId: attachment.authorization.callSessionId,
+          streamSid: result.event.streamSid,
+          output: {
+            sendMedia: (frame) => this.sendOutboundMedia({
+              callSessionId: attachment.authorization!.callSessionId,
+              frame,
+            }),
+            clearAudio: () => this.clearBufferedAudio({
+              callSessionId: attachment.authorization!.callSessionId,
+            }),
+            sendMark: (name) => this.sendMark({
+              callSessionId: attachment.authorization!.callSessionId,
+              name,
+            }),
+            close: (code, reason) => attachment.client.close(code, reason),
+          },
+        });
+      }
       return;
     }
 
@@ -290,12 +316,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
           },
         });
       }
-      await this.telephonyService.recordPstnPhoneTestCheckpoint({
-        organizationId: attachment.authorization.organizationId,
-        callSessionId: attachment.authorization.callSessionId,
-        checkpoint: "inboundFrameReceived",
-        at: result.event.receivedAt,
-      });
+      if (attachment.authorization.runtimePath === "pstn-premium-realtime") {
+        await this.premiumCallExecution.appendInboundFrame({
+          callSessionId: attachment.authorization.callSessionId,
+          frame: result.event.frame,
+        });
+      }
+      this.recordPhoneTestCheckpointOnce(attachment, "inboundFrameReceived", result.event.receivedAt);
       return;
     }
 
@@ -342,8 +369,38 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         status: "completed",
         at: result.event.receivedAt,
       });
+      if (attachment.authorization.runtimePath === "pstn-premium-realtime") {
+        await this.premiumCallExecution.stop({
+          callSessionId: attachment.authorization.callSessionId,
+        });
+      }
       attachment.client.close(1000, "twilio_stop");
     }
+  }
+
+  private recordPhoneTestCheckpointOnce(
+    attachment: TwilioMediaStreamAttachment,
+    checkpoint: "inboundFrameReceived" | "outboundAudioSent",
+    at?: string,
+  ) {
+    if (attachment.recordedPhoneTestCheckpoints.has(checkpoint) || attachment.authorization === undefined) {
+      return;
+    }
+
+    attachment.recordedPhoneTestCheckpoints.add(checkpoint);
+    void this.telephonyService.recordPstnPhoneTestCheckpoint({
+      organizationId: attachment.authorization.organizationId,
+      callSessionId: attachment.authorization.callSessionId,
+      checkpoint,
+      ...(at === undefined ? {} : { at }),
+    }).catch((error: unknown) => {
+      warnTwilioPstnDiagnostic(this.logger, "phone_test_checkpoint_failed", {
+        organizationId: attachment.authorization?.organizationId,
+        callSessionId: attachment.callSessionId,
+        checkpoint,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+    });
   }
 
   private async authorizeFromStartMessage(

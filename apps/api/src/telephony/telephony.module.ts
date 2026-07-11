@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 
 import { BillingModule } from "../billing/billing.module";
+import { RuntimeSessionsModule } from "../runtime-sessions/runtime-sessions.module";
+import { WorkflowsModule } from "../workflows/workflows.module";
 import { AuditLogModule } from "../compliance/audit-log.module";
 import { PostgresPoolService } from "../database/postgres-pool.service";
 import {
@@ -22,13 +24,15 @@ import {
   TwilioRestNumberRoutingProvider,
 } from "./twilio-number-routing.provider";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
+import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
 
 @Module({
-  imports: [AuditLogModule, BillingModule],
+  imports: [AuditLogModule, BillingModule, RuntimeSessionsModule, WorkflowsModule],
   controllers: [TelephonyController],
   providers: [
     PostgresPoolService,
     TelephonyService,
+    PstnPremiumCallExecution,
     TwilioMediaStreamsWebSocketBridge,
     {
       provide: TWILIO_NUMBER_INVENTORY_PROVIDER,

@@ -7,12 +7,14 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type {
+  CompiledRuntimeManifest,
   EncryptedCredentialReference,
   ImportedTelephonyPhoneNumber,
   OutboundCallPolicyChecks,
@@ -214,6 +216,30 @@ export const tenants = pgTable(
   (table) => ({
     slugUniqueIndex: uniqueIndex("tenants_slug_unique_idx").on(table.slug),
     statusIndex: index("tenants_status_idx").on(table.status),
+  }),
+);
+
+export const publishedWorkflowManifests = pgTable(
+  "published_workflow_manifests",
+  {
+    publishedVersionId: text("published_version_id").notNull(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    workspaceId: text("workspace_id").notNull(),
+    workflowId: text("workflow_id").notNull(),
+    manifest: jsonb("manifest").$type<CompiledRuntimeManifest>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.publishedVersionId] }),
+    tenantWorkflowIndex: index("published_workflow_manifests_tenant_workflow_idx").on(
+      table.tenantId,
+      table.workflowId,
+    ),
   }),
 );
 

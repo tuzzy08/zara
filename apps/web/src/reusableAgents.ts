@@ -50,6 +50,7 @@ export interface ReusableAgent {
 export interface AgentClassOption {
   agentClass: string;
   label: string;
+  realtimeProvider?: "openai-realtime" | "gemini-live" | undefined;
 }
 
 export async function fetchAgentClasses(input: {

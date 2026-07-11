@@ -23,6 +23,10 @@ import { RuntimeSessionsWebSocketBridge } from "./runtime-sessions.websocket-bri
       useFactory: () => new WsPremiumRealtimeProviderTransport(),
     },
   ],
-  exports: [PremiumRealtimeToolLoopService, RuntimeSessionsService],
+  exports: [
+    PremiumRealtimeToolLoopService,
+    RuntimeSessionsService,
+    premiumRealtimeProviderTransportToken,
+  ],
 })
 export class RuntimeSessionsModule {}

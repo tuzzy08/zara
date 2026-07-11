@@ -45,7 +45,7 @@ describe("applyRuntimePromptPolicyModelDefaultsToManifest", () => {
     );
   });
 
-  it("keeps explicit provider fields already carried by a runtime manifest", () => {
+  it("overrides stale tenant provider fields with platform-admin model defaults", () => {
     const manifest = createManifest({
       modelProvider: "openai",
       modelId: "openai-explicit",
@@ -78,11 +78,26 @@ describe("applyRuntimePromptPolicyModelDefaultsToManifest", () => {
     const role = projected.graph.nodes.find((node) => node.id === "agent-billing")?.config["role"];
 
     expect(role).toMatchObject({
-      defaultModelTier: "cheap",
+      defaultModelTier: "standard",
+      modelProvider: "google-gemini",
+      modelId: "gemini-billing-default",
+      realtimeProvider: "gemini-live",
+      realtimeModelId: "gemini-live-billing-default",
+    });
+  });
+
+  it("removes stale tenant model IDs when platform defaults use provider-managed models", () => {
+    const projected = applyRuntimePromptPolicyModelDefaultsToManifest(createManifest({
+      modelId: "tenant-text-model",
+      realtimeModelId: "tenant-realtime-model",
+    }), defaultRuntimePromptPolicy);
+    const role = projected.graph.nodes.find((node) => node.id === "agent-billing")?.config["role"];
+
+    expect(role).not.toHaveProperty("modelId");
+    expect(role).not.toHaveProperty("realtimeModelId");
+    expect(role).toMatchObject({
       modelProvider: "openai",
-      modelId: "openai-explicit",
       realtimeProvider: "openai-realtime",
-      realtimeModelId: "realtime-explicit",
     });
   });
 });

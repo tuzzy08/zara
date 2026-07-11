@@ -218,6 +218,12 @@ export class RuntimeSessionsService {
     return registered;
   }
 
+  terminateRealtimeSession(sessionId: string) {
+    this.sessions.delete(sessionId);
+    this.transportTokensBySessionId.delete(sessionId);
+    this.pendingOpenAiHandoffContinuations.delete(sessionId);
+  }
+
   consumeRealtimeSessionTransportToken(input: {
     sessionId: string;
     token: string;

@@ -3844,6 +3844,7 @@ Implementation summary:
 - Preserved `runtimePath` through dispatch records, Twilio stream metadata, observability projections, LangSmith redacted traces, and PSTN eval fixtures.
 - Labeled premium realtime PSTN separately in the unified Phone test sandbox while keeping one sandbox surface.
 - Added regression coverage for blocked-by-default premium calls, approved premium route selection, provider unavailable, interruption normalization, provider failure blocking, redacted trace export, and the premium PSTN eval fixture.
+- Connected authorized Twilio premium Media Streams to exact persisted published manifests and server-owned premium sessions, with OpenAI Realtime as the platform-admin-owned default, native PCMU output, provider tool-loop reuse, interruption clearing, and deterministic two-leg cleanup.
 
 ### ISSUE-150: Server-owned auth context contract
 

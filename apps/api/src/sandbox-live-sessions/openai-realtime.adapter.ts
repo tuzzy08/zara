@@ -8,6 +8,7 @@ export interface OpenAiRealtimeAdapterConfig {
   speed?: number | undefined;
   tools?: RealtimeProviderToolDeclaration[] | undefined;
   autoCreateResponse?: boolean | undefined;
+  outputAudioFormat?: "pcm" | "pcmu" | undefined;
 }
 
 export type OpenAiRealtimeEvent =
@@ -163,8 +164,8 @@ export class OpenAiRealtimeAdapter {
           },
           output: {
             format: {
-              type: "audio/pcm",
-              rate: 24000,
+              type: this.config.outputAudioFormat === "pcmu" ? "audio/pcmu" : "audio/pcm",
+              ...(this.config.outputAudioFormat === "pcmu" ? {} : { rate: 24000 }),
             },
             ...(this.config.voice !== undefined ? { voice: this.config.voice } : {}),
             ...(this.config.speed !== undefined ? { speed: this.config.speed } : {}),

@@ -261,7 +261,7 @@ Response body:
 Behavior rules:
 
 - Only agents or manifests opted into `premium-realtime` can create a session.
-- Agents may select OpenAI Realtime or Google Gemini Live as the realtime provider; Google provider URLs and credentials remain server-side.
+- Platform admins select OpenAI Realtime or Google Gemini Live per agent class; OpenAI Realtime is the default. Tenant APIs expose the effective provider only so runtime and voice UI can render correctly, while provider URLs, credentials, and mutation controls remain server-side.
 - Budget blocks return a conflict response.
 - Realtime availability failures return service unavailable.
 - Tool and handoff observation stays aligned with `@zara/core` event types.

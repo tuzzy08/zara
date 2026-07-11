@@ -21,6 +21,7 @@ export interface PremiumRealtimeProviderTransportConnectInput {
   actorUserId: string;
   session: PremiumRealtimeSession;
   manifest: CompiledRuntimeManifest;
+  mediaProfile?: "browser" | "pstn" | undefined;
 }
 
 export interface PremiumRealtimeProviderConnection {
@@ -91,6 +92,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       language: agent?.languagePolicy.defaultLanguage,
       ...resolveOpenAiRealtimeSpeed(agent),
       tools: input.session.toolDeclarations,
+      ...(input.mediaProfile === "pstn" ? { outputAudioFormat: "pcmu" as const } : {}),
     });
     const socket = this.websocketFactory(url.toString(), {
       headers: {

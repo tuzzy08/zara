@@ -5,7 +5,11 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
-import { computeTwilioWebhookSignature, type AvailableTwilioPhoneNumber } from "@zara/core";
+import {
+  computeTwilioWebhookSignature,
+  type AvailableTwilioPhoneNumber,
+  type PstnAudioFrame,
+} from "@zara/core";
 import WebSocket, { type RawData } from "ws";
 
 import { ComplianceModule } from "../compliance/compliance.module";
@@ -24,6 +28,10 @@ import {
   type TwilioNumberRoutingProvider,
 } from "./twilio-number-routing.provider";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
+import {
+  PstnPremiumCallExecution,
+  type PstnPremiumCallOutput,
+} from "./pstn-premium-call-execution";
 
 describe("Twilio Media Streams websocket bridge", () => {
   const sockets: WebSocket[] = [];
@@ -287,6 +295,89 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
+  it("forwards authorized premium media into call execution and returns its audio to Twilio", async () => {
+    const starts: Array<{ callSessionId: string; output: PstnPremiumCallOutput }> = [];
+    const frames: PstnAudioFrame[] = [];
+    const stops: string[] = [];
+    const premiumExecution = {
+      async start(input: { callSessionId: string; output: PstnPremiumCallOutput }) {
+        starts.push(input);
+      },
+      async appendInboundFrame(input: { frame: PstnAudioFrame }) {
+        frames.push(input.frame);
+      },
+      async stop(input: { callSessionId: string }) {
+        stops.push(input.callSessionId);
+      },
+    };
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution,
+    });
+    const callSid = "CA-premium-execution";
+    const callSessionId = `${callSid}:telephony`;
+    const streamSid = "MZ-premium-execution";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-execution",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
+    const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`);
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium websocket open");
+    socket.send(JSON.stringify(createStartMessage({ callSid, streamSid, token: streamToken })));
+    await withTimeout(waitFor(() => starts.length === 1), "premium execution start");
+
+    socket.send(JSON.stringify({
+      event: "media",
+      sequenceNumber: "2",
+      streamSid,
+      media: {
+        track: "inbound",
+        chunk: "1",
+        timestamp: "20",
+        payload: "//////////8=",
+      },
+    }));
+    await withTimeout(waitFor(() => frames.length === 1), "premium inbound frame");
+    expect(frames[0]).toMatchObject({
+      callSessionId,
+      mediaStreamId: streamSid,
+      direction: "inbound",
+    });
+
+    const outboundMessage = nextMessage(socket);
+    starts[0]!.output.sendMedia({
+      callSessionId,
+      mediaStreamId: streamSid,
+      direction: "outbound",
+      codec: { name: "g711_mulaw", sampleRateHz: 8000, channels: 1 },
+      sequence: 1,
+      timestampMs: 20,
+      payloadBase64: "AAAA////",
+    });
+    await expect(withTimeout(outboundMessage, "premium outbound media")).resolves.toEqual({
+      event: "media",
+      streamSid,
+      media: { payload: "AAAA////" },
+    });
+
+    socket.send(JSON.stringify({
+      event: "stop",
+      sequenceNumber: "3",
+      streamSid,
+      stop: { accountSid: "AC1234567890abcdef1234567890abcd", callSid },
+    }));
+    await withTimeout(nextClose(socket), "premium websocket close");
+    await withTimeout(waitFor(() => stops.includes(callSessionId)), "premium execution stop");
+    await app.close();
+  }, 30_000);
+
   it("requires the server-minted Twilio stream token once before media attachment", async () => {
     const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
     const callSid = "CA-websocket-token";
@@ -378,7 +469,10 @@ describe("Twilio Media Streams websocket bridge", () => {
   }, 30_000);
 });
 
-async function createRoutedTwilioApp() {
+async function createRoutedTwilioApp(options?: {
+  runtimeProfile?: "cost-optimized" | "premium-realtime";
+  premiumExecution?: Pick<PstnPremiumCallExecution, "start" | "appendInboundFrame" | "stop">;
+}) {
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
@@ -392,6 +486,12 @@ async function createRoutedTwilioApp() {
     .useValue(createGeneratedTwilioInventoryProvider())
     .overrideProvider(TWILIO_NUMBER_ROUTING_PROVIDER)
     .useValue(createNoopTwilioRoutingProvider())
+    .overrideProvider(PstnPremiumCallExecution)
+    .useValue(options?.premiumExecution ?? {
+      async start() {},
+      async appendInboundFrame() {},
+      async stop() {},
+    })
     .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
@@ -433,6 +533,7 @@ async function createRoutedTwilioApp() {
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
       workspaceId: "workspace-customer-success",
+      runtimeProfile: options?.runtimeProfile ?? "cost-optimized",
     });
   if (routingResponse.status !== 200) {
     throw new Error(`Live route fixture assignment failed: ${routingResponse.status} ${JSON.stringify(routingResponse.body)}`);

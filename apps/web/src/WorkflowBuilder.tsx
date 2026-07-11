@@ -3098,6 +3098,9 @@ function AgentRoleInspector({
   const routingDetailsMissing = role.routePolicy !== undefined && role.routePolicy.branches.length === 0;
   const languageDetailsMissing = hasAgentLanguagePolicyRequiredIssue(role);
   const visibleAgentClassOptions = resolveVisibleAgentClassOptions(agentClassOptions, role.kind);
+  const realtimeProvider = agentClassOptions.find(
+    (agentClass) => agentClass.agentClass === role.kind,
+  )?.realtimeProvider ?? "openai-realtime";
 
   return (
     <div className="workflow-form">
@@ -3194,6 +3197,7 @@ function AgentRoleInspector({
           role={role}
           voiceLibraryState={voiceLibraryState}
           workflowRuntimeProfile={workflowRuntimeProfile}
+          realtimeProvider={realtimeProvider}
           onChange={onChange}
           onVoiceUpdated={onVoiceUpdated}
         />
@@ -3603,6 +3607,7 @@ function AgentRoleVoiceSettings({
   role,
   voiceLibraryState,
   workflowRuntimeProfile,
+  realtimeProvider,
   onChange,
   onVoiceUpdated,
 }: {
@@ -3612,6 +3617,7 @@ function AgentRoleVoiceSettings({
   role: AgentRoleNodeConfig;
   voiceLibraryState: VoiceLibraryState;
   workflowRuntimeProfile: RuntimeProfileId;
+  realtimeProvider: RealtimeProviderId;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
   onVoiceUpdated: (voice: TenantVoiceLibraryVoice) => void;
 }) {
@@ -3837,7 +3843,13 @@ function AgentRoleVoiceSettings({
   };
 
   if (usesPremiumRealtime) {
-    return <AgentRoleRealtimeVoiceSettings role={role} onChange={onChange} />;
+    return (
+      <AgentRoleRealtimeVoiceSettings
+        role={role}
+        realtimeProvider={realtimeProvider}
+        onChange={onChange}
+      />
+    );
   }
 
   if (!hasContext) {
@@ -4071,12 +4083,14 @@ function AgentRoleVoiceSettings({
 
 function AgentRoleRealtimeVoiceSettings({
   role,
+  realtimeProvider,
   onChange,
 }: {
   role: AgentRoleNodeConfig;
+  realtimeProvider: RealtimeProviderId;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
 }) {
-  const selectedRealtimeProvider = role.realtimeProvider ?? "openai-realtime";
+  const selectedRealtimeProvider = realtimeProvider;
   const providerLabel = formatRealtimeProviderLabel(selectedRealtimeProvider);
   const providerVoiceOptions = realtimeVoiceOptions[selectedRealtimeProvider];
   const selectedVoice = resolveRealtimeVoiceValue(role, selectedRealtimeProvider);

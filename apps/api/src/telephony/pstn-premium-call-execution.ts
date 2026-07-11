@@ -1,0 +1,439 @@
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { PstnAudioFrame } from "@zara/core";
+
+import {
+  GeminiLiveRealtimeAdapter,
+  type GeminiLiveRealtimeEvent,
+} from "../sandbox-live-sessions/gemini-live-realtime.adapter";
+import {
+  OpenAiRealtimeAdapter,
+  type OpenAiRealtimeEvent,
+} from "../sandbox-live-sessions/openai-realtime.adapter";
+import {
+  premiumRealtimeProviderTransportToken,
+  type PremiumRealtimeProviderConnection,
+  type PremiumRealtimeProviderTransport,
+} from "../runtime-sessions/premium-realtime-provider-transport";
+import {
+  RuntimeSessionsService,
+  type RegisteredPremiumRealtimeSession,
+} from "../runtime-sessions/runtime-sessions.service";
+import { WorkflowsService } from "../workflows/workflows.service";
+import { TelephonyService } from "./telephony.service";
+
+export interface PstnPremiumCallOutput {
+  sendMedia(frame: PstnAudioFrame): void;
+  clearAudio(): void;
+  sendMark(name: string): void;
+  close(code: number, reason: string): void;
+}
+
+interface ActivePremiumCallExecution {
+  organizationId: string;
+  dispatchId: string;
+  callSessionId: string;
+  streamSid: string;
+  output: PstnPremiumCallOutput;
+  registered: RegisteredPremiumRealtimeSession;
+  providerConnection: PremiumRealtimeProviderConnection;
+  providerMessages: Promise<void>;
+  outboundSequence: number;
+}
+
+@Injectable()
+export class PstnPremiumCallExecution {
+  private readonly executions = new Map<string, ActivePremiumCallExecution>();
+  private readonly logger = new Logger(PstnPremiumCallExecution.name);
+
+  constructor(
+    private readonly telephonyService: Pick<
+      TelephonyService,
+      "getState" | "recordPstnPhoneTestCheckpoint"
+    >,
+    private readonly workflowsService: Pick<WorkflowsService, "getPublishedManifest">,
+    private readonly runtimeSessionsService: Pick<
+      RuntimeSessionsService,
+      "createRealtimeSession" | "getRegisteredSession" | "processProviderMessage" | "updateRegisteredSession" | "terminateRealtimeSession"
+    >,
+    @Inject(premiumRealtimeProviderTransportToken)
+    private readonly providerTransport: PremiumRealtimeProviderTransport,
+  ) {}
+
+  async start(input: {
+    organizationId: string;
+    dispatchId: string;
+    callSessionId: string;
+    streamSid: string;
+    output: PstnPremiumCallOutput;
+  }) {
+    if (this.executions.has(input.callSessionId)) {
+      throw new Error(`Premium PSTN execution already exists for '${input.callSessionId}'.`);
+    }
+
+    const state = await this.telephonyService.getState(input.organizationId);
+    const dispatch = state.dispatches.find(
+      (candidate) => candidate.id === input.dispatchId && candidate.callSessionId === input.callSessionId,
+    );
+    if (
+      dispatch === undefined
+      || dispatch.disposition !== "routed"
+      || dispatch.runtimePath !== "pstn-premium-realtime"
+      || dispatch.publishedVersionId === undefined
+      || dispatch.workspaceId === undefined
+    ) {
+      throw new Error("Premium PSTN execution requires a routed premium dispatch with an exact workflow version.");
+    }
+
+    const manifest = await this.workflowsService.getPublishedManifest({
+      organizationId: input.organizationId,
+      publishedVersionId: dispatch.publishedVersionId,
+    });
+    if (
+      manifest === null
+      || manifest.tenantId !== input.organizationId
+      || manifest.workspaceId !== dispatch.workspaceId
+      || manifest.publishedVersionId !== dispatch.publishedVersionId
+      || manifest.runtimeProfile !== "premium-realtime"
+      || manifest.entryAgentId === undefined
+    ) {
+      throw new Error("The exact premium workflow manifest for this PSTN dispatch is unavailable or invalid.");
+    }
+
+    const session = await this.runtimeSessionsService.createRealtimeSession({
+      manifest,
+      activeAgentId: manifest.entryAgentId,
+      budgetAllowed: true,
+      organizationId: input.organizationId,
+      workspaceId: dispatch.workspaceId,
+      actorUserId: `pstn:${input.callSessionId}`,
+    });
+    const registered = this.runtimeSessionsService.getRegisteredSession(session.sessionId);
+    if (registered === null) {
+      throw new Error("Premium realtime session registration failed for the PSTN call.");
+    }
+
+    let providerConnection: PremiumRealtimeProviderConnection;
+    try {
+      providerConnection = await this.providerTransport.connect({
+        organizationId: registered.organizationId,
+        workspaceId: registered.workspaceId,
+        actorUserId: registered.actorUserId,
+        session: registered.session,
+        manifest: registered.manifest,
+        mediaProfile: "pstn",
+      });
+    } catch (error) {
+      this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
+      throw error;
+    }
+    const execution: ActivePremiumCallExecution = {
+      ...input,
+      registered,
+      providerConnection,
+      providerMessages: Promise.resolve(),
+      outboundSequence: 0,
+    };
+    this.executions.set(input.callSessionId, execution);
+    providerConnection.onMessage((message) => {
+      execution.providerMessages = execution.providerMessages.then(() =>
+        this.handleProviderMessage(execution, message),
+      ).catch((error: unknown) => {
+        this.failExecution(execution, "premium_runtime_failed", error);
+      });
+    });
+    providerConnection.onClose(() => {
+      if (this.executions.get(input.callSessionId) !== execution) {
+        return;
+      }
+      this.failExecution(execution, "premium_provider_closed");
+    });
+  }
+
+  async appendInboundFrame(input: { callSessionId: string; frame: PstnAudioFrame }) {
+    const execution = this.requireExecution(input.callSessionId);
+    if (
+      input.frame.codec.name !== "g711_mulaw"
+      || input.frame.codec.sampleRateHz !== 8_000
+      || input.frame.codec.channels !== 1
+      || input.frame.direction !== "inbound"
+      || input.frame.mediaStreamId !== execution.streamSid
+    ) {
+      throw new Error("Premium PSTN execution accepts only inbound G.711 mu-law 8 kHz mono frames for its active stream.");
+    }
+
+    const targetSampleRateHz = execution.registered.session.runtime === "gemini-live" ? 16_000 : 24_000;
+    const pcm16 = resamplePcm16(
+      decodeMuLawBase64(input.frame.payloadBase64),
+      8_000,
+      targetSampleRateHz,
+    );
+    execution.providerConnection.send(
+      execution.registered.session.runtime === "gemini-live"
+        ? {
+            realtimeInput: {
+              audio: {
+                data: encodePcm16Base64(pcm16),
+                mimeType: `audio/pcm;rate=${targetSampleRateHz}`,
+              },
+            },
+          }
+        : {
+            type: "input_audio_buffer.append",
+            audio: encodePcm16Base64(pcm16),
+          },
+    );
+  }
+
+  async stop(input: { callSessionId: string }) {
+    const execution = this.executions.get(input.callSessionId);
+    if (execution === undefined) {
+      return;
+    }
+
+    this.executions.delete(input.callSessionId);
+    await execution.providerMessages;
+    this.runtimeSessionsService.terminateRealtimeSession(execution.registered.session.sessionId);
+    execution.providerConnection.close(1000, "pstn_stream_stopped");
+  }
+
+  private failExecution(
+    execution: ActivePremiumCallExecution,
+    reason: string,
+    error?: unknown,
+  ) {
+    if (this.executions.get(execution.callSessionId) !== execution) {
+      return;
+    }
+
+    this.executions.delete(execution.callSessionId);
+    this.runtimeSessionsService.terminateRealtimeSession(execution.registered.session.sessionId);
+    this.logger.error(`[twilio-pstn] ${reason} ${JSON.stringify({
+      organizationId: execution.organizationId,
+      dispatchId: execution.dispatchId,
+      callSessionId: execution.callSessionId,
+      runtime: execution.registered.session.runtime,
+      error: error instanceof Error ? error.message : undefined,
+    })}`);
+    execution.output.close(1011, reason);
+    execution.providerConnection.close(1011, reason);
+  }
+
+  private async handleProviderMessage(execution: ActivePremiumCallExecution, rawProviderMessage: string) {
+    const registered = execution.registered;
+    const result = await this.runtimeSessionsService.processProviderMessage({
+      organizationId: registered.organizationId,
+      sessionId: registered.session.sessionId,
+      workspaceId: registered.workspaceId,
+      actorUserId: registered.actorUserId,
+      session: registered.session,
+      manifest: registered.manifest,
+      activeAgentId: registered.activeAgentId,
+      transcript: registered.transcript,
+      packet: registered.packet,
+      rawProviderMessage,
+      at: new Date().toISOString(),
+    });
+    if (result.session !== undefined) {
+      registered.session = result.session;
+    }
+    if (result.activeAgentId !== undefined) {
+      registered.activeAgentId = result.activeAgentId;
+    }
+    if (result.transcript !== undefined) {
+      registered.transcript = result.transcript;
+    }
+    registered.packet = result.packet;
+    this.runtimeSessionsService.updateRegisteredSession({
+      sessionId: registered.session.sessionId,
+      ...(result.session !== undefined ? { session: result.session } : {}),
+      ...(result.activeAgentId !== undefined ? { activeAgentId: result.activeAgentId } : {}),
+      ...(result.transcript !== undefined ? { transcript: result.transcript } : {}),
+      packet: result.packet,
+    });
+
+    for (const providerMessage of result.providerMessages) {
+      execution.providerConnection.send(providerMessage);
+    }
+
+    for (const event of parseProviderEvents(registered, rawProviderMessage)) {
+      await this.projectProviderEvent(execution, event);
+    }
+  }
+
+  private async projectProviderEvent(
+    execution: ActivePremiumCallExecution,
+    event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent,
+  ) {
+    if (event.type === "audio") {
+      if (execution.registered.session.runtime === "openai-realtime") {
+        execution.outboundSequence += 1;
+        execution.output.sendMedia({
+          callSessionId: execution.callSessionId,
+          mediaStreamId: execution.streamSid,
+          direction: "outbound",
+          codec: { name: "g711_mulaw", sampleRateHz: 8_000, channels: 1 },
+          sequence: execution.outboundSequence,
+          timestampMs: Math.round((Buffer.from(event.audioBase64, "base64").length / 8_000) * 1_000),
+          payloadBase64: event.audioBase64,
+        });
+        return;
+      }
+      const sourceRateHz = "mimeType" in event
+        ? readSampleRate(event.mimeType) ?? 24_000
+        : 24_000;
+      const pcm16 = decodePcm16Base64(event.audioBase64);
+      const pstnSamples = resamplePcm16(pcm16, sourceRateHz, 8_000);
+      execution.outboundSequence += 1;
+      execution.output.sendMedia({
+        callSessionId: execution.callSessionId,
+        mediaStreamId: execution.streamSid,
+        direction: "outbound",
+        codec: { name: "g711_mulaw", sampleRateHz: 8_000, channels: 1 },
+        sequence: execution.outboundSequence,
+        timestampMs: Math.round((pstnSamples.length / 8_000) * 1_000),
+        payloadBase64: encodeMuLawBase64(pstnSamples),
+      });
+      return;
+    }
+
+    if (event.type === "input_transcript" && event.text.trim().length > 0) {
+      await this.recordCheckpoint(execution, "transcriptCreated");
+      return;
+    }
+
+    if (event.type === "output_transcript" && event.text.trim().length > 0) {
+      await this.recordCheckpoint(execution, "agentResponseGenerated");
+      if (event.done) {
+        execution.output.sendMark(`response-${execution.outboundSequence}`);
+      }
+      return;
+    }
+
+    if (isInterruptionEvent(event)) {
+      execution.output.clearAudio();
+    }
+  }
+
+  private recordCheckpoint(
+    execution: ActivePremiumCallExecution,
+    checkpoint: "transcriptCreated" | "agentResponseGenerated" | "outboundAudioSent",
+  ) {
+    return this.telephonyService.recordPstnPhoneTestCheckpoint({
+      organizationId: execution.organizationId,
+      callSessionId: execution.callSessionId,
+      checkpoint,
+    });
+  }
+
+  private requireExecution(callSessionId: string) {
+    const execution = this.executions.get(callSessionId);
+    if (execution === undefined) {
+      throw new Error(`Premium PSTN execution '${callSessionId}' is not active.`);
+    }
+    return execution;
+  }
+}
+
+function parseProviderEvents(
+  registered: RegisteredPremiumRealtimeSession,
+  rawProviderMessage: string,
+) {
+  return registered.session.runtime === "gemini-live"
+    ? new GeminiLiveRealtimeAdapter({
+        apiKey: "server-owned-provider-session",
+        model: registered.session.model,
+        systemPrompt: "",
+        tools: registered.session.toolDeclarations,
+      }).parseServerMessage(rawProviderMessage)
+    : new OpenAiRealtimeAdapter({
+        model: registered.session.model,
+        systemPrompt: "",
+        tools: registered.session.toolDeclarations,
+      }).parseServerMessage(rawProviderMessage);
+}
+
+function isInterruptionEvent(event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent) {
+  if (event.type !== "provider_event") {
+    return false;
+  }
+  if ("event" in event) {
+    return event.event === "interrupted" || event.event === "activity_start";
+  }
+  return event.eventType === "input_audio_buffer.speech_started"
+    || event.eventType === "response.cancelled";
+}
+
+function readSampleRate(mimeType: string) {
+  const match = mimeType.match(/rate=(\d+)/u);
+  return match?.[1] === undefined ? undefined : Number(match[1]);
+}
+
+function decodeMuLawBase64(audioBase64: string) {
+  const bytes = Buffer.from(audioBase64, "base64");
+  const samples = new Float32Array(bytes.length);
+  for (let index = 0; index < bytes.length; index += 1) {
+    const value = ~(bytes[index] ?? 0) & 0xff;
+    const sign = value & 0x80;
+    const exponent = (value >> 4) & 0x07;
+    const mantissa = value & 0x0f;
+    const magnitude = (((mantissa << 3) + 0x84) << exponent) - 0x84;
+    samples[index] = (sign === 0 ? magnitude : -magnitude) / 32768;
+  }
+  return samples;
+}
+
+function encodeMuLawBase64(samples: Float32Array) {
+  const bytes = Buffer.alloc(samples.length);
+  for (let index = 0; index < samples.length; index += 1) {
+    let sample = Math.round(Math.max(-1, Math.min(1, samples[index] ?? 0)) * 32767);
+    const sign = sample < 0 ? 0x80 : 0;
+    if (sample < 0) {
+      sample = -sample;
+    }
+    sample = Math.min(32635, sample) + 0x84;
+    let exponent = 7;
+    for (let mask = 0x4000; exponent > 0 && (sample & mask) === 0; mask >>= 1) {
+      exponent -= 1;
+    }
+    const mantissa = (sample >> (exponent + 3)) & 0x0f;
+    bytes[index] = (~(sign | (exponent << 4) | mantissa)) & 0xff;
+  }
+  return bytes.toString("base64");
+}
+
+function decodePcm16Base64(audioBase64: string) {
+  const bytes = Buffer.from(audioBase64, "base64");
+  const samples = new Float32Array(Math.floor(bytes.length / 2));
+  for (let index = 0; index < samples.length; index += 1) {
+    const value = bytes.readInt16LE(index * 2);
+    samples[index] = value / (value < 0 ? 0x8000 : 0x7fff);
+  }
+  return samples;
+}
+
+function encodePcm16Base64(samples: Float32Array) {
+  const bytes = Buffer.alloc(samples.length * 2);
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
+    bytes.writeInt16LE(Math.round(sample < 0 ? sample * 0x8000 : sample * 0x7fff), index * 2);
+  }
+  return bytes.toString("base64");
+}
+
+function resamplePcm16(samples: Float32Array, sourceRateHz: number, targetRateHz: number) {
+  if (sourceRateHz === targetRateHz || samples.length === 0) {
+    return samples;
+  }
+  const target = new Float32Array(Math.max(1, Math.round(samples.length * targetRateHz / sourceRateHz)));
+  const sourceStep = sourceRateHz / targetRateHz;
+  for (let index = 0; index < target.length; index += 1) {
+    const position = index * sourceStep;
+    const lowerIndex = Math.floor(position);
+    const upperIndex = Math.min(samples.length - 1, lowerIndex + 1);
+    const fraction = position - lowerIndex;
+    const lower = samples[lowerIndex] ?? 0;
+    const upper = samples[upperIndex] ?? lower;
+    target[index] = lower + ((upper - lower) * fraction);
+  }
+  return target;
+}

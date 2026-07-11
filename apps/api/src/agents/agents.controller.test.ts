@@ -123,6 +123,7 @@ describe("AgentsController", () => {
         expect.objectContaining({
           agentClass: "retention",
           label: "Retention",
+          realtimeProvider: "openai-realtime",
         }),
       ]),
     );

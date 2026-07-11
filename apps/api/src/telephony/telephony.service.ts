@@ -1275,12 +1275,15 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         expectedCallSid,
       });
 
+      const dispatch = state.dispatches.find((candidate) => candidate.id === session.dispatchId);
+
       return {
         organizationId,
         dispatchId: session.dispatchId,
         connectionId: session.connectionId,
         callSessionId: session.callSessionId,
         expectedCallSid,
+        runtimePath: dispatch?.runtimePath ?? "pstn-sandwich",
       };
     }
 
