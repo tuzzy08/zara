@@ -2,7 +2,7 @@ import * as ls from "langsmith/vitest";
 import { expect } from "vitest";
 
 import {
-  createReferencePstnMediaEvalOutput,
+  executePstnMediaEvalScenario,
   loadPstnMediaEvalFixtures,
   scorePstnMediaEvalExample,
 } from "./pstn-media-evals";
@@ -22,10 +22,13 @@ ls.describe(
           metadata: {
             suite: fixture.suite,
             datasetVersion: runConfig.datasetVersion,
+            releaseGate: fixture.inputs.releaseGate,
+            runtimePath: fixture.inputs.runtimePath,
+            runtimeProvider: fixture.inputs.runtimeProvider,
           },
         },
-        () => {
-          const output = createReferencePstnMediaEvalOutput(fixture);
+        async () => {
+          const output = await executePstnMediaEvalScenario(fixture);
           const scorecard = scorePstnMediaEvalExample(fixture, output);
 
           Object.entries(scorecard.scores).forEach(([key, score]) => {
@@ -40,7 +43,13 @@ ls.describe(
           return {
             output,
             scorecard,
-            tags: ["dataset:pstn-media.v1", ...runConfig.tags],
+            tags: [
+              "dataset:pstn-media.v1",
+              `gate:${fixture.inputs.releaseGate}`,
+              `runtime:${fixture.inputs.runtimePath}`,
+              `provider:${fixture.inputs.runtimeProvider}`,
+              ...runConfig.tags,
+            ],
           };
         },
       );

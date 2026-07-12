@@ -7,8 +7,10 @@ import {
   type RuntimeEvalExample,
 } from "./runtime-eval-fixtures";
 import {
+  executePstnMediaEvalScenario,
   loadPstnMediaEvalFixtures,
   pstnMediaEvalDatasetId,
+  scorePstnMediaEvalGate,
   scorePstnMediaEvalExample,
 } from "./pstn-media-evals";
 import {
@@ -199,31 +201,48 @@ describe("runtime eval execution", () => {
 });
 
 describe("PSTN media eval execution", () => {
-  it("loads deterministic Twilio media scenarios and scores checklist plus latency classifications", () => {
+  it("loads distinct cost-optimized, OpenAI, and Gemini deterministic release gates", () => {
     const fixtures = loadPstnMediaEvalFixtures();
 
     expect(pstnMediaEvalDatasetId).toBe("zara.pstn-media.v1");
-    expect(fixtures.map((fixture) => fixture.id)).toEqual([
+    expect(fixtures.filter((fixture) => fixture.inputs.releaseGate === "cost-optimized").map((fixture) => fixture.id)).toEqual([
       "pstn-clean-successful-phone-test",
       "pstn-no-frame-timeout",
       "pstn-tts-first-byte-timeout",
       "pstn-caller-barge-in",
       "pstn-provider-stop-before-response",
-      "pstn-premium-realtime-provider-path",
     ]);
-    expect(fixtures.find((fixture) => fixture.id === "pstn-premium-realtime-provider-path")).toMatchObject({
-      inputs: {
-        runtimePath: "pstn-premium-realtime",
-      },
-      referenceOutputs: {
-        requiredSignals: expect.arrayContaining([
-          "model.first_token",
-          "media.first_outbound_frame",
-        ]),
-      },
-    });
 
-    const successful = fixtures[0];
+    const premiumScenarios = [
+      "normal-flow",
+      "startup-buffering",
+      "readiness-timeout",
+      "congestion",
+      "queue-overflow",
+      "playback-overflow",
+      "interruption",
+      "handoff-replacement-failure",
+      "cleanup",
+      "runtime-provider-drift",
+    ];
+
+    for (const [releaseGate, runtimeProvider] of [
+      ["premium-openai", "openai-realtime"],
+      ["premium-gemini", "gemini-live"],
+    ] as const) {
+      const providerFixtures = fixtures.filter((fixture) => fixture.inputs.releaseGate === releaseGate);
+
+      expect(providerFixtures.map((fixture) => fixture.inputs.scenarioKey)).toEqual(premiumScenarios);
+      expect(providerFixtures).toHaveLength(premiumScenarios.length);
+      providerFixtures.forEach((fixture) => {
+        expect(fixture.inputs).toMatchObject({
+          runtimePath: "pstn-premium-realtime",
+          runtimeProvider,
+        });
+      });
+    }
+
+    const successful = fixtures.find((fixture) => fixture.id === "pstn-clean-successful-phone-test");
     if (successful === undefined) {
       throw new Error("Expected PSTN fixture.");
     }
@@ -255,6 +274,9 @@ describe("PSTN media eval execution", () => {
         "media.first_outbound_frame",
         "call.ended",
       ],
+      releaseGate: "cost-optimized",
+      runtimePath: "pstn-sandwich",
+      runtimeProvider: "cost-optimized",
     });
 
     expect(scorecard.passed).toBe(true);
@@ -262,6 +284,97 @@ describe("PSTN media eval execution", () => {
       checklist: 1,
       latencyClassification: 1,
       requiredSignals: 1,
+      releaseGate: 1,
+      runtimeIdentity: 1,
+    });
+  });
+
+  it("fails an empty release gate instead of accepting zero observations", () => {
+    const fixtures = loadPstnMediaEvalFixtures().filter(
+      (fixture) => fixture.inputs.releaseGate !== "premium-gemini",
+    );
+
+    expect(scorePstnMediaEvalGate(fixtures, {}).gates["premium-gemini"]).toEqual({
+      passed: false,
+      passedCount: 0,
+      totalCount: 0,
+    });
+  });
+
+  it("derives provider overload observations from the premium call actor", async () => {
+    const fixtures = loadPstnMediaEvalFixtures();
+
+    for (const releaseGate of ["premium-openai", "premium-gemini"] as const) {
+      const congestion = fixtures.find((fixture) => (
+        fixture.inputs.releaseGate === releaseGate
+        && fixture.inputs.scenarioKey === "congestion"
+      ));
+      if (congestion === undefined) throw new Error(`Expected ${releaseGate} congestion fixture.`);
+
+      expect(scorePstnMediaEvalExample(
+        congestion,
+        await executePstnMediaEvalScenario(congestion),
+      ).passed).toBe(true);
+      expect(scorePstnMediaEvalExample(
+        congestion,
+        await executePstnMediaEvalScenario(congestion, { suppressProviderCongestion: true }),
+      ).passed).toBe(false);
+    }
+  });
+
+  it("fails stale-audio, completion-mark, and cleanup scenarios when observed behavior regresses", async () => {
+    const fixtures = loadPstnMediaEvalFixtures();
+    const premiumFixture = (scenarioKey: string) => {
+      const match = fixtures.find((fixture) => (
+        fixture.inputs.releaseGate === "premium-openai"
+        && fixture.inputs.scenarioKey === scenarioKey
+      ));
+      if (match === undefined) throw new Error(`Expected premium fixture '${scenarioKey}'.`);
+      return match;
+    };
+
+    const interruption = premiumFixture("interruption");
+    const normalFlow = premiumFixture("normal-flow");
+    const cleanup = premiumFixture("cleanup");
+
+    expect(scorePstnMediaEvalExample(
+      interruption,
+      await executePstnMediaEvalScenario(interruption, { suppressInterruption: true }),
+    ).passed).toBe(false);
+    expect(scorePstnMediaEvalExample(
+      normalFlow,
+      await executePstnMediaEvalScenario(normalFlow, { suppressCompletionAcknowledgement: true }),
+    ).passed).toBe(false);
+    expect(scorePstnMediaEvalExample(
+      cleanup,
+      await executePstnMediaEvalScenario(cleanup, { suppressSecondStop: true }),
+    ).passed).toBe(false);
+  });
+
+  it("fails only the affected provider gate when observed runtime identity drifts", async () => {
+    const fixtures = loadPstnMediaEvalFixtures();
+    const outputs = Object.fromEntries(await Promise.all(fixtures.map(async (fixture) => [
+      fixture.id,
+      await executePstnMediaEvalScenario(fixture),
+    ])));
+    const driftFixture = fixtures.find((fixture) => (
+      fixture.inputs.releaseGate === "premium-openai"
+      && fixture.inputs.scenarioKey === "runtime-provider-drift"
+    ));
+    if (driftFixture === undefined) {
+      throw new Error("Expected OpenAI provider drift fixture.");
+    }
+    outputs[driftFixture.id] = await executePstnMediaEvalScenario(driftFixture, {
+      runtimeProvider: "gemini-live",
+    });
+
+    expect(scorePstnMediaEvalGate(fixtures, outputs)).toEqual({
+      passed: false,
+      gates: {
+        "cost-optimized": { passed: true, passedCount: 5, totalCount: 5 },
+        "premium-openai": { passed: false, passedCount: 9, totalCount: 10 },
+        "premium-gemini": { passed: true, passedCount: 10, totalCount: 10 },
+      },
     });
   });
 
