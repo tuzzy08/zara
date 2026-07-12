@@ -4681,7 +4681,7 @@ Edge cases:
 - Area: Monitoring / Runtime
 - Milestone: Production Observability
 - Labels: runtime, observability, backend, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-175-production-observability-and-provider-benchmarking.md](../docs/Handovers/ISSUE-175-production-observability-and-provider-benchmarking.md)
 - External: [Linear ZAR-145](https://linear.app/zara-voice/issue/ZAR-145/issue-175-production-observability-and-provider-benchmarking)
@@ -4999,3 +4999,8 @@ Acceptance criteria:
 - Redacted metrics/traces expose readiness, ingress/provider/output pressure, playback lag, overflow, interruption, handoff, and cleanup facts.
 - Deterministic OpenAI/Gemini PSTN evals fail on unbounded growth, stale post-interruption audio, wrong completion marks, or provider/runtime drift.
 - Runbooks explain each failure class and cost-optimized PSTN remains independently gated.
+
+Implementation summary:
+- Added asynchronous redacted premium lifecycle, pressure, playback, failure, handoff, and cleanup telemetry with exact safe failure classification.
+- Reused one bounded provider-output pressure contract in production execution and executable release evals.
+- Added 25 deterministic PSTN scenarios split across cost-optimized, OpenAI, and Gemini gates plus the premium failure runbook.

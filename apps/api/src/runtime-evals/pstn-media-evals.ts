@@ -4,6 +4,7 @@ import {
   type PstnPremiumCallActorProvider,
 } from "../telephony/pstn-premium-call-actor";
 import { PstnPremiumPlaybackController } from "../telephony/pstn-premium-playback-controller";
+import { PremiumProviderMessagePressure } from "../telephony/premium-provider-message-pressure";
 
 export const pstnMediaEvalDatasetId = "zara.pstn-media.v1";
 
@@ -74,6 +75,7 @@ export interface PstnMediaEvalScenarioOptions {
   suppressInterruption?: boolean | undefined;
   suppressCompletionAcknowledgement?: boolean | undefined;
   suppressSecondStop?: boolean | undefined;
+  suppressProviderOutputLimit?: boolean | undefined;
 }
 
 const successfulChecklist = {
@@ -489,13 +491,14 @@ async function observePremiumScenario(
       break;
     }
     case "queue-overflow": {
-      const probe = createActorProbe({ ready: "never" });
-      await probe.actor.start();
+      const pressure = new PremiumProviderMessagePressure(options.suppressProviderOutputLimit === true
+        ? { maxBytes: Number.MAX_SAFE_INTEGER, maxCount: Number.MAX_SAFE_INTEGER }
+        : undefined);
       let overflowed = false;
       try {
-        for (let index = 0; index < 103; index += 1) probe.actor.appendInbound(mediaMessage());
+        for (let index = 0; index < 65; index += 1) pressure.acquire(1_024);
       } catch (error) {
-        overflowed = error instanceof Error && error.message === "premium_startup_overflow";
+        overflowed = error instanceof Error && error.message === "premium_provider_output_overflow";
       }
       Object.assign(checklist, { cleanEnd: !overflowed, noFatalError: !overflowed });
       firstResponseLatencyMs = overflowed ? 5200 : 1180;

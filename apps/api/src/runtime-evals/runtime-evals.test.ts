@@ -322,6 +322,19 @@ describe("PSTN media eval execution", () => {
     }
   });
 
+  it("fails provider-output queue scenarios when the production pressure bound is bypassed", async () => {
+    const fixture = loadPstnMediaEvalFixtures().find((candidate) => (
+      candidate.inputs.releaseGate === "premium-openai"
+      && candidate.inputs.scenarioKey === "queue-overflow"
+    ));
+    if (fixture === undefined) throw new Error("Expected provider-output overflow fixture.");
+
+    expect(scorePstnMediaEvalExample(
+      fixture,
+      await executePstnMediaEvalScenario(fixture, { suppressProviderOutputLimit: true }),
+    ).passed).toBe(false);
+  });
+
   it("fails stale-audio, completion-mark, and cleanup scenarios when observed behavior regresses", async () => {
     const fixtures = loadPstnMediaEvalFixtures();
     const premiumFixture = (scenarioKey: string) => {

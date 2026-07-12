@@ -110,6 +110,29 @@ describe("PstnPremiumCallActor", () => {
     expect(terminalStates).toEqual(["failed"]);
   });
 
+  it("normalizes provider readiness rejection into a stable failure class", async () => {
+    const callerCloses: string[] = [];
+    const failures: string[] = [];
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-readiness-rejected",
+      provider: {
+        waitUntilReady: () => Promise.reject(new Error("provider-specific setup text")),
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close() {},
+      },
+      terminateRuntime() {},
+      closeCaller(_code, reason) { callerCloses.push(reason); },
+      onFailure(reason) { failures.push(reason); },
+    });
+
+    await actor.start();
+    await waitFor(() => actor.getState() === "failed");
+
+    expect(failures).toEqual(["premium_provider_readiness_failed"]);
+    expect(callerCloses).toEqual(["premium_provider_readiness_failed"]);
+  });
+
   it("fails instead of dropping media when the startup duration or byte bound overflows", async () => {
     const createActor = (callSessionId: string) => {
       const callerCloses: string[] = [];

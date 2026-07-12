@@ -3,6 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import { PstnPremiumPlaybackController } from "./pstn-premium-playback-controller";
 
 describe("PstnPremiumPlaybackController", () => {
+  it("reports whether an interruption actually cleared owned playback", () => {
+    const clear = vi.fn();
+    const controller = new PstnPremiumPlaybackController({
+      sendFrame() {}, sendMark() {}, clear,
+    });
+
+    expect(controller.interrupt()).toBe(false);
+    controller.startResponse("response-owned");
+    expect(controller.interrupt()).toBe(true);
+    expect(controller.interrupt()).toBe(false);
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+
   it("normalizes arbitrary delta boundaries into ordered 160-byte frames followed by unique marks", () => {
     const events: Array<{ type: "frame"; bytes: Buffer } | { type: "mark"; name: string }> = [];
     const controller = new PstnPremiumPlaybackController({

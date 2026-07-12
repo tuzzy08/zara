@@ -397,7 +397,52 @@ describe("PstnPremiumCallExecution", () => {
     }));
 
     await waitFor(() => callerCloses.length === 1);
-    expect(callerCloses).toEqual(["premium_runtime_failed"]);
+    expect(callerCloses).toEqual(["premium_gemini_output_format_invalid"]);
+  });
+
+  it("emits redacted bounded premium readiness pressure playback interruption and cleanup facts", async () => {
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const harness = createMinimalExecutionHarness("gemini-live", {
+      onObservedEvent(event) { observed.push(event); },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    await harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(1),
+    });
+    harness.emitProviderMessage(JSON.stringify({
+      serverContent: {
+        modelTurn: { parts: [{ inlineData: {
+          data: Buffer.alloc(960, 0).toString("base64"), mimeType: "audio/pcm;rate=24000",
+        } }] },
+      },
+    }));
+    harness.emitProviderMessage(JSON.stringify({ serverContent: { interrupted: true } }));
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+    await waitFor(() => observed.some((event) => event.type === "premium.cleanup"));
+
+    expect(observed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "premium.readiness", payload: expect.objectContaining({ provider: "gemini-live" }) }),
+      expect.objectContaining({ type: "premium.pressure", payload: expect.objectContaining({ ingressDepthBytes: expect.any(Number) }) }),
+      expect.objectContaining({ type: "premium.playback", payload: expect.objectContaining({
+        outstandingPlaybackMarks: expect.any(Number),
+        outboundQueuedFrames: expect.any(Number),
+        playbackGeneration: expect.any(Number),
+        playbackLagMs: expect.any(Number),
+        acknowledgedBoundaries: expect.any(Number),
+      }) }),
+      expect.objectContaining({ type: "premium.interruption", payload: expect.objectContaining({ playbackCleared: true }) }),
+      expect.objectContaining({ type: "premium.cleanup" }),
+    ]));
+    const interruption = observed.find((event) => event.type === "premium.interruption");
+    expect(interruption?.payload["staleGenerationDiscarded"]).not.toBe(true);
+    expect(JSON.stringify(observed)).not.toContain("Caller asked about billing");
   });
 
   it("removes the runtime session when the provider connection cannot start", async () => {
@@ -417,6 +462,26 @@ describe("PstnPremiumCallExecution", () => {
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     })).rejects.toThrow("provider unavailable");
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
+  });
+
+  it("never writes provider-controlled startup error text to logs", async () => {
+    const log = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const sensitive = "wss://provider.example?api_key=secret raw caller payload";
+    const { execution } = createMinimalExecutionHarness("openai-realtime", {
+      connectError: new Error(sensitive),
+    });
+
+    await expect(execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    })).rejects.toThrow(sensitive);
+
+    expect(log.mock.calls.flat().join(" ")).not.toContain(sensitive);
+    expect(log.mock.calls.flat().join(" ")).toContain("premium_provider_start_failed");
+    log.mockRestore();
   });
 
   it("fails once and cleans both legs when the provider closes", async () => {
@@ -553,9 +618,11 @@ describe("PstnPremiumCallExecution", () => {
   it("removes a failed execution when provider readiness rejects without a close event", async () => {
     const providerReady = deferred<void>();
     const terminatedSessionIds: string[] = [];
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       providerReady: providerReady.promise,
       onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
+      onObservedEvent: (event) => observed.push(event),
     });
     await harness.execution.start({
       organizationId: "tenant-west-africa",
@@ -567,6 +634,21 @@ describe("PstnPremiumCallExecution", () => {
 
     providerReady.reject(new Error("provider setup failed"));
     await waitFor(() => terminatedSessionIds.length === 1);
+
+    expect(observed).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "premium.readiness",
+        payload: expect.objectContaining({
+          ready: false,
+          readinessLatencyMs: expect.any(Number),
+          code: "premium_provider_readiness_failed",
+        }),
+      }),
+      expect.objectContaining({
+        type: "provider.failure",
+        payload: expect.objectContaining({ code: "premium_provider_readiness_failed" }),
+      }),
+    ]));
 
     await expect(harness.execution.appendInboundFrame({
       callSessionId: "CA-premium:telephony",
@@ -587,11 +669,13 @@ describe("PstnPremiumCallExecution", () => {
     const terminations: string[] = [];
     const providerCloses: string[] = [];
     let updates = 0;
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       processProviderGate: processGate.promise,
       onTerminate: (sessionId) => terminations.push(sessionId),
       onProviderClose: (reason) => providerCloses.push(reason),
       onUpdate: () => { updates += 1; },
+      onObservedEvent: (event) => observed.push(event),
     });
     await harness.execution.start({
       organizationId: "tenant-west-africa",
@@ -608,6 +692,13 @@ describe("PstnPremiumCallExecution", () => {
       harness.emitProviderMessage(message);
     }
     await waitFor(() => terminations.length === 1);
+
+    expect(observed.filter((event) => event.type === "premium.pressure")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ payload: expect.objectContaining({
+        providerOutputDepthBytes: expect.any(Number),
+        providerOutputDepthCount: expect.any(Number),
+      }) })]),
+    );
 
     expect(providerCloses).toEqual(["premium_provider_output_overflow"]);
     processGate.resolve();
@@ -704,8 +795,10 @@ describe("PstnPremiumCallExecution", () => {
 
   it("buffers target-native caller media during an OpenAI to Gemini handoff and ignores stale source callbacks", async () => {
     const targetReady = deferred<void>();
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
     const harness = createHandoffExecutionHarness({
       targetReady: targetReady.promise,
+      onObservedEvent(event) { observed.push(event); },
       processProviderMessage(rawProviderMessage, registered) {
         if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.cross-provider" })) {
           return { packet: registered.packet, providerMessages: [] };
@@ -771,12 +864,21 @@ describe("PstnPremiumCallExecution", () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(harness.callerCloses).toEqual([]);
     expect(harness.connections).toHaveLength(2);
+    expect(observed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "premium.handoff", payload: { phase: "started" } }),
+      expect.objectContaining({
+        type: "premium.handoff",
+        payload: { phase: "completed", handoffDurationMs: expect.any(Number) },
+      }),
+    ]));
   });
 
   it("fails closed when a replacement provider session never becomes ready", async () => {
     const targetReady = deferred<void>();
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
     const harness = createHandoffExecutionHarness({
       targetReady: targetReady.promise,
+      onObservedEvent: (event) => observed.push(event),
       processProviderMessage(rawProviderMessage, registered) {
         if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.failure" })) {
           return { packet: registered.packet, providerMessages: [] };
@@ -819,6 +921,14 @@ describe("PstnPremiumCallExecution", () => {
     expect(harness.callerCloses).toEqual(["premium_provider_handoff_failed"]);
     expect(harness.connections[1]!.closedReasons).toEqual(["premium_provider_handoff_failed"]);
     expect(harness.connections).toHaveLength(2);
+    expect(observed).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: "premium.handoff",
+      payload: expect.objectContaining({
+        phase: "failed",
+        code: "premium_provider_handoff_failed",
+        handoffDurationMs: expect.any(Number),
+      }),
+    })]));
   });
 
   it("fails a provider transition that exceeds its bounded deadline", async () => {
@@ -945,6 +1055,7 @@ function createMinimalExecutionHarness(
     providerReady?: Promise<void> | undefined;
     processProviderGate?: Promise<void> | undefined;
     onUpdate?: (() => void) | undefined;
+    onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
   } = {},
 ) {
   const manifest = createPremiumManifest();
@@ -1032,6 +1143,16 @@ function createMinimalExecutionHarness(
         };
       },
     },
+    options.onObservedEvent === undefined
+      ? undefined
+      : {
+          async recordPstnCall(input: { events: Array<{ type: string; payload: Record<string, unknown> }> }) {
+            for (const event of input.events) options.onObservedEvent?.(event);
+            return { exportedSpanCount: 0, langsmithExported: false, warnings: [], metrics: {
+              langsmithExportFailureCount: 0, spanExportFailureCount: 0, droppedSpanCount: 0,
+            } };
+          },
+        },
   );
   return {
     execution,
@@ -1047,6 +1168,7 @@ function createMinimalExecutionHarness(
 
 function createHandoffExecutionHarness(input: {
   targetReady: Promise<void>;
+  onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
   processProviderMessage: (
     rawProviderMessage: string,
     registered: ReturnType<typeof createHandoffRegisteredSession>,
@@ -1118,6 +1240,16 @@ function createHandoffExecutionHarness(input: {
         return connection;
       },
     },
+    input.onObservedEvent === undefined
+      ? undefined
+      : {
+          async recordPstnCall(observation: { events: Array<{ type: string; payload: Record<string, unknown> }> }) {
+            for (const event of observation.events) input.onObservedEvent?.(event);
+            return { exportedSpanCount: 0, langsmithExported: false, warnings: [], metrics: {
+              langsmithExportFailureCount: 0, spanExportFailureCount: 0, droppedSpanCount: 0,
+            } };
+          },
+        },
   );
 
   return {

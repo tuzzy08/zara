@@ -36,12 +36,15 @@ export class PstnPremiumPlaybackController {
     responseId: string;
     generation: number;
     type: "frame" | "boundary";
+    sentAtMs: number;
   }>();
   private readonly responses = new Map<string, ResponsePlaybackState>();
   private readonly invalidatedResponseIds = new Set<string>();
   private queuedAudioBytes = 0;
   private generation = 0;
   private nextMarkSequence = 1;
+  private acknowledgedBoundaryCount = 0;
+  private droppedFrameCount = 0;
 
   constructor(private readonly output: {
     sendFrame(frame: PstnPremiumPlaybackFrame): void;
@@ -71,6 +74,7 @@ export class PstnPremiumPlaybackController {
 
   appendDelta(responseId: string, payloadBase64: string) {
     if (this.invalidatedResponseIds.has(responseId)) {
+      this.droppedFrameCount += Math.max(1, Math.floor((payloadBase64.length * 3 / 4) / frameByteLength));
       return { accepted: false, reason: "response_invalidated" } as const;
     }
     if (!this.responses.has(responseId)) {
@@ -136,6 +140,7 @@ export class PstnPremiumPlaybackController {
         response.outstandingFrameCount -= 1;
       } else {
         response.boundaryAcknowledged = true;
+        this.acknowledgedBoundaryCount += 1;
       }
       this.completeResponseIfAcknowledged(ownership.responseId, response);
     }
@@ -148,7 +153,7 @@ export class PstnPremiumPlaybackController {
       || this.queuedCommands.length > 0
       || this.remainders.size > 0;
     if (!hasPlaybackOwnership) {
-      return;
+      return false;
     }
     for (const responseId of this.responses.keys()) {
       this.rememberInvalidatedResponse(responseId);
@@ -159,9 +164,8 @@ export class PstnPremiumPlaybackController {
     this.remainders.clear();
     this.inFlightMarks.clear();
     this.responses.clear();
-    if (hasPlaybackOwnership) {
-      this.output.clear();
-    }
+    this.output.clear();
+    return true;
   }
 
   getState() {
@@ -176,6 +180,11 @@ export class PstnPremiumPlaybackController {
         (total, remainder) => total + remainder.length,
         0,
       ),
+      acknowledgedBoundaryCount: this.acknowledgedBoundaryCount,
+      droppedFrameCount: this.droppedFrameCount,
+      playbackLagMs: this.inFlightMarks.size === 0
+        ? 0
+        : Math.max(0, Date.now() - Math.min(...[...this.inFlightMarks.values()].map((mark) => mark.sentAtMs))),
     };
   }
 
@@ -253,6 +262,7 @@ export class PstnPremiumPlaybackController {
       responseId: command.responseId,
       generation: command.generation,
       type: command.type,
+      sentAtMs: Date.now(),
     });
     if (command.type === "frame") {
       this.output.sendFrame({

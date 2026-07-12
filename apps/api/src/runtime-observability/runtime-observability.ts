@@ -143,6 +143,12 @@ export type PstnCallObservabilityEventType =
   | "tts.first_byte"
   | "media.first_outbound_frame"
   | "barge_in.clear"
+  | "premium.readiness"
+  | "premium.pressure"
+  | "premium.playback"
+  | "premium.interruption"
+  | "premium.handoff"
+  | "premium.cleanup"
   | "call.ended"
   | "provider.failure"
   | "runtime.failure";
@@ -183,6 +189,25 @@ export interface PstnCallQualityMetrics {
   bargeInCount: number;
   successfulPhoneTestRate?: number | undefined;
   twilioStopReasons: Record<string, number>;
+  providerReadinessLatencyMs?: number | undefined;
+  maxIngressDepthMs: number;
+  maxIngressDepthBytes: number;
+  maxProviderBufferedBytes: number;
+  maxProviderOutputDepthBytes: number;
+  maxProviderOutputDepthCount: number;
+  maxOutboundQueuedBytes: number;
+  maxOutboundQueuedFrames: number;
+  maxOutstandingPlaybackMarks: number;
+  maxPlaybackLagMs: number;
+  maxPlaybackGeneration: number;
+  acknowledgedPlaybackBoundaryCount: number;
+  overflowCount: number;
+  droppedFrameCount: number;
+  interruptionCount: number;
+  staleGenerationDiscardCount: number;
+  playbackClearCount: number;
+  handoffDurationMs?: number | undefined;
+  cleanupCount: number;
 }
 
 export interface LangSmithPstnTraceProjection {
@@ -1000,6 +1025,18 @@ function mapPstnEventToSpanName(type: PstnCallObservabilityEventType) {
       return "pstn.media.first_outbound_frame";
     case "barge_in.clear":
       return "pstn.barge_in.clear";
+    case "premium.readiness":
+      return "pstn.premium.readiness";
+    case "premium.pressure":
+      return "pstn.premium.pressure";
+    case "premium.playback":
+      return "pstn.premium.playback";
+    case "premium.interruption":
+      return "pstn.premium.interruption";
+    case "premium.handoff":
+      return "pstn.premium.handoff";
+    case "premium.cleanup":
+      return "pstn.premium.cleanup";
     case "call.ended":
       return "pstn.call.ended";
     case "provider.failure":
@@ -1021,6 +1058,7 @@ function sanitizePstnSpanPayload(payload: Record<string, unknown>): RuntimeTrace
     "code",
     "stopReason",
     "classification",
+    "phase",
   ];
   const numberFields = [
     "latencyMs",
@@ -1028,10 +1066,28 @@ function sanitizePstnSpanPayload(payload: Record<string, unknown>): RuntimeTrace
     "frameSequence",
     "sequence",
     "durationMs",
+    "readinessLatencyMs",
+    "ingressDepthMs",
+    "ingressDepthBytes",
+    "providerBufferedBytes",
+    "providerOutputDepthBytes",
+    "providerOutputDepthCount",
+    "outboundQueuedBytes",
+    "outboundQueuedFrames",
+    "outstandingPlaybackMarks",
+    "playbackLagMs",
+    "playbackGeneration",
+    "acknowledgedBoundaries",
+    "droppedFrames",
+    "handoffDurationMs",
   ];
   const booleanFields = [
     "recoverable",
     "successfulPhoneTest",
+    "overflow",
+    "staleGenerationDiscarded",
+    "playbackCleared",
+    "ready",
   ];
 
   for (const field of stringFields) {
@@ -1070,6 +1126,8 @@ export function buildPstnCallQualityMetrics(events: PstnCallObservabilityEvent[]
     }
     return accumulator;
   }, {});
+  const providerReadinessLatencyMs = maxPstnPayloadNumber(events, "readinessLatencyMs");
+  const handoffDurationMs = maxPstnPayloadNumber(events, "handoffDurationMs");
 
   return {
     ...(firstResponseLatencyMs !== undefined
@@ -1096,6 +1154,27 @@ export function buildPstnCallQualityMetrics(events: PstnCallObservabilityEvent[]
     bargeInCount: events.filter((event) => event.type === "barge_in.clear").length,
     ...(endedEvents.length > 0 ? { successfulPhoneTestRate: successfulTestCount / endedEvents.length } : {}),
     twilioStopReasons: stopReasons,
+    ...(providerReadinessLatencyMs !== undefined ? { providerReadinessLatencyMs } : {}),
+    maxIngressDepthMs: maxPstnPayloadNumber(events, "ingressDepthMs") ?? 0,
+    maxIngressDepthBytes: maxPstnPayloadNumber(events, "ingressDepthBytes") ?? 0,
+    maxProviderBufferedBytes: maxPstnPayloadNumber(events, "providerBufferedBytes") ?? 0,
+    maxProviderOutputDepthBytes: maxPstnPayloadNumber(events, "providerOutputDepthBytes") ?? 0,
+    maxProviderOutputDepthCount: maxPstnPayloadNumber(events, "providerOutputDepthCount") ?? 0,
+    maxOutboundQueuedBytes: maxPstnPayloadNumber(events, "outboundQueuedBytes") ?? 0,
+    maxOutboundQueuedFrames: maxPstnPayloadNumber(events, "outboundQueuedFrames") ?? 0,
+    maxOutstandingPlaybackMarks: maxPstnPayloadNumber(events, "outstandingPlaybackMarks") ?? 0,
+    maxPlaybackLagMs: maxPstnPayloadNumber(events, "playbackLagMs") ?? 0,
+    maxPlaybackGeneration: maxPstnPayloadNumber(events, "playbackGeneration") ?? 0,
+    acknowledgedPlaybackBoundaryCount: maxPstnPayloadNumber(events, "acknowledgedBoundaries") ?? 0,
+    overflowCount: events.filter((event) => event.payload["overflow"] === true).length,
+    droppedFrameCount: maxPstnPayloadNumber(events, "droppedFrames") ?? 0,
+    interruptionCount: events.filter((event) => event.type === "premium.interruption").length,
+    staleGenerationDiscardCount: events.filter(
+      (event) => event.payload["staleGenerationDiscarded"] === true,
+    ).length,
+    playbackClearCount: events.filter((event) => event.payload["playbackCleared"] === true).length,
+    ...(handoffDurationMs !== undefined ? { handoffDurationMs } : {}),
+    cleanupCount: events.filter((event) => event.type === "premium.cleanup").length,
   };
 }
 
@@ -1148,7 +1227,10 @@ function buildPstnLangSmithTraceProjection(
       : {}),
     metrics,
     decisions: input.events
-      .filter((event) => event.type === "route.selected" || event.type === "model.first_token" || event.type === "tts.first_byte")
+      .filter((event) => event.type === "route.selected"
+        || event.type === "model.first_token"
+        || event.type === "tts.first_byte"
+        || event.type.startsWith("premium."))
       .map((event) => ({
         type: event.type,
         at: event.at,
@@ -1401,6 +1483,14 @@ function readSampleRate(value: string | undefined) {
   }
 
   return Math.min(1, Math.max(0, parsed));
+}
+
+function maxPstnPayloadNumber(events: PstnCallObservabilityEvent[], field: string) {
+  const values = events.flatMap((event) => {
+    const value = readOptionalNumber(event.payload[field]);
+    return value === undefined ? [] : [value];
+  });
+  return values.length === 0 ? undefined : Math.max(...values);
 }
 
 function readServiceName(value: string | undefined): "zara-api" {

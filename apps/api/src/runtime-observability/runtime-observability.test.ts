@@ -508,6 +508,79 @@ describe("runtime observability", () => {
     expect(JSON.stringify(exportPlan)).not.toContain("AUDIO_BASE64_PAYLOAD");
     expect(JSON.stringify(exportPlan)).not.toContain("ignore all prior instructions");
   });
+
+  it("projects bounded premium pressure and lifecycle metrics without sensitive payloads", () => {
+    const exportPlan = buildPstnCallTraceExport({
+      config: createEnabledConfig(),
+      traceId: "trace-premium-pressure",
+      call: {
+        organizationId: "tenant-1",
+        callSessionId: "call-pressure",
+        provider: "twilio",
+        runtimeProfile: "premium-realtime",
+        runtimePath: "pstn-premium-realtime",
+      },
+      events: [
+        pstnEvent("premium.readiness", "2026-07-12T10:00:00.500Z", {
+          provider: "gemini-live", readinessLatencyMs: 500,
+        }),
+        pstnEvent("premium.pressure", "2026-07-12T10:00:00.600Z", {
+          ingressDepthMs: 800, ingressDepthBytes: 12_800, providerBufferedBytes: 32_000,
+          providerOutputDepthBytes: 2_048, providerOutputDepthCount: 3,
+        }),
+        pstnEvent("premium.playback", "2026-07-12T10:00:00.700Z", {
+          outboundQueuedBytes: 4_800, outboundQueuedFrames: 30,
+          outstandingPlaybackMarks: 30, playbackLagMs: 45,
+          playbackGeneration: 2, acknowledgedBoundaries: 1, droppedFrames: 2,
+          rawAudio: "AUDIO_MUST_NOT_ESCAPE",
+        }),
+        pstnEvent("premium.playback", "2026-07-12T10:00:00.750Z", {
+          droppedFrames: 2,
+        }),
+        pstnEvent("premium.interruption", "2026-07-12T10:00:00.800Z", {
+          staleGenerationDiscarded: true, playbackCleared: true,
+        }),
+        pstnEvent("premium.handoff", "2026-07-12T10:00:01.100Z", {
+          phase: "completed", handoffDurationMs: 300,
+          callerNumber: "+14155550123", rawToolOutput: "secret tool output",
+        }),
+        pstnEvent("runtime.failure", "2026-07-12T10:00:01.200Z", {
+          code: "premium_provider_output_overflow", overflow: true, recoverable: false,
+        }),
+        pstnEvent("premium.cleanup", "2026-07-12T10:00:01.300Z", { reason: "provider_closed" }),
+      ],
+    });
+
+    expect(exportPlan.metrics).toMatchObject({
+      providerReadinessLatencyMs: 500,
+      maxIngressDepthMs: 800,
+      maxIngressDepthBytes: 12_800,
+      maxProviderBufferedBytes: 32_000,
+      maxProviderOutputDepthBytes: 2_048,
+      maxProviderOutputDepthCount: 3,
+      maxOutboundQueuedBytes: 4_800,
+      maxOutboundQueuedFrames: 30,
+      maxOutstandingPlaybackMarks: 30,
+      maxPlaybackLagMs: 45,
+      maxPlaybackGeneration: 2,
+      acknowledgedPlaybackBoundaryCount: 1,
+      overflowCount: 1,
+      droppedFrameCount: 2,
+      interruptionCount: 1,
+      staleGenerationDiscardCount: 1,
+      playbackClearCount: 1,
+      handoffDurationMs: 300,
+      cleanupCount: 1,
+    });
+    expect(exportPlan.spans.map((span) => span.name)).toEqual(expect.arrayContaining([
+      "pstn.premium.readiness", "pstn.premium.pressure", "pstn.premium.playback",
+      "pstn.premium.interruption", "pstn.premium.handoff", "pstn.premium.cleanup",
+    ]));
+    const serialized = JSON.stringify(exportPlan);
+    expect(serialized).not.toContain("AUDIO_MUST_NOT_ESCAPE");
+    expect(serialized).not.toContain("+14155550123");
+    expect(serialized).not.toContain("secret tool output");
+  });
 });
 
 function createEnabledConfig(): RuntimeObservabilityConfig {

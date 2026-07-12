@@ -45,6 +45,8 @@ export class PstnPremiumCallActor {
     provider: PstnPremiumCallActorProvider;
     terminateRuntime(): void | Promise<void>;
     closeCaller(code: number, reason: string): void;
+    onReady?: (() => void) | undefined;
+    onFailure?: ((reason: string) => void) | undefined;
     onTerminal?: ((state: "stopped" | "failed") => void) | undefined;
     drain?: (() => void | Promise<void>) | undefined;
     drainTimeoutMs?: number | undefined;
@@ -65,6 +67,15 @@ export class PstnPremiumCallActor {
 
   getState() {
     return this.state;
+  }
+
+  getDiagnostics() {
+    return {
+      state: this.state,
+      ingressDepthMs: this.state === "handing_off" ? this.handoffDurationMs : this.startupDurationMs,
+      ingressDepthBytes: this.state === "handing_off" ? this.handoffBytes : this.startupBytes,
+      providerBufferedBytes: this.provider.getBufferedAmountBytes(),
+    };
   }
 
   beginHandoff() {
@@ -152,6 +163,7 @@ export class PstnPremiumCallActor {
     }
 
     this.state = "failed";
+    this.input.onFailure?.(reason);
     this.clearStartupMedia();
     this.clearHandoffMedia();
     this.clearReadinessTimer();
@@ -186,7 +198,11 @@ export class PstnPremiumCallActor {
       });
       await Promise.race([readiness, timeout]);
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : "premium_provider_readiness_failed");
+      this.fail(
+        error instanceof Error && error.message === "premium_provider_readiness_timeout"
+          ? error.message
+          : "premium_provider_readiness_failed",
+      );
       return;
     }
     this.clearReadinessTimer();
@@ -212,6 +228,7 @@ export class PstnPremiumCallActor {
       this.state = "active";
       this.startupDurationMs = 0;
       this.startupBytes = 0;
+      this.input.onReady?.();
     }
   }
 
