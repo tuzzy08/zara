@@ -4942,7 +4942,7 @@ Acceptance criteria:
 - Area: Runtime / Telephony
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-184
 - Handover: [docs/Handovers/ISSUE-185-deterministic-twilio-playback-interruption.md](../docs/Handovers/ISSUE-185-deterministic-twilio-playback-interruption.md)
 - External: [Linear ZAR-215](https://linear.app/zara-voice/issue/ZAR-215/issue-185-deterministic-twilio-playback-and-interruption-control)

@@ -24,6 +24,7 @@ import {
   PstnPremiumCallActor,
   type PstnPremiumCallActorProvider,
 } from "./pstn-premium-call-actor";
+import { PstnPremiumPlaybackController } from "./pstn-premium-playback-controller";
 
 export interface PstnPremiumCallOutput {
   sendMedia(frame: PstnAudioFrame): void;
@@ -41,9 +42,15 @@ interface ActivePremiumCallExecution {
   registered: RegisteredPremiumRealtimeSession;
   providerConnection: PremiumRealtimeProviderConnection;
   actor: PstnPremiumCallActor;
+  playback: PstnPremiumPlaybackController;
   providerMessages: Promise<void>;
+  pendingProviderMessageBytes: number;
+  pendingProviderMessageCount: number;
   outboundSequence: number;
 }
+
+const maxPendingProviderMessageBytes = 64 * 1_024;
+const maxPendingProviderMessageCount = 256;
 
 interface StartPremiumCallExecutionInput {
   organizationId: string;
@@ -177,16 +184,58 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       registered,
       providerConnection,
       actor,
+      playback: new PstnPremiumPlaybackController({
+        sendFrame: (frame) => {
+          execution.outboundSequence += 1;
+          input.output.sendMedia({
+            callSessionId: input.callSessionId,
+            mediaStreamId: input.streamSid,
+            direction: "outbound",
+            codec: { name: "g711_mulaw", sampleRateHz: 8_000, channels: 1 },
+            sequence: execution.outboundSequence,
+            timestampMs: execution.outboundSequence * 20,
+            payloadBase64: frame.payloadBase64,
+          });
+        },
+        sendMark: (name) => input.output.sendMark(name),
+        clear: () => input.output.clearAudio(),
+      }),
       providerMessages: Promise.resolve(),
+      pendingProviderMessageBytes: 0,
+      pendingProviderMessageCount: 0,
       outboundSequence: 0,
     };
     this.executions.set(input.callSessionId, execution);
     providerConnection.onMessage((message) => {
-      execution.providerMessages = execution.providerMessages.then(() =>
-        this.handleProviderMessage(execution, message),
-      ).catch((error: unknown) => {
-        this.failExecution(execution, "premium_runtime_failed", error);
-      });
+      const messageBytes = Buffer.byteLength(message, "utf8");
+      if (
+        execution.pendingProviderMessageBytes + messageBytes > maxPendingProviderMessageBytes
+        || execution.pendingProviderMessageCount + 1 > maxPendingProviderMessageCount
+      ) {
+        this.failExecution(execution, "premium_provider_output_overflow");
+        return;
+      }
+      execution.pendingProviderMessageBytes += messageBytes;
+      execution.pendingProviderMessageCount += 1;
+      execution.providerMessages = execution.providerMessages
+        .then(async () => {
+          if (this.executions.get(input.callSessionId) === execution) {
+            await this.handleProviderMessage(execution, message);
+          }
+        })
+        .catch((error: unknown) => {
+          this.failExecution(execution, "premium_runtime_failed", error);
+        })
+        .finally(() => {
+          execution.pendingProviderMessageBytes = Math.max(
+            0,
+            execution.pendingProviderMessageBytes - messageBytes,
+          );
+          execution.pendingProviderMessageCount = Math.max(
+            0,
+            execution.pendingProviderMessageCount - 1,
+          );
+        });
     });
     providerConnection.onClose(() => {
       if (this.executions.get(input.callSessionId) !== execution) {
@@ -233,6 +282,10 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       durationMs: (Buffer.from(input.frame.payloadBase64, "base64").length / 8_000) * 1_000,
       byteLength: Buffer.from(input.frame.payloadBase64, "base64").length,
     });
+  }
+
+  acknowledgePlaybackMark(input: { callSessionId: string; name: string }) {
+    this.executions.get(input.callSessionId)?.playback.acknowledgeMark(input.name);
   }
 
   async stop(input: { callSessionId: string }) {
@@ -299,6 +352,9 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       rawProviderMessage,
       at: new Date().toISOString(),
     });
+    if (this.executions.get(execution.callSessionId) !== execution) {
+      return;
+    }
     if (result.session !== undefined) {
       registered.session = result.session;
     }
@@ -332,16 +388,13 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
   ) {
     if (event.type === "audio") {
       if (execution.registered.session.runtime === "openai-realtime") {
-        execution.outboundSequence += 1;
-        execution.output.sendMedia({
-          callSessionId: execution.callSessionId,
-          mediaStreamId: execution.streamSid,
-          direction: "outbound",
-          codec: { name: "g711_mulaw", sampleRateHz: 8_000, channels: 1 },
-          sequence: execution.outboundSequence,
-          timestampMs: Math.round((Buffer.from(event.audioBase64, "base64").length / 8_000) * 1_000),
-          payloadBase64: event.audioBase64,
-        });
+        if (!("responseId" in event) || event.responseId === undefined) {
+          throw new Error("premium_playback_response_id_missing");
+        }
+        const result = execution.playback.appendDelta(event.responseId, event.audioBase64);
+        if (!result.accepted && result.reason === "response_unregistered") {
+          throw new Error("premium_playback_response_unregistered");
+        }
         return;
       }
       const sourceRateHz = "mimeType" in event
@@ -369,14 +422,46 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
 
     if (event.type === "output_transcript" && event.text.trim().length > 0) {
       await this.recordCheckpoint(execution, "agentResponseGenerated");
-      if (event.done) {
-        execution.output.sendMark(`response-${execution.outboundSequence}`);
+      return;
+    }
+
+    if (
+      event.type === "provider_event"
+      && "eventType" in event
+      && execution.registered.session.runtime === "openai-realtime"
+      && event.eventType === "response.created"
+    ) {
+      const responseId = readString(event.evidence.responseId);
+      if (responseId === undefined) {
+        throw new Error("premium_playback_response_id_missing");
+      }
+      execution.playback.startResponse(responseId);
+      return;
+    }
+
+    if (
+      event.type === "provider_event"
+      && "eventType" in event
+      && execution.registered.session.runtime === "openai-realtime"
+      && (event.eventType === "response.output_audio.done" || event.eventType === "response.audio.done")
+    ) {
+      const responseId = readString(event.evidence.responseId);
+      if (responseId === undefined) {
+        throw new Error("premium_playback_response_id_missing");
+      }
+      const result = execution.playback.finishResponse(responseId);
+      if (!result.accepted && result.reason === "response_unregistered") {
+        throw new Error("premium_playback_response_unregistered");
       }
       return;
     }
 
     if (isInterruptionEvent(event)) {
-      execution.output.clearAudio();
+      if (execution.registered.session.runtime === "openai-realtime") {
+        execution.playback.interrupt();
+      } else {
+        execution.output.clearAudio();
+      }
     }
   }
 
@@ -446,6 +531,10 @@ function adaptProviderConnection(
 function readSampleRate(mimeType: string) {
   const match = mimeType.match(/rate=(\d+)/u);
   return match?.[1] === undefined ? undefined : Number(match[1]);
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function decodeMuLawBase64(audioBase64: string) {

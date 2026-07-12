@@ -11,6 +11,7 @@ describe("PstnPremiumCallExecution", () => {
     const manifest = createPremiumManifest();
     const sentProviderMessages: Record<string, unknown>[] = [];
     const outboundFrames: PstnAudioFrame[] = [];
+    const playbackMarks: string[] = [];
     const checkpoints: string[] = [];
     let providerMessageHandler: ((message: string) => void) | undefined;
     let providerCloseHandler: ((event: { code: number; reason: string }) => void) | undefined;
@@ -43,7 +44,7 @@ describe("PstnPremiumCallExecution", () => {
       clearAudio() {
         cleared += 1;
       },
-      sendMark() {},
+      sendMark(name) { playbackMarks.push(name); },
       close() {},
     };
     const execution = new PstnPremiumCallExecution(
@@ -169,7 +170,12 @@ describe("PstnPremiumCallExecution", () => {
     expect(connectedMediaProfile).toBe("pstn");
 
     providerMessageHandler?.(JSON.stringify({
+      type: "response.created",
+      response: { id: "response-1", status: "in_progress" },
+    }));
+    providerMessageHandler?.(JSON.stringify({
       type: "response.output_audio.delta",
+      response_id: "response-1",
       delta: Buffer.alloc(160, 0xff).toString("base64"),
     }));
     await waitFor(() => outboundFrames.length === 1);
@@ -184,10 +190,46 @@ describe("PstnPremiumCallExecution", () => {
     expect(checkpoints).not.toContain("outboundAudioSent");
 
     providerMessageHandler?.(JSON.stringify({
+      type: "response.output_audio_transcript.done",
+      response_id: "response-1",
+      transcript: "This transcript does not own playback completion.",
+    }));
+    providerMessageHandler?.(JSON.stringify({
+      type: "response.output_audio.done",
+      response_id: "response-1",
+    }));
+    await waitFor(() => playbackMarks.length === 2);
+    expect(playbackMarks).toHaveLength(2);
+
+    providerMessageHandler?.(JSON.stringify({
       type: "input_audio_buffer.speech_started",
       audio_start_ms: 20,
     }));
+    providerMessageHandler?.(JSON.stringify({
+      type: "response.cancelled",
+      response: { id: "response-1", status: "cancelled" },
+    }));
     await waitFor(() => cleared === 1);
+
+    providerMessageHandler?.(JSON.stringify({
+      type: "response.created",
+      response: { id: "response-2", status: "in_progress" },
+    }));
+    providerMessageHandler?.(JSON.stringify({
+      type: "response.output_audio.delta",
+      response_id: "response-1",
+      delta: Buffer.alloc(160, 0xee).toString("base64"),
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(outboundFrames).toHaveLength(1);
+
+    providerMessageHandler?.(JSON.stringify({
+      type: "response.output_audio.delta",
+      response_id: "response-2",
+      delta: Buffer.alloc(160, 0xdd).toString("base64"),
+    }));
+    await waitFor(() => outboundFrames.length === 2);
+    expect(outboundFrames[1]!.payloadBase64).toBe(Buffer.alloc(160, 0xdd).toString("base64"));
 
     await execution.stop({ callSessionId: "CA-premium:telephony" });
     expect(providerClosed).toBe(true);
@@ -415,6 +457,39 @@ describe("PstnPremiumCallExecution", () => {
       },
     })).rejects.toThrow("Premium PSTN execution 'CA-premium:telephony' is not active.");
   });
+
+  it("fails when serialized provider output exceeds its bounded ingress ledger", async () => {
+    const processGate = deferred<void>();
+    const terminations: string[] = [];
+    const providerCloses: string[] = [];
+    let updates = 0;
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      processProviderGate: processGate.promise,
+      onTerminate: (sessionId) => terminations.push(sessionId),
+      onProviderClose: (reason) => providerCloses.push(reason),
+      onUpdate: () => { updates += 1; },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    const message = JSON.stringify({ type: "provider.noop", padding: "x".repeat(1_024) });
+
+    harness.emitProviderMessage(message);
+    await Promise.resolve();
+    for (let index = 1; index < 70; index += 1) {
+      harness.emitProviderMessage(message);
+    }
+    await waitFor(() => terminations.length === 1);
+
+    expect(providerCloses).toEqual(["premium_provider_output_overflow"]);
+    processGate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(updates).toBe(0);
+  });
 });
 
 function createPremiumManifest() {
@@ -443,6 +518,8 @@ function createMinimalExecutionHarness(
     onProviderClose?: ((reason: string) => void) | undefined;
     connectGate?: Promise<void> | undefined;
     providerReady?: Promise<void> | undefined;
+    processProviderGate?: Promise<void> | undefined;
+    onUpdate?: (() => void) | undefined;
   } = {},
 ) {
   const manifest = createPremiumManifest();
@@ -465,6 +542,7 @@ function createMinimalExecutionHarness(
     packet: { packetId: "packet-minimal", events: [] },
   };
   let providerCloseHandler: ((event: { code: number; reason: string }) => void) | undefined;
+  let providerMessageHandler: ((message: string) => void) | undefined;
   const execution = new PstnPremiumCallExecution(
     {
       async getState() {
@@ -501,8 +579,11 @@ function createMinimalExecutionHarness(
     {
       async createRealtimeSession() { return registered.session; },
       getRegisteredSession() { return registered; },
-      async processProviderMessage() { return { packet: registered.packet, providerMessages: [] }; },
-      updateRegisteredSession() {},
+      async processProviderMessage() {
+        await options.processProviderGate;
+        return { packet: registered.packet, providerMessages: [] };
+      },
+      updateRegisteredSession() { options.onUpdate?.(); },
       terminateRealtimeSession(sessionId: string) { options.onTerminate?.(sessionId); },
     } as never,
     {
@@ -519,7 +600,7 @@ function createMinimalExecutionHarness(
             return 0;
           },
           close(_code?: number, reason?: string) { options.onProviderClose?.(reason ?? ""); },
-          onMessage() {},
+          onMessage(handler: (message: string) => void) { providerMessageHandler = handler; },
           onClose(handler: (event: { code: number; reason: string }) => void) {
             providerCloseHandler = handler;
           },
@@ -530,6 +611,9 @@ function createMinimalExecutionHarness(
   return {
     execution,
     sentProviderMessages,
+    emitProviderMessage(message: string) {
+      providerMessageHandler?.(message);
+    },
     providerClosed() {
       providerCloseHandler?.({ code: 1006, reason: "provider disconnected" });
     },

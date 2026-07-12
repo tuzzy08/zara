@@ -159,6 +159,16 @@ describe("Twilio Media Streams bridge", () => {
       },
     });
 
+    expect(bridge.receive({
+      event: "mark",
+      sequenceNumber: "5",
+      streamSid: "MZ-wrong-stream",
+      mark: { name: "response-wrong-stream" },
+    })).toMatchObject({
+      ok: false,
+      error: { code: "twilio_media.stream_sid_mismatch" },
+    });
+
     expect(bridge.outboundMedia({
       callSessionId: "CA-webhook-1:telephony",
       mediaStreamId: "MZ-stream-1",

@@ -298,6 +298,7 @@ describe("Twilio Media Streams websocket bridge", () => {
   it("forwards authorized premium media into call execution and returns its audio to Twilio", async () => {
     const starts: Array<{ callSessionId: string; output: PstnPremiumCallOutput }> = [];
     const frames: PstnAudioFrame[] = [];
+    const playbackMarks: Array<{ callSessionId: string; name: string }> = [];
     const stops: string[] = [];
     const premiumExecution = {
       async start(input: { callSessionId: string; output: PstnPremiumCallOutput }) {
@@ -305,6 +306,9 @@ describe("Twilio Media Streams websocket bridge", () => {
       },
       async appendInboundFrame(input: { frame: PstnAudioFrame }) {
         frames.push(input.frame);
+      },
+      acknowledgePlaybackMark(input: { callSessionId: string; name: string }) {
+        playbackMarks.push(input);
       },
       async stop(input: { callSessionId: string }) {
         stops.push(input.callSessionId);
@@ -368,8 +372,20 @@ describe("Twilio Media Streams websocket bridge", () => {
     });
 
     socket.send(JSON.stringify({
-      event: "stop",
+      event: "mark",
       sequenceNumber: "3",
+      streamSid,
+      mark: { name: "premium-playback:0:1" },
+    }));
+    await withTimeout(waitFor(() => playbackMarks.length === 1), "premium playback mark");
+    expect(playbackMarks).toEqual([{
+      callSessionId,
+      name: "premium-playback:0:1",
+    }]);
+
+    socket.send(JSON.stringify({
+      event: "stop",
+      sequenceNumber: "4",
       streamSid,
       stop: { accountSid: "AC1234567890abcdef1234567890abcd", callSid },
     }));
@@ -385,6 +401,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       premiumExecution: {
         async start() { await startGate.promise; },
         async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
         async stop() {},
       },
     });
@@ -518,7 +535,10 @@ describe("Twilio Media Streams websocket bridge", () => {
 
 async function createRoutedTwilioApp(options?: {
   runtimeProfile?: "cost-optimized" | "premium-realtime";
-  premiumExecution?: Pick<PstnPremiumCallExecution, "start" | "appendInboundFrame" | "stop">;
+  premiumExecution?: Pick<
+    PstnPremiumCallExecution,
+    "start" | "appendInboundFrame" | "acknowledgePlaybackMark" | "stop"
+  >;
 }) {
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
@@ -537,6 +557,7 @@ async function createRoutedTwilioApp(options?: {
     .useValue(options?.premiumExecution ?? {
       async start() {},
       async appendInboundFrame() {},
+      acknowledgePlaybackMark() {},
       async stop() {},
     })
     .compile();

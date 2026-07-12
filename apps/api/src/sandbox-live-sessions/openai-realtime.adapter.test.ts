@@ -680,6 +680,42 @@ describe("OpenAiRealtimeAdapter", () => {
     ]);
   });
 
+  it("preserves response identity for audio deltas and audio completion", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime-2",
+      systemPrompt: "Configured prompt",
+    });
+
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "response.output_audio.delta",
+      response_id: "resp-audio-1",
+      item_id: "item-audio-1",
+      delta: "cGNtdQ==",
+    }))).toEqual([
+      {
+        type: "audio",
+        audioBase64: "cGNtdQ==",
+        responseId: "resp-audio-1",
+        itemId: "item-audio-1",
+      },
+    ]);
+
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "response.output_audio.done",
+      response_id: "resp-audio-1",
+      item_id: "item-audio-1",
+    }))).toEqual([
+      {
+        type: "provider_event",
+        eventType: "response.output_audio.done",
+        evidence: {
+          responseId: "resp-audio-1",
+          itemId: "item-audio-1",
+        },
+      },
+    ]);
+  });
+
   it("parses docs-style response.done function call output items", () => {
     const adapter = new OpenAiRealtimeAdapter({
       model: "gpt-realtime-2",

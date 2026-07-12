@@ -385,14 +385,29 @@ export function createTwilioMediaStreamsBridge(input: TwilioMediaStreamsBridgeIn
         }
         case "mark": {
           const mark = isObject(message.mark) ? message.mark : undefined;
+          const activeStreamSid = streamSid;
           const messageStreamSid = readString(message.streamSid);
           const sequence = readInteger(message.sequenceNumber);
           const name = readString(mark?.name);
-          if (messageStreamSid === undefined || sequence === undefined || name === undefined) {
+          if (
+            activeStreamSid === undefined
+            || messageStreamSid === undefined
+            || sequence === undefined
+            || name === undefined
+          ) {
             return failure(
               "twilio_media.invalid_mark",
               "Twilio mark message requires streamSid, sequenceNumber, and mark.name.",
               now(),
+            );
+          }
+
+          if (messageStreamSid !== activeStreamSid) {
+            return failure(
+              "twilio_media.stream_sid_mismatch",
+              "Twilio mark message stream SID does not match the active stream.",
+              now(),
+              { expectedStreamSid: activeStreamSid, streamSid: messageStreamSid },
             );
           }
 

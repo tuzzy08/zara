@@ -24,6 +24,8 @@ export type OpenAiRealtimeEvent =
   | {
       type: "audio";
       audioBase64: string;
+      responseId?: string | undefined;
+      itemId?: string | undefined;
     }
   | {
       type: "input_audio_committed";
@@ -209,6 +211,8 @@ export class OpenAiRealtimeAdapter {
       || payload.type === "conversation.item.input_audio_transcription.failed"
       || payload.type === "response.cancelled"
       || payload.type === "response.created"
+      || payload.type === "response.output_audio.done"
+      || payload.type === "response.audio.done"
       || payload.type === "conversation.item.truncated"
       || payload.type === "error"
     ) {
@@ -221,6 +225,8 @@ export class OpenAiRealtimeAdapter {
             {
               type: "audio",
               audioBase64: payload.delta,
+              ...(payload.response_id !== undefined ? { responseId: payload.response_id } : {}),
+              ...(payload.item_id !== undefined ? { itemId: payload.item_id } : {}),
             },
           ]
         : [];

@@ -350,6 +350,17 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       return;
     }
 
+    if (
+      result.event.type === "mark"
+      && attachment.authorization.runtimePath === "pstn-premium-realtime"
+    ) {
+      this.premiumCallExecution.acknowledgePlaybackMark({
+        callSessionId: attachment.authorization.callSessionId,
+        name: result.event.name,
+      });
+      return;
+    }
+
     if (result.event.type === "dtmf") {
       logTwilioPstnDiagnostic(this.logger, "media_dtmf_received", {
         organizationId: attachment.authorization.organizationId,
