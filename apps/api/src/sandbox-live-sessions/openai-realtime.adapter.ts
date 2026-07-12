@@ -346,23 +346,50 @@ export class OpenAiRealtimeAdapter {
   createResponseCreateMessage(input?: {
     providerCallId?: string | undefined;
     instructions?: string | undefined;
+    metadata?: Record<string, string> | undefined;
   }) {
     const instructions = input?.instructions?.trim();
+    const metadata = validateOpenAiResponseMetadata(input?.metadata);
 
     return {
       ...(input?.providerCallId !== undefined
         ? { event_id: createClientEventId("response_create", input.providerCallId) }
         : {}),
       type: "response.create",
-      ...(instructions !== undefined && instructions.length > 0
+      ...((instructions !== undefined && instructions.length > 0) || metadata !== undefined
         ? {
             response: {
-              instructions,
+              ...(instructions !== undefined && instructions.length > 0 ? { instructions } : {}),
+              ...(metadata !== undefined ? { metadata } : {}),
             },
           }
         : {}),
     };
   }
+}
+
+function validateOpenAiResponseMetadata(
+  metadata: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (metadata === undefined) {
+    return undefined;
+  }
+
+  const entries = Object.entries(metadata);
+  if (entries.length > 16) {
+    throw new Error("OpenAI response metadata supports at most 16 entries.");
+  }
+
+  for (const [key, value] of entries) {
+    if (key.length === 0 || key.length > 64) {
+      throw new Error("OpenAI response metadata keys must be between 1 and 64 characters.");
+    }
+    if (value.length > 512) {
+      throw new Error("OpenAI response metadata values must be at most 512 characters.");
+    }
+  }
+
+  return Object.fromEntries(entries);
 }
 
 function providerEvidence(eventType: string, evidence: Record<string, unknown>): OpenAiRealtimeEvent {

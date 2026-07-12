@@ -212,6 +212,43 @@ describe("OpenAiRealtimeAdapter", () => {
         instructions: "Tell the caller they are being routed to Billing.",
       },
     });
+    expect(adapter.createResponseCreateMessage({
+      instructions: "Speak the source handoff announcement.",
+      metadata: {
+        zara_handoff_transfer_id: "session-1:turn:1:agent-front:agent-billing",
+      },
+    })).toEqual({
+      type: "response.create",
+      response: {
+        instructions: "Speak the source handoff announcement.",
+        metadata: {
+          zara_handoff_transfer_id: "session-1:turn:1:agent-front:agent-billing",
+        },
+      },
+    });
+  });
+
+  it("rejects response metadata outside OpenAI key value and entry limits", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime",
+      systemPrompt: "Route callers safely.",
+    });
+
+    expect(() => adapter.createResponseCreateMessage({
+      metadata: {
+        ["k".repeat(65)]: "value",
+      },
+    })).toThrowError("OpenAI response metadata keys must be between 1 and 64 characters.");
+    expect(() => adapter.createResponseCreateMessage({
+      metadata: {
+        handoff: "v".repeat(513),
+      },
+    })).toThrowError("OpenAI response metadata values must be at most 512 characters.");
+    expect(() => adapter.createResponseCreateMessage({
+      metadata: Object.fromEntries(
+        Array.from({ length: 17 }, (_, index) => [`key_${index}`, `value_${index}`]),
+      ),
+    })).toThrowError("OpenAI response metadata supports at most 16 entries.");
   });
 
   it("parses OpenAI session update acknowledgements with safe effective-session evidence", () => {

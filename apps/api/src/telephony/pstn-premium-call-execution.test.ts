@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
+import { Logger } from "@nestjs/common";
 
 import {
   PstnPremiumCallExecution,
@@ -490,6 +491,307 @@ describe("PstnPremiumCallExecution", () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(updates).toBe(0);
   });
+
+  it("waits for acknowledged source playback before replacing an immutable OpenAI voice session", async () => {
+    const handoffLog = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const targetReady = deferred<void>();
+    const harness = createHandoffExecutionHarness({
+      targetReady: targetReady.promise,
+      processProviderMessage(rawProviderMessage, registered) {
+        if (rawProviderMessage !== JSON.stringify({ type: "test.handoff" })) {
+          return { packet: registered.packet, providerMessages: [] };
+        }
+        const targetSession = {
+          ...registered.session,
+          activeAgentId: "agent-james",
+          toolDeclarations: [],
+        };
+        return {
+          session: targetSession,
+          activeAgentId: "agent-james",
+          packet: registered.packet,
+          providerMessages: [],
+          providerSessionTransition: {
+            requiresReplacement: true,
+            sourceResponseId: "response-source",
+            source: {
+              agentId: "agent-jane",
+              runtime: "openai-realtime",
+              model: "gpt-realtime",
+              realtimeVoiceConfig: { provider: "openai-realtime", voice: "marin" },
+            },
+            target: {
+              agentId: "agent-james",
+              runtime: "openai-realtime",
+              model: "gpt-realtime",
+              realtimeVoiceConfig: { provider: "openai-realtime", voice: "cedar" },
+              toolDeclarations: [],
+            },
+            transfer: {
+              id: "transfer-voice",
+              reason: "Caller needs billing support.",
+              callerNeedSummary: "Caller needs billing support.",
+            },
+            continuation: { instruction: "Continue as James without repeating the handoff announcement." },
+          },
+        };
+      },
+    });
+    await harness.start();
+    harness.connections[0]!.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: { id: "response-source", status: "in_progress" },
+    }));
+    harness.connections[0]!.emitMessage(JSON.stringify({
+      type: "response.output_audio.delta",
+      response_id: "response-source",
+      delta: Buffer.alloc(160, 0xff).toString("base64"),
+    }));
+    harness.connections[0]!.emitMessage(JSON.stringify({
+      type: "response.output_audio.done",
+      response_id: "response-source",
+    }));
+    await waitFor(() => harness.marks.length === 2);
+
+    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff" }));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(harness.connections).toHaveLength(1);
+
+    for (const mark of [...harness.marks]) {
+      harness.execution.acknowledgePlaybackMark({
+        callSessionId: "CA-premium:telephony",
+        name: mark,
+      });
+    }
+    await waitFor(() => harness.connections.length === 2);
+    expect(harness.connections[0]!.closedReasons).toEqual([]);
+
+    targetReady.resolve();
+    await waitFor(() => harness.connections[1]!.sent.length === 1);
+    expect(harness.connections[1]!.sent).toEqual([
+      {
+        type: "response.create",
+        response: { instructions: "Continue as James without repeating the handoff announcement." },
+      },
+    ]);
+    expect(harness.connections[0]!.closedReasons).toEqual(["provider_agent_handoff"]);
+    expect(handoffLog).toHaveBeenCalledWith(expect.stringContaining("agent.handoff.completed"));
+    handoffLog.mockRestore();
+  });
+
+  it("buffers target-native caller media during an OpenAI to Gemini handoff and ignores stale source callbacks", async () => {
+    const targetReady = deferred<void>();
+    const harness = createHandoffExecutionHarness({
+      targetReady: targetReady.promise,
+      processProviderMessage(rawProviderMessage, registered) {
+        if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.cross-provider" })) {
+          return { packet: registered.packet, providerMessages: [] };
+        }
+        const targetSession = {
+          ...registered.session,
+          runtime: "gemini-live" as const,
+          model: "gemini-live-billing",
+          activeAgentId: "agent-james",
+          toolDeclarations: [],
+        };
+        return {
+          session: targetSession,
+          activeAgentId: "agent-james",
+          packet: registered.packet,
+          providerMessages: [],
+          providerSessionTransition: {
+            requiresReplacement: true,
+            source: { agentId: "agent-jane", runtime: "openai-realtime", model: "gpt-realtime" },
+            target: {
+              agentId: "agent-james",
+              runtime: "gemini-live",
+              model: "gemini-live-billing",
+              toolDeclarations: [],
+            },
+            transfer: {
+              id: "transfer-provider",
+              reason: "Caller needs billing support.",
+              callerNeedSummary: "Caller needs billing support.",
+            },
+            continuation: { instruction: "Continue as James with the transferred caller context." },
+          },
+        };
+      },
+    });
+    await harness.start();
+    const source = harness.connections[0]!;
+    source.emitMessage(JSON.stringify({ type: "test.handoff.cross-provider" }));
+    await waitFor(() => harness.connections.length === 2);
+
+    await harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(1),
+    });
+    expect(source.sent).toEqual([]);
+    expect(harness.connections[1]!.sent).toEqual([]);
+
+    targetReady.resolve();
+    await waitFor(() => harness.connections[1]!.sent.length === 2);
+    expect(harness.connections[1]!.sent[0]).toEqual({
+      realtimeInput: { text: "Continue as James with the transferred caller context." },
+    });
+    expect(harness.connections[1]!.sent[1]).toMatchObject({
+      realtimeInput: { audio: { mimeType: "audio/pcm;rate=16000" } },
+    });
+    expect(JSON.stringify(harness.connections[1]!.sent)).not.toContain("function_call_output");
+
+    source.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: { id: "stale-response", status: "in_progress" },
+    }));
+    source.emitClose();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(harness.callerCloses).toEqual([]);
+    expect(harness.connections).toHaveLength(2);
+  });
+
+  it("fails closed when a replacement provider session never becomes ready", async () => {
+    const targetReady = deferred<void>();
+    const harness = createHandoffExecutionHarness({
+      targetReady: targetReady.promise,
+      processProviderMessage(rawProviderMessage, registered) {
+        if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.failure" })) {
+          return { packet: registered.packet, providerMessages: [] };
+        }
+        const targetSession = {
+          ...registered.session,
+          activeAgentId: "agent-james",
+        };
+        return {
+          session: targetSession,
+          activeAgentId: "agent-james",
+          packet: registered.packet,
+          providerMessages: [],
+          providerSessionTransition: {
+            requiresReplacement: true,
+            source: { agentId: "agent-jane", runtime: "openai-realtime", model: "gpt-realtime" },
+            target: {
+              agentId: "agent-james",
+              runtime: "openai-realtime",
+              model: "gpt-realtime",
+              toolDeclarations: [],
+            },
+            transfer: {
+              id: "transfer-failure",
+              reason: "Caller needs billing support.",
+              callerNeedSummary: "Caller needs billing support.",
+            },
+            continuation: { instruction: "Continue as James." },
+          },
+        };
+      },
+    });
+    await harness.start();
+    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.failure" }));
+    await waitFor(() => harness.connections.length === 2);
+
+    targetReady.reject(new Error("target setup failed"));
+    await waitFor(() => harness.callerCloses.length === 1);
+
+    expect(harness.callerCloses).toEqual(["premium_provider_handoff_failed"]);
+    expect(harness.connections[1]!.closedReasons).toEqual(["premium_provider_handoff_failed"]);
+    expect(harness.connections).toHaveLength(2);
+  });
+
+  it("fails a provider transition that exceeds its bounded deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const targetReady = deferred<void>();
+      const harness = createHandoffExecutionHarness({
+        targetReady: targetReady.promise,
+        processProviderMessage(rawProviderMessage, registered) {
+          if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.timeout" })) {
+            return { packet: registered.packet, providerMessages: [] };
+          }
+          return {
+            session: { ...registered.session, activeAgentId: "agent-james" },
+            activeAgentId: "agent-james",
+            packet: registered.packet,
+            providerMessages: [],
+            providerSessionTransition: {
+              requiresReplacement: true,
+              source: { agentId: "agent-jane", runtime: "openai-realtime", model: "gpt-realtime" },
+              target: {
+                agentId: "agent-james",
+                runtime: "openai-realtime",
+                model: "gpt-realtime",
+                toolDeclarations: [],
+              },
+              transfer: {
+                id: "transfer-timeout",
+                reason: "Caller needs billing support.",
+                callerNeedSummary: "Caller needs billing support.",
+              },
+              continuation: { instruction: "Continue as James." },
+            },
+          };
+        },
+      });
+      await harness.start();
+      harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.timeout" }));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(5_001);
+
+      expect(harness.callerCloses).toEqual(["premium_provider_handoff_timeout"]);
+      expect(harness.connections[1]!.closedReasons).toEqual(["premium_provider_handoff_timeout"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes a pending replacement when handoff media overflows inside the actor", async () => {
+    const targetReady = deferred<void>();
+    const harness = createHandoffExecutionHarness({
+      targetReady: targetReady.promise,
+      processProviderMessage(rawProviderMessage, registered) {
+        return rawProviderMessage === JSON.stringify({ type: "test.handoff.actor-overflow" })
+          ? createOpenAiReplacementResult(registered, "actor-overflow")
+          : { packet: registered.packet, providerMessages: [] };
+      },
+    });
+    await harness.start();
+    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.actor-overflow" }));
+    await waitFor(() => harness.connections.length === 2);
+
+    for (let sequence = 1; sequence <= 50; sequence += 1) {
+      await harness.execution.appendInboundFrame({
+        callSessionId: "CA-premium:telephony",
+        frame: premiumInboundFrame(sequence),
+      });
+    }
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(51),
+    })).rejects.toThrow("premium_handoff_overflow");
+
+    expect(harness.connections[1]!.closedReasons).toEqual(["provider_handoff_cancelled"]);
+  });
+
+  it("closes a pending replacement during application shutdown", async () => {
+    const targetReady = deferred<void>();
+    const harness = createHandoffExecutionHarness({
+      targetReady: targetReady.promise,
+      processProviderMessage(rawProviderMessage, registered) {
+        return rawProviderMessage === JSON.stringify({ type: "test.handoff.shutdown" })
+          ? createOpenAiReplacementResult(registered, "shutdown")
+          : { packet: registered.packet, providerMessages: [] };
+      },
+    });
+    await harness.start();
+    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.shutdown" }));
+    await waitFor(() => harness.connections.length === 2);
+
+    await harness.execution.onApplicationShutdown();
+
+    expect(harness.connections[1]!.closedReasons).toEqual(["provider_handoff_cancelled"]);
+  });
 });
 
 function createPremiumManifest() {
@@ -617,6 +919,180 @@ function createMinimalExecutionHarness(
     providerClosed() {
       providerCloseHandler?.({ code: 1006, reason: "provider disconnected" });
     },
+  };
+}
+
+function createHandoffExecutionHarness(input: {
+  targetReady: Promise<void>;
+  processProviderMessage: (
+    rawProviderMessage: string,
+    registered: ReturnType<typeof createHandoffRegisteredSession>,
+  ) => Record<string, unknown>;
+}) {
+  const manifest = createPremiumManifest();
+  const registered = createHandoffRegisteredSession(manifest);
+  const connections: ReturnType<typeof createFakeProviderConnection>[] = [];
+  const marks: string[] = [];
+  const callerCloses: string[] = [];
+  const execution = new PstnPremiumCallExecution(
+    {
+      async getState() {
+        return {
+          organizationId: "tenant-west-africa",
+          connections: [], phoneNumbers: [], healthChecks: [], providerHeartbeats: [],
+          dispatches: [{
+            id: "dispatch-premium-1",
+            tenantId: "tenant-west-africa",
+            direction: "inbound",
+            disposition: "routed",
+            reason: "Live premium route.",
+            callSessionId: "CA-premium:telephony",
+            publishedVersionId: "workflow-premium-v1",
+            workspaceId: "workspace-support",
+            runtimeProfile: "premium-realtime",
+            runtimePath: "pstn-premium-realtime",
+            recording: { enabled: false, consentMode: "disabled", consentMessage: "" },
+            recordingConsent: {
+              state: "not-required", consentMode: "disabled", message: "",
+              noticeRequired: false, updatedAt: "2026-07-11T10:00:00.000Z",
+            },
+            toPhoneNumber: "+14155557890",
+            fromPhoneNumber: "+233201110001",
+            createdAt: "2026-07-11T10:00:00.000Z",
+            source: "webhook",
+          }],
+          executionSessions: [], executionCommands: [], webhookEvents: [], callControlEvents: [],
+        };
+      },
+      async recordPstnPhoneTestCheckpoint() {},
+    } as never,
+    { async getPublishedManifest() { return manifest; } } as never,
+    {
+      async createRealtimeSession() { return registered.session; },
+      getRegisteredSession() { return registered; },
+      async processProviderMessage(message: { rawProviderMessage: string }) {
+        return input.processProviderMessage(message.rawProviderMessage, registered);
+      },
+      updateRegisteredSession(update: {
+        session?: typeof registered.session;
+        activeAgentId?: string;
+        packet?: typeof registered.packet;
+        transcript?: string;
+      }) {
+        if (update.session !== undefined) registered.session = update.session;
+        if (update.activeAgentId !== undefined) registered.activeAgentId = update.activeAgentId;
+        if (update.packet !== undefined) registered.packet = update.packet;
+        if (update.transcript !== undefined) registered.transcript = update.transcript;
+      },
+      terminateRealtimeSession() {},
+    } as never,
+    {
+      async connect() {
+        const connection = createFakeProviderConnection(
+          connections.length === 0 ? Promise.resolve() : input.targetReady,
+        );
+        connections.push(connection);
+        return connection;
+      },
+    },
+  );
+
+  return {
+    execution,
+    connections,
+    marks,
+    callerCloses,
+    start: () => execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() {},
+        clearAudio() {},
+        sendMark(name) { marks.push(name); },
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    }),
+  };
+}
+
+function createHandoffRegisteredSession(manifest = createPremiumManifest()) {
+  return {
+    organizationId: "tenant-west-africa",
+    workspaceId: "workspace-support",
+    actorUserId: "pstn:CA-premium",
+    session: {
+      sessionId: "premium-session-handoff",
+      runtime: "openai-realtime" as const,
+      model: "gpt-realtime",
+      activeAgentId: "agent-jane",
+      expiresAt: "2099-07-11T12:00:00.000Z",
+      toolDeclarations: [],
+    },
+    manifest,
+    activeAgentId: "agent-jane",
+    transcript: "Caller asked about billing.",
+    packet: { packetId: "packet-handoff", events: [] },
+  };
+}
+
+function createFakeProviderConnection(ready: Promise<void>) {
+  let messageHandler: ((message: string) => void) | undefined;
+  let closeHandler: ((event: { code: number; reason: string }) => void) | undefined;
+  const sent: Record<string, unknown>[] = [];
+  const closedReasons: string[] = [];
+  return {
+    sent,
+    closedReasons,
+    waitUntilReady() { return ready; },
+    getBufferedAmountBytes() { return 0; },
+    send(message: Record<string, unknown>) { sent.push(message); },
+    close(_code?: number, reason?: string) { closedReasons.push(reason ?? ""); },
+    onMessage(handler: (message: string) => void) { messageHandler = handler; },
+    onClose(handler: (event: { code: number; reason: string }) => void) { closeHandler = handler; },
+    emitMessage(message: string) { messageHandler?.(message); },
+    emitClose() { closeHandler?.({ code: 1006, reason: "stale source closed" }); },
+  };
+}
+
+function createOpenAiReplacementResult(
+  registered: ReturnType<typeof createHandoffRegisteredSession>,
+  suffix: string,
+) {
+  return {
+    session: { ...registered.session, activeAgentId: "agent-james" },
+    activeAgentId: "agent-james",
+    packet: registered.packet,
+    providerMessages: [],
+    providerSessionTransition: {
+      requiresReplacement: true,
+      source: { agentId: "agent-jane", runtime: "openai-realtime" as const, model: "gpt-realtime" },
+      target: {
+        agentId: "agent-james",
+        runtime: "openai-realtime" as const,
+        model: "gpt-realtime",
+        toolDeclarations: [],
+      },
+      transfer: {
+        id: `transfer-${suffix}`,
+        reason: "Caller needs billing support.",
+        callerNeedSummary: "Caller needs billing support.",
+      },
+      continuation: { instruction: "Continue as James." },
+    },
+  };
+}
+
+function premiumInboundFrame(sequence: number): PstnAudioFrame {
+  return {
+    callSessionId: "CA-premium:telephony",
+    mediaStreamId: "MZ-premium-1",
+    direction: "inbound",
+    codec: { name: "g711_mulaw", sampleRateHz: 8000, channels: 1 },
+    sequence,
+    timestampMs: sequence * 20,
+    payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
   };
 }
 

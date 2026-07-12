@@ -317,6 +317,7 @@ describe("RuntimeSessionsService", () => {
         type: "response.create",
         response: {
           instructions: "Say exactly this handoff message to the caller, then stop: \"I'll connect you with Billing specialist.\"",
+          metadata: handoffResponseMetadata(),
         },
       }),
     ]);
@@ -330,6 +331,16 @@ describe("RuntimeSessionsService", () => {
       targetAgentId: "agent-billing",
       activeAgentId: "agent-billing",
       callerNeedSummary: "Francis wants the status of a pending invoice.",
+    });
+
+    await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: openAiResponseCreated("response-announcement"),
     });
 
     const handoffResult = await service.processProviderMessage({
@@ -379,7 +390,7 @@ describe("RuntimeSessionsService", () => {
         },
       },
       {
-        type: "agent.handoff.completed",
+        type: "agent.handoff.requested",
         payload: expect.objectContaining({
           sourceAgentId: "agent-front",
           targetAgentId: "agent-billing",
@@ -593,6 +604,462 @@ describe("RuntimeSessionsService", () => {
     ]);
   });
 
+  it("resolves an OpenAI handoff target model and voice into a replacement transition", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = withTargetRealtimeConfig(buildRoutePolicyManifest(), {
+      realtimeProvider: "openai-realtime",
+      realtimeModelId: "gpt-realtime-billing",
+      realtimeVoiceConfig: {
+        provider: "openai-realtime",
+        voice: "cedar",
+        speed: 1.2,
+      },
+    });
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: openAiHandoffMessage({
+        providerCallId: "provider-handoff-model-voice",
+        announcementAlreadySpoken: true,
+      }),
+    });
+
+    expect(result.session).toMatchObject({
+      sessionId: session.sessionId,
+      manifestId: session.manifestId,
+      publishedVersionId: session.publishedVersionId,
+      activeAgentId: "agent-billing",
+      runtime: "openai-realtime",
+      model: "gpt-realtime-billing",
+      transportUrl: session.transportUrl,
+      transportToken: session.transportToken,
+      expiresAt: session.expiresAt,
+    });
+    expect(result.providerSessionTransition).toMatchObject({
+      requiresReplacement: true,
+      source: {
+        agentId: "agent-front",
+        runtime: "openai-realtime",
+        model: "gpt-realtime",
+      },
+      target: {
+        agentId: "agent-billing",
+        runtime: "openai-realtime",
+        model: "gpt-realtime-billing",
+        realtimeVoiceConfig: {
+          provider: "openai-realtime",
+          voice: "cedar",
+          speed: 1.2,
+        },
+        toolDeclarations: expect.arrayContaining([
+          expect.objectContaining({ toolId: "stripe.invoices.search" }),
+        ]),
+      },
+    });
+  });
+
+  it("resolves an OpenAI to Gemini handoff with target-provider-safe continuation context", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = withTargetRealtimeConfig(buildRoutePolicyManifest(), {
+      realtimeProvider: "gemini-live",
+      realtimeModelId: "gemini-live-billing",
+      realtimeVoiceConfig: {
+        provider: "gemini-live",
+        voiceName: "Kore",
+      },
+    });
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: openAiHandoffMessage({
+        providerCallId: "openai-call-must-not-cross",
+        responseId: "source-response-cross-provider",
+        announcementAlreadySpoken: true,
+      }),
+    });
+
+    expect(result.session).toMatchObject({
+      sessionId: session.sessionId,
+      activeAgentId: "agent-billing",
+      runtime: "gemini-live",
+      model: "gemini-live-billing",
+      transportUrl: session.transportUrl,
+      expiresAt: session.expiresAt,
+    });
+    expect(result.providerSessionTransition).toMatchObject({
+      requiresReplacement: true,
+      sourceResponseId: "source-response-cross-provider",
+      source: {
+        agentId: "agent-front",
+        runtime: "openai-realtime",
+        model: "gpt-realtime",
+      },
+      target: {
+        agentId: "agent-billing",
+        runtime: "gemini-live",
+        model: "gemini-live-billing",
+        realtimeVoiceConfig: {
+          provider: "gemini-live",
+          voiceName: "Kore",
+        },
+        toolDeclarations: expect.arrayContaining([
+          expect.objectContaining({ toolId: "stripe.invoices.search" }),
+        ]),
+      },
+      transfer: {
+        id: "session-1:turn:1:agent-front:agent-billing",
+        reason: "Caller needs invoice status support.",
+        callerNeedSummary: "Francis wants the status of a pending invoice.",
+      },
+      continuation: {
+        instruction: expect.stringContaining("You are now Billing specialist."),
+      },
+    });
+    expect(result.providerMessages).toEqual([]);
+    const targetContinuationContext = JSON.stringify(result.providerSessionTransition);
+    expect(targetContinuationContext).not.toContain("openai-call-must-not-cross");
+    expect(targetContinuationContext).not.toContain("workflow-route-policy");
+    expect(targetContinuationContext).not.toContain("nodeId");
+    expect(targetContinuationContext).not.toContain("transportToken");
+    expect(targetContinuationContext).not.toContain("credentials");
+  });
+
+  it("keeps an unchanged provider model and realtime voice transition in place", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const unchangedConfig = {
+      realtimeProvider: "openai-realtime",
+      realtimeModelId: "gpt-realtime-shared",
+      realtimeVoiceConfig: {
+        provider: "openai-realtime",
+        voice: "cedar",
+        speed: 1.1,
+      },
+    };
+    const manifest = withAgentRealtimeConfig(
+      withTargetRealtimeConfig(buildRoutePolicyManifest(), unchangedConfig),
+      "agent-front",
+      unchangedConfig,
+    );
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      packet: basePacket(),
+      rawProviderMessage: openAiHandoffMessage({
+        providerCallId: "provider-handoff-unchanged",
+        responseId: "source-response-unchanged",
+        announcementAlreadySpoken: true,
+      }),
+    });
+
+    expect(result.providerSessionTransition).toMatchObject({
+      requiresReplacement: false,
+      source: {
+        runtime: "openai-realtime",
+        model: "gpt-realtime-shared",
+        realtimeVoiceConfig: unchangedConfig.realtimeVoiceConfig,
+      },
+      target: {
+        runtime: "openai-realtime",
+        model: "gpt-realtime-shared",
+        realtimeVoiceConfig: unchangedConfig.realtimeVoiceConfig,
+      },
+    });
+  });
+
+  it("replaces a Gemini provider session when handoff config is unchanged", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const unchangedConfig = {
+      realtimeProvider: "gemini-live",
+      realtimeModelId: "gemini-live-shared",
+      realtimeVoiceConfig: {
+        provider: "gemini-live",
+        voiceName: "Kore",
+      },
+    };
+    const manifest = withAgentRealtimeConfig(
+      withTargetRealtimeConfig(buildRoutePolicyManifest(), unchangedConfig),
+      "agent-front",
+      unchangedConfig,
+    );
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        tool_call: {
+          function_calls: [{
+            id: "gemini-handoff-unchanged",
+            name: "zara_handoff_to_agent",
+            args: {
+              targetAgentId: "agent-billing",
+              reason: "Caller needs invoice status support.",
+              callerNeedSummary: "Francis wants the status of a pending invoice.",
+            },
+          }],
+        },
+      }),
+    });
+
+    expect(result.providerSessionTransition).toMatchObject({
+      requiresReplacement: true,
+      source: {
+        runtime: "gemini-live",
+        model: "gemini-live-shared",
+      },
+      target: {
+        runtime: "gemini-live",
+        model: "gemini-live-shared",
+      },
+    });
+  });
+
+  it("retains a deferred cross-provider transition until its source announcement response completes", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = withTargetRealtimeConfig(buildRoutePolicyManifest(), {
+      realtimeProvider: "gemini-live",
+      realtimeModelId: "gemini-live-billing",
+      realtimeVoiceConfig: {
+        provider: "gemini-live",
+        voiceName: "Kore",
+      },
+    });
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      now: "2026-06-14T09:30:00.000Z",
+    });
+    const messageInput = {
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+    };
+
+    const pendingResult = await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiHandoffMessage({
+        providerCallId: "provider-handoff-deferred",
+        responseId: "source-tool-response",
+        announcementAlreadySpoken: false,
+      }),
+    });
+    expect(pendingResult.providerSessionTransition).toBeUndefined();
+
+    await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: JSON.stringify({
+        type: "response.created",
+        response: {
+          id: "source-announcement-response",
+          status: "in_progress",
+          metadata: handoffResponseMetadata(),
+        },
+      }),
+    });
+    const unrelatedCompletion = await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseDone("unrelated-response"),
+    });
+    expect(unrelatedCompletion.providerSessionTransition).toBeUndefined();
+    expect(unrelatedCompletion.activeAgentId).toBeUndefined();
+
+    const completed = await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseDone("source-announcement-response"),
+    });
+
+    expect(completed.providerSessionTransition).toMatchObject({
+      sourceResponseId: "source-announcement-response",
+      requiresReplacement: true,
+      target: {
+        runtime: "gemini-live",
+        model: "gemini-live-billing",
+      },
+      continuation: {
+        instruction: expect.stringContaining("acknowledgement was already spoken"),
+      },
+    });
+    expect(completed.providerMessages).toEqual([]);
+    expect(completed.routeEvents).toEqual([
+      expect.objectContaining({ type: "agent.route.announcement" }),
+      expect.objectContaining({ type: "agent.handoff.requested" }),
+      expect.objectContaining({ type: "agent.handoff.completed" }),
+    ]);
+    expect(completed.routeEvents?.some((event) => event.type === "agent.handoff.completed")).toBe(true);
+  });
+
+  it("latches only the OpenAI response created with exact handoff metadata", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = buildRoutePolicyManifest();
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      now: "2026-06-14T09:30:00.000Z",
+    });
+    const messageInput = {
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+    };
+
+    const pendingResult = await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiHandoffMessage({
+        providerCallId: "provider-handoff-first-response",
+        responseId: "source-tool-response",
+        announcementAlreadySpoken: false,
+      }),
+    });
+    expect(pendingResult.providerMessages[1]).toMatchObject({
+      type: "response.create",
+      response: {
+        metadata: handoffResponseMetadata(),
+      },
+    });
+    await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseCreated("source-announcement-unrelated-before", {
+        zara_handoff_transfer_id: "unrelated-transfer-before",
+      }),
+    });
+    await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseCreated("source-announcement-matching"),
+    });
+    await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseCreated("source-announcement-unrelated-after", {
+        zara_handoff_transfer_id: "unrelated-transfer-after",
+      }),
+    });
+
+    const completed = await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseDone("source-announcement-matching"),
+    });
+
+    expect(completed.activeAgentId).toBe("agent-billing");
+    expect(completed.providerSessionTransition?.sourceResponseId).toBe("source-announcement-matching");
+  });
+
+  it("returns the retained transition when the source announcement response does not complete", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = withTargetRealtimeConfig(buildRoutePolicyManifest(), {
+      realtimeProvider: "gemini-live",
+      realtimeModelId: "gemini-live-billing",
+      realtimeVoiceConfig: {
+        provider: "gemini-live",
+        voiceName: "Kore",
+      },
+    });
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      now: "2026-06-14T09:30:00.000Z",
+    });
+    const messageInput = {
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+    };
+
+    await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiHandoffMessage({
+        providerCallId: "provider-handoff-failed-announcement",
+        responseId: "source-tool-response",
+        announcementAlreadySpoken: false,
+      }),
+    });
+    await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseCreated("source-announcement-failed"),
+    });
+
+    const result = await service.processProviderMessage({
+      ...messageInput,
+      rawProviderMessage: openAiResponseDone("source-announcement-failed", "failed"),
+    });
+
+    expect(result.activeAgentId).toBe("agent-billing");
+    expect(result.session).toMatchObject({
+      runtime: "gemini-live",
+      model: "gemini-live-billing",
+      activeAgentId: "agent-billing",
+    });
+    expect(result.providerSessionTransition).toMatchObject({
+      requiresReplacement: true,
+      target: {
+        runtime: "gemini-live",
+      },
+      continuation: {
+        instruction: expect.stringContaining("Begin your response with this exact handoff sentence"),
+      },
+    });
+    expect(result.providerSessionTransition).not.toHaveProperty("sourceResponseId");
+    expect(result.providerSessionTransition?.continuation.instruction).not.toContain(
+      "acknowledgement was already spoken",
+    );
+    expect(result.providerMessages).toEqual([]);
+  });
+
   it("refreshes packet tool capabilities after an OpenAI handoff", async () => {
     const service = new RuntimeSessionsService(createLoop());
     const manifest = buildRoutePolicyManifest();
@@ -632,6 +1099,16 @@ describe("RuntimeSessionsService", () => {
           ],
         },
       }),
+    });
+
+    await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: openAiResponseCreated("response-announcement"),
     });
 
     const handoffResult = await service.processProviderMessage({
@@ -717,6 +1194,16 @@ describe("RuntimeSessionsService", () => {
           ],
         },
       }),
+    });
+
+    await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs support ticket help.",
+      packet: basePacket(),
+      rawProviderMessage: openAiResponseCreated("response-announcement"),
     });
 
     const handoffResult = await service.processProviderMessage({
@@ -1247,7 +1734,7 @@ describe("RuntimeSessionsService", () => {
         type: "agent.route.announcement",
       }),
       expect.objectContaining({
-        type: "agent.handoff.completed",
+        type: "agent.handoff.requested",
         payload: expect.objectContaining({
           targetAgentId: "agent-billing",
         }),
@@ -1677,6 +2164,115 @@ function buildGeminiRoutePolicyManifest(): CompiledRuntimeManifest {
       }),
     },
   } as CompiledRuntimeManifest;
+}
+
+function withTargetRealtimeConfig(
+  manifest: CompiledRuntimeManifest,
+  realtimeConfig: Record<string, unknown>,
+): CompiledRuntimeManifest {
+  return withAgentRealtimeConfig(manifest, "agent-billing", realtimeConfig);
+}
+
+function withAgentRealtimeConfig(
+  manifest: CompiledRuntimeManifest,
+  agentId: string,
+  realtimeConfig: Record<string, unknown>,
+): CompiledRuntimeManifest {
+  return {
+    ...manifest,
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) => {
+        if (graphNode.id !== agentId) {
+          return graphNode;
+        }
+
+        const role = graphNode.config["role"] as Record<string, unknown>;
+        return {
+          ...graphNode,
+          config: {
+            ...graphNode.config,
+            role: {
+              ...role,
+              ...realtimeConfig,
+            },
+          },
+        };
+      }),
+    },
+  };
+}
+
+function openAiHandoffMessage(input: {
+  providerCallId: string;
+  responseId?: string;
+  announcementAlreadySpoken: boolean;
+}) {
+  return JSON.stringify({
+    type: "response.done",
+    response: {
+      id: input.responseId ?? `response-${input.providerCallId}`,
+      status: "completed",
+      output: [
+        ...(input.announcementAlreadySpoken
+          ? [{
+              type: "message",
+              content: [{
+                type: "output_text",
+                text: "I'll connect you with Billing specialist.",
+              }],
+            }]
+          : []),
+        {
+          type: "function_call",
+          call_id: input.providerCallId,
+          name: "zara_handoff_to_agent",
+          arguments: JSON.stringify({
+            targetAgentId: "agent-billing",
+            reason: "Caller needs invoice status support.",
+            callerNeedSummary: "Francis wants the status of a pending invoice.",
+          }),
+        },
+      ],
+    },
+  });
+}
+
+function openAiResponseDone(responseId: string, status = "completed") {
+  return JSON.stringify({
+    type: "response.done",
+    response: {
+      id: responseId,
+      status,
+      output: [{
+        type: "message",
+        content: [{
+          type: "output_text",
+          text: "I'll connect you with Billing specialist.",
+        }],
+      }],
+    },
+  });
+}
+
+function openAiResponseCreated(
+  responseId: string,
+  metadata: Record<string, string> = handoffResponseMetadata(),
+) {
+  return JSON.stringify({
+    type: "response.created",
+    response: {
+      id: responseId,
+      status: "in_progress",
+      metadata,
+    },
+  });
+}
+
+function handoffResponseMetadata() {
+  return {
+    zara_handoff_transfer_id: "session-1:turn:1:agent-front:agent-billing",
+  };
 }
 
 function buildRoutePolicyManifestWithFrontDeskTool(): CompiledRuntimeManifest {

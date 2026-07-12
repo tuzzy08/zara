@@ -4958,7 +4958,7 @@ Acceptance criteria:
 - Area: Runtime / Telephony
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-184, ISSUE-185
 - Handover: [docs/Handovers/ISSUE-186-provider-aware-premium-pstn-handoff.md](../docs/Handovers/ISSUE-186-provider-aware-premium-pstn-handoff.md)
 - External: [Linear ZAR-216](https://linear.app/zara-voice/issue/ZAR-216/issue-186-provider-aware-premium-pstn-handoff)

@@ -25,6 +25,7 @@ import {
   type CompiledRuntimeManifest,
   type IntentClassifierOutput,
   type PremiumRealtimeSession,
+  type RealtimeVoiceConfig,
   type RealtimeProviderToolDeclaration,
   type RuntimeAgentRef,
   type ToolExecutionResult,
@@ -54,6 +55,7 @@ const internalHandoffToolName = "zara_handoff_to_agent";
 
 export interface PremiumRealtimeProviderMessageResult extends PremiumRealtimeToolLoopResult {
   session?: PremiumRealtimeSession | undefined;
+  providerSessionTransition?: PremiumRealtimeProviderSessionTransition | undefined;
   activeAgentId?: string | undefined;
   routeEvents?: LiveSandboxRouteEvent[] | undefined;
   transcript?: string | undefined;
@@ -103,6 +105,9 @@ interface PendingOpenAiHandoffContinuation {
   packet: TurnRuntimePacket;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
+  providerSessionTransition: PremiumRealtimeProviderSessionTransition;
+  expectedSourceResponseMetadata: Record<string, string>;
+  expectedSourceResponseId?: string | undefined;
 }
 
 interface PremiumRealtimeTransportTokenRecord {
@@ -322,17 +327,50 @@ export class RuntimeSessionsService {
       tools: input.session.toolDeclarations,
     });
     const pendingOpenAiHandoffContinuation = this.pendingOpenAiHandoffContinuations.get(input.sessionId);
-    const responseDoneStatus = parseOpenAiResponseDoneStatus(input.rawProviderMessage);
-    if (pendingOpenAiHandoffContinuation !== undefined && responseDoneStatus !== undefined) {
-      this.pendingOpenAiHandoffContinuations.delete(input.sessionId);
-      if (responseDoneStatus === "completed") {
-        return Promise.resolve(completePendingOpenAiHandoffContinuation(pendingOpenAiHandoffContinuation));
+    const responseCreated = parseOpenAiResponseCreated(input.rawProviderMessage);
+    if (pendingOpenAiHandoffContinuation !== undefined && responseCreated !== undefined) {
+      if (
+        pendingOpenAiHandoffContinuation.expectedSourceResponseId === undefined
+        && responseMetadataMatches(
+          responseCreated.metadata,
+          pendingOpenAiHandoffContinuation.expectedSourceResponseMetadata,
+        )
+      ) {
+        this.pendingOpenAiHandoffContinuations.set(input.sessionId, {
+          ...pendingOpenAiHandoffContinuation,
+          expectedSourceResponseId: responseCreated.responseId,
+        });
       }
-
       return Promise.resolve({
         packet: input.packet,
         providerMessages: [],
       });
+    }
+    const responseDoneStatus = parseOpenAiResponseDoneStatus(input.rawProviderMessage);
+    const responseDoneId = parseOpenAiResponseIdByType(input.rawProviderMessage, "response.done");
+    if (
+      pendingOpenAiHandoffContinuation !== undefined
+      && pendingOpenAiHandoffContinuation.expectedSourceResponseId !== undefined
+      && responseDoneId === pendingOpenAiHandoffContinuation.expectedSourceResponseId
+      && responseDoneStatus !== undefined
+    ) {
+      this.pendingOpenAiHandoffContinuations.delete(input.sessionId);
+      if (responseDoneStatus === "completed") {
+        return Promise.resolve(completePendingOpenAiHandoffContinuation(
+          pendingOpenAiHandoffContinuation,
+          {
+            sourceResponseId: responseDoneId,
+            handoffAnnouncementAlreadySpoken: true,
+          },
+        ));
+      }
+
+      return Promise.resolve(completePendingOpenAiHandoffContinuation(
+        pendingOpenAiHandoffContinuation,
+        {
+          handoffAnnouncementAlreadySpoken: false,
+        },
+      ));
     }
 
     const handoffToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
@@ -375,7 +413,20 @@ export class RuntimeSessionsService {
       at: input.at,
       handoffArguments: input.handoffArguments,
     });
-    const nextSession = {
+    const targetSessionResolution = resolvePremiumRealtimeHandoffTargetSession({
+      manifest,
+      sourceSession: input.session,
+      sourceAgentId: input.activeAgentId,
+      targetAgentId: routeResult.activeAgentId,
+      routeEvents: routeResult.routeEvents,
+      output: routeResult.output,
+      at: input.at,
+      handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken === true,
+      ...(input.provider === "openai-realtime" && input.handoffAnnouncementAlreadySpoken === true
+        ? { sourceResponseId: parseOpenAiResponseId(input.rawProviderMessage) }
+        : {}),
+    });
+    const nextSession = targetSessionResolution?.session ?? {
       ...input.session,
       activeAgentId: routeResult.activeAgentId,
       toolDeclarations: buildPremiumRealtimeToolDeclarations({
@@ -383,17 +434,20 @@ export class RuntimeSessionsService {
         activeAgentId: routeResult.activeAgentId,
       }),
     };
-    const providerMessages = buildProviderHandoffToolMessages({
-      provider: input.provider,
-      adapter: input.adapter,
-      manifest,
-      session: nextSession,
-      activeAgentId: routeResult.activeAgentId,
-      providerCallId: input.providerCallId,
-      routeEvents: routeResult.routeEvents,
-      output: routeResult.output,
-      handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken === true,
-    });
+    const providerMessages = targetSessionResolution !== undefined
+      && input.provider !== nextSession.runtime
+      ? []
+      : buildProviderHandoffToolMessages({
+          provider: input.provider,
+          adapter: input.adapter,
+          manifest,
+          session: nextSession,
+          activeAgentId: routeResult.activeAgentId,
+          providerCallId: input.providerCallId,
+          routeEvents: routeResult.routeEvents,
+          output: routeResult.output,
+          handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken === true,
+        });
     const handoffAnnouncementText = resolveHandoffContinuationAnnouncementText({
       routeEvents: routeResult.routeEvents,
       output: routeResult.output,
@@ -404,7 +458,11 @@ export class RuntimeSessionsService {
       && routeResult.routeEvents.length > 0
       && input.handoffAnnouncementAlreadySpoken !== true
       && handoffAnnouncementText !== undefined
+      && targetSessionResolution !== undefined
     ) {
+      const expectedSourceResponseMetadata = createHandoffResponseMetadata(
+        targetSessionResolution.transition.transfer.id,
+      );
       this.pendingOpenAiHandoffContinuations.set(input.sessionId, {
         manifest,
         session: nextSession,
@@ -412,6 +470,8 @@ export class RuntimeSessionsService {
         packet: routeResult.packet,
         routeEvents: routeResult.routeEvents,
         output: routeResult.output,
+        providerSessionTransition: targetSessionResolution.transition,
+        expectedSourceResponseMetadata,
       });
       return {
         packet: input.packet,
@@ -423,6 +483,7 @@ export class RuntimeSessionsService {
           }),
           (input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage({
             instructions: buildSourceHandoffAnnouncementResponseInstructions(handoffAnnouncementText),
+            metadata: expectedSourceResponseMetadata,
           }),
         ],
       };
@@ -430,6 +491,9 @@ export class RuntimeSessionsService {
 
     return {
       session: nextSession,
+      ...(targetSessionResolution !== undefined
+        ? { providerSessionTransition: targetSessionResolution.transition }
+        : {}),
       activeAgentId: routeResult.activeAgentId,
       packet: routeResult.packet,
       routeEvents: routeResult.routeEvents,
@@ -447,6 +511,32 @@ function buildPremiumRealtimeToolDeclarations(input: {
     manifest: withPremiumRealtimeConnectorToolSchemas(input.manifest),
     activeAgentId: input.activeAgentId,
   });
+}
+
+export interface PremiumRealtimeProviderSessionTransition {
+  requiresReplacement: boolean;
+  sourceResponseId?: string | undefined;
+  source: {
+    agentId: string;
+    runtime: PremiumRealtimeSession["runtime"];
+    model: string;
+    realtimeVoiceConfig?: RealtimeVoiceConfig | undefined;
+  };
+  target: {
+    agentId: string;
+    runtime: PremiumRealtimeSession["runtime"];
+    model: string;
+    realtimeVoiceConfig?: RealtimeVoiceConfig | undefined;
+    toolDeclarations: RealtimeProviderToolDeclaration[];
+  };
+  transfer: {
+    id: string;
+    reason: string;
+    callerNeedSummary: string;
+  };
+  continuation: {
+    instruction: string;
+  };
 }
 
 function withPremiumRealtimeConnectorToolSchemas(
@@ -774,20 +864,39 @@ function buildProviderHandoffToolMessages(input: {
 
 function completePendingOpenAiHandoffContinuation(
   pending: PendingOpenAiHandoffContinuation,
+  input: {
+    sourceResponseId?: string | undefined;
+    handoffAnnouncementAlreadySpoken: boolean;
+  },
 ): PremiumRealtimeProviderMessageResult {
+  const providerSessionTransition = {
+    ...pending.providerSessionTransition,
+    ...(input.sourceResponseId !== undefined ? { sourceResponseId: input.sourceResponseId } : {}),
+    continuation: {
+      instruction: buildHandoffContinuationResponseInstructions({
+        activeAgentName: resolveRuntimeAgent(pending.manifest, pending.activeAgentId)?.name,
+        routeEvents: pending.routeEvents,
+        output: pending.output,
+        handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
+      }),
+    },
+  };
   return {
     session: pending.session,
+    providerSessionTransition,
     activeAgentId: pending.activeAgentId,
     packet: pending.packet,
     routeEvents: pending.routeEvents,
-    providerMessages: buildOpenAiPreResponseMessages({
-      manifest: pending.manifest,
-      session: pending.session,
-      activeAgentId: pending.activeAgentId,
-      routeEvents: pending.routeEvents,
-      output: pending.output,
-      handoffAnnouncementAlreadySpoken: true,
-    }),
+    providerMessages: providerSessionTransition.source.runtime === providerSessionTransition.target.runtime
+      ? buildOpenAiPreResponseMessages({
+          manifest: pending.manifest,
+          session: pending.session,
+          activeAgentId: pending.activeAgentId,
+          routeEvents: pending.routeEvents,
+          output: pending.output,
+          handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
+        })
+      : [],
   };
 }
 
@@ -1182,6 +1291,182 @@ function createInitialPremiumRealtimePacket(input: {
       events: [],
     },
   };
+}
+
+function parseOpenAiResponseId(rawProviderMessage: string): string | undefined {
+  const responseId = parseRecordValue(parseJsonRecord(rawProviderMessage)?.response)?.id;
+  return typeof responseId === "string" && responseId.trim().length > 0
+    ? responseId.trim()
+    : undefined;
+}
+
+function parseOpenAiResponseIdByType(
+  rawProviderMessage: string,
+  expectedType: "response.created" | "response.done",
+): string | undefined {
+  const payload = parseJsonRecord(rawProviderMessage);
+  return payload?.type === expectedType ? parseOpenAiResponseId(rawProviderMessage) : undefined;
+}
+
+function parseOpenAiResponseCreated(rawProviderMessage: string): {
+  responseId: string;
+  metadata: Record<string, string>;
+} | undefined {
+  const payload = parseJsonRecord(rawProviderMessage);
+  if (payload?.type !== "response.created") {
+    return undefined;
+  }
+  const response = parseRecordValue(payload.response);
+  if (response === undefined) {
+    return undefined;
+  }
+  const responseId = response.id;
+  if (typeof responseId !== "string" || responseId.trim().length === 0) {
+    return undefined;
+  }
+  const metadataRecord = parseRecordValue(response.metadata);
+  const metadata = metadataRecord === undefined
+    ? {}
+    : Object.fromEntries(
+        Object.entries(metadataRecord).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      );
+  return { responseId: responseId.trim(), metadata };
+}
+
+function responseMetadataMatches(
+  actual: Record<string, string>,
+  expected: Record<string, string>,
+) {
+  const expectedEntries = Object.entries(expected);
+  return Object.keys(actual).length === expectedEntries.length
+    && expectedEntries.every(([key, value]) => actual[key] === value);
+}
+
+function createHandoffResponseMetadata(transferId: string) {
+  return {
+    zara_handoff_transfer_id: transferId.slice(0, 512),
+  };
+}
+
+function resolvePremiumRealtimeHandoffTargetSession(input: {
+  manifest: CompiledRuntimeManifest;
+  sourceSession: PremiumRealtimeSession;
+  sourceAgentId: string;
+  targetAgentId: string;
+  routeEvents: LiveSandboxRouteEvent[];
+  output: Record<string, unknown>;
+  at: string;
+  handoffAnnouncementAlreadySpoken: boolean;
+  sourceResponseId?: string | undefined;
+}): {
+  session: PremiumRealtimeSession;
+  transition: PremiumRealtimeProviderSessionTransition;
+} | undefined {
+  if (input.output.status !== "completed") {
+    return undefined;
+  }
+
+  const sourceAgent = resolveRuntimeAgent(input.manifest, input.sourceAgentId);
+  const targetAgent = resolveRuntimeAgent(input.manifest, input.targetAgentId);
+  const transferEvent = input.routeEvents.find((event) => event.type === "agent.handoff.requested");
+  if (sourceAgent === undefined || targetAgent === undefined || transferEvent?.type !== "agent.handoff.requested") {
+    return undefined;
+  }
+
+  const targetToolDeclarations = buildPremiumRealtimeToolDeclarations({
+    manifest: input.manifest,
+    activeAgentId: targetAgent.agentId,
+  });
+  const resolvedTargetSession = createPremiumRealtimeSession({
+    manifest: input.manifest,
+    activeAgentId: targetAgent.agentId,
+    budgetAllowed: true,
+    defaultGeminiLiveModel: resolveLiveSandboxProviderConfig(process.env).geminiLiveModel,
+    now: () => input.at,
+  });
+  const session: PremiumRealtimeSession = {
+    ...resolvedTargetSession,
+    sessionId: input.sourceSession.sessionId,
+    manifestId: input.sourceSession.manifestId,
+    publishedVersionId: input.sourceSession.publishedVersionId,
+    transportUrl: input.sourceSession.transportUrl,
+    ...(input.sourceSession.transportToken !== undefined
+      ? { transportToken: input.sourceSession.transportToken }
+      : {}),
+    expiresAt: input.sourceSession.expiresAt,
+    toolDeclarations: targetToolDeclarations,
+    observedEventTypes: input.sourceSession.observedEventTypes,
+  };
+  const sourceRealtimeVoiceConfig = cloneRealtimeVoiceConfig(sourceAgent.realtimeVoiceConfig);
+  const targetRealtimeVoiceConfig = cloneRealtimeVoiceConfig(targetAgent.realtimeVoiceConfig);
+
+  return {
+    session,
+    transition: {
+      requiresReplacement: session.runtime === "gemini-live"
+        || input.sourceSession.runtime !== session.runtime
+        || input.sourceSession.model !== session.model
+        || !realtimeVoiceConfigsEqual(sourceRealtimeVoiceConfig, targetRealtimeVoiceConfig),
+      ...(input.sourceResponseId !== undefined ? { sourceResponseId: input.sourceResponseId } : {}),
+      source: {
+        agentId: sourceAgent.agentId,
+        runtime: input.sourceSession.runtime,
+        model: input.sourceSession.model,
+        ...(sourceRealtimeVoiceConfig !== undefined
+          ? { realtimeVoiceConfig: sourceRealtimeVoiceConfig }
+          : {}),
+      },
+      target: {
+        agentId: targetAgent.agentId,
+        runtime: session.runtime,
+        model: session.model,
+        ...(targetRealtimeVoiceConfig !== undefined
+          ? { realtimeVoiceConfig: targetRealtimeVoiceConfig }
+          : {}),
+        toolDeclarations: targetToolDeclarations,
+      },
+      transfer: {
+        id: transferEvent.payload.transferId as string,
+        reason: transferEvent.payload.reason as string,
+        callerNeedSummary: input.output.callerNeedSummary as string,
+      },
+      continuation: {
+        instruction: buildHandoffContinuationResponseInstructions({
+          activeAgentName: targetAgent.name,
+          routeEvents: input.routeEvents,
+          output: input.output,
+          handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
+        }),
+      },
+    },
+  };
+}
+
+function cloneRealtimeVoiceConfig(
+  config: RealtimeVoiceConfig | undefined,
+): RealtimeVoiceConfig | undefined {
+  return config === undefined ? undefined : { ...config };
+}
+
+function realtimeVoiceConfigsEqual(
+  source: RealtimeVoiceConfig | undefined,
+  target: RealtimeVoiceConfig | undefined,
+) {
+  if (source === undefined || target === undefined) {
+    return source === target;
+  }
+  if (source.provider !== target.provider) {
+    return false;
+  }
+  if (source.provider === "openai-realtime" && target.provider === "openai-realtime") {
+    return source.voice === target.voice && source.speed === target.speed;
+  }
+
+  return source.provider === "gemini-live"
+    && target.provider === "gemini-live"
+    && source.voiceName === target.voiceName;
 }
 
 function withPremiumRealtimeAgentCapabilities(

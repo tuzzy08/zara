@@ -29,8 +29,12 @@ const maxStartupBytes = 16 * 1_024;
 export class PstnPremiumCallActor {
   private state: PstnPremiumCallActorState = "initializing";
   private readonly startupMedia: StartupMedia[] = [];
+  private readonly handoffMedia: StartupMedia[] = [];
   private startupDurationMs = 0;
   private startupBytes = 0;
+  private handoffDurationMs = 0;
+  private handoffBytes = 0;
+  private provider: PstnPremiumCallActorProvider;
   private readinessTimer: ReturnType<typeof setTimeout> | undefined;
   private stopPromise: Promise<void> | undefined;
   private started = false;
@@ -46,7 +50,9 @@ export class PstnPremiumCallActor {
     drainTimeoutMs?: number | undefined;
     readinessTimeoutMs?: number | undefined;
     providerBufferedByteLimit?: number | undefined;
-  }) {}
+  }) {
+    this.provider = input.provider;
+  }
 
   start() {
     if (this.started) {
@@ -59,6 +65,40 @@ export class PstnPremiumCallActor {
 
   getState() {
     return this.state;
+  }
+
+  beginHandoff() {
+    if (this.state === "handing_off") {
+      return;
+    }
+    if (this.state !== "active") {
+      throw new Error(`Premium PSTN call '${this.input.callSessionId}' cannot begin handoff from '${this.state}'.`);
+    }
+    this.state = "handing_off";
+  }
+
+  completeHandoff(provider: PstnPremiumCallActorProvider) {
+    if (this.state === "active") {
+      return;
+    }
+    if (this.state !== "handing_off") {
+      throw new Error(`Premium PSTN call '${this.input.callSessionId}' cannot complete handoff from '${this.state}'.`);
+    }
+    this.provider = provider;
+    while (this.handoffMedia.length > 0 && this.state === "handing_off") {
+      const media = this.handoffMedia.shift();
+      if (media === undefined) {
+        break;
+      }
+      this.handoffDurationMs -= media.durationMs;
+      this.handoffBytes -= media.byteLength;
+      this.sendToProvider(media.message);
+    }
+    if (this.state === "handing_off") {
+      this.state = "active";
+      this.handoffDurationMs = 0;
+      this.handoffBytes = 0;
+    }
   }
 
   appendInbound(media: StartupMedia) {
@@ -74,6 +114,21 @@ export class PstnPremiumCallActor {
       this.startupMedia.push(media);
       this.startupDurationMs += media.durationMs;
       this.startupBytes += media.byteLength;
+      return;
+    }
+
+    if (this.state === "handing_off") {
+      if (
+        this.handoffDurationMs + media.durationMs > maxStartupDurationMs
+        || this.handoffBytes + media.byteLength > maxStartupBytes
+      ) {
+        const reason = "premium_handoff_overflow";
+        this.fail(reason);
+        throw new Error(reason);
+      }
+      this.handoffMedia.push(media);
+      this.handoffDurationMs += media.durationMs;
+      this.handoffBytes += media.byteLength;
       return;
     }
 
@@ -98,6 +153,7 @@ export class PstnPremiumCallActor {
 
     this.state = "failed";
     this.clearStartupMedia();
+    this.clearHandoffMedia();
     this.clearReadinessTimer();
     void Promise.resolve(this.input.terminateRuntime()).catch(() => undefined);
     this.closeLegs(1011, reason);
@@ -114,6 +170,7 @@ export class PstnPremiumCallActor {
 
     this.state = "draining";
     this.clearStartupMedia();
+    this.clearHandoffMedia();
     this.clearReadinessTimer();
     this.stopPromise = this.drainAndStop(reason);
     return this.stopPromise;
@@ -164,6 +221,12 @@ export class PstnPremiumCallActor {
     this.startupBytes = 0;
   }
 
+  private clearHandoffMedia() {
+    this.handoffMedia.length = 0;
+    this.handoffDurationMs = 0;
+    this.handoffBytes = 0;
+  }
+
   private clearReadinessTimer() {
     if (this.readinessTimer !== undefined) {
       clearTimeout(this.readinessTimer);
@@ -173,14 +236,14 @@ export class PstnPremiumCallActor {
 
   private sendToProvider(message: Record<string, unknown>) {
     const limit = this.input.providerBufferedByteLimit ?? defaultProviderBufferedByteLimit;
-    if (this.input.provider.getBufferedAmountBytes() > limit) {
+    if (this.provider.getBufferedAmountBytes() > limit) {
       this.failAndThrowCongestion();
     }
 
-    const reportedBufferedAmount = this.input.provider.send(message);
+    const reportedBufferedAmount = this.provider.send(message);
     const bufferedAmount = typeof reportedBufferedAmount === "number"
       ? reportedBufferedAmount
-      : this.input.provider.getBufferedAmountBytes();
+      : this.provider.getBufferedAmountBytes();
     if (bufferedAmount > limit) {
       this.failAndThrowCongestion();
     }
@@ -230,7 +293,7 @@ export class PstnPremiumCallActor {
       // Continue closing the provider leg when the caller socket is already broken.
     }
     try {
-      this.input.provider.close(code, reason);
+      this.provider.close(code, reason);
     } catch {
       // Terminal state cannot depend on provider close succeeding.
     }

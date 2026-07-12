@@ -16,6 +16,8 @@ import {
 } from "../runtime-sessions/premium-realtime-provider-transport";
 import {
   RuntimeSessionsService,
+  type PremiumRealtimeProviderMessageResult,
+  type PremiumRealtimeProviderSessionTransition,
   type RegisteredPremiumRealtimeSession,
 } from "../runtime-sessions/runtime-sessions.service";
 import { WorkflowsService } from "../workflows/workflows.service";
@@ -41,6 +43,10 @@ interface ActivePremiumCallExecution {
   output: PstnPremiumCallOutput;
   registered: RegisteredPremiumRealtimeSession;
   providerConnection: PremiumRealtimeProviderConnection;
+  providerEpoch: number;
+  inboundRuntime: RegisteredPremiumRealtimeSession["session"]["runtime"];
+  pendingProviderTransition?: PendingProviderTransition | undefined;
+  completedPlaybackResponseIds: Set<string>;
   actor: PstnPremiumCallActor;
   playback: PstnPremiumPlaybackController;
   providerMessages: Promise<void>;
@@ -49,8 +55,19 @@ interface ActivePremiumCallExecution {
   outboundSequence: number;
 }
 
+interface PendingProviderTransition {
+  epoch: number;
+  result: PremiumRealtimeProviderMessageResult;
+  transition: PremiumRealtimeProviderSessionTransition;
+  replacing: boolean;
+  replacementConnection?: PremiumRealtimeProviderConnection | undefined;
+  deadline?: ReturnType<typeof setTimeout> | undefined;
+}
+
 const maxPendingProviderMessageBytes = 64 * 1_024;
 const maxPendingProviderMessageCount = 256;
+const completedPlaybackResponseLimit = 64;
+const providerHandoffTimeoutMs = 5_000;
 
 interface StartPremiumCallExecutionInput {
   organizationId: string;
@@ -175,6 +192,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       onTerminal: () => {
         const installed = this.executions.get(input.callSessionId);
         if (installed?.actor === actor) {
+          this.clearProviderTransition(installed, "provider_handoff_cancelled");
           this.executions.delete(input.callSessionId);
         }
       },
@@ -183,6 +201,9 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       ...input,
       registered,
       providerConnection,
+      providerEpoch: 0,
+      inboundRuntime: registered.session.runtime,
+      completedPlaybackResponseIds: new Set(),
       actor,
       playback: new PstnPremiumPlaybackController({
         sendFrame: (frame) => {
@@ -199,6 +220,9 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         },
         sendMark: (name) => input.output.sendMark(name),
         clear: () => input.output.clearAudio(),
+        onResponseCompleted: ({ responseId }) => {
+          this.recordCompletedPlaybackResponse(execution, responseId);
+        },
       }),
       providerMessages: Promise.resolve(),
       pendingProviderMessageBytes: 0,
@@ -206,7 +230,19 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       outboundSequence: 0,
     };
     this.executions.set(input.callSessionId, execution);
+    this.bindProviderConnection(execution, providerConnection, execution.providerEpoch);
+    await actor.start();
+  }
+
+  private bindProviderConnection(
+    execution: ActivePremiumCallExecution,
+    providerConnection: PremiumRealtimeProviderConnection,
+    providerEpoch: number,
+  ) {
     providerConnection.onMessage((message) => {
+      if (!this.isCurrentProviderLeg(execution, providerEpoch)) {
+        return;
+      }
       const messageBytes = Buffer.byteLength(message, "utf8");
       if (
         execution.pendingProviderMessageBytes + messageBytes > maxPendingProviderMessageBytes
@@ -219,8 +255,8 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       execution.pendingProviderMessageCount += 1;
       execution.providerMessages = execution.providerMessages
         .then(async () => {
-          if (this.executions.get(input.callSessionId) === execution) {
-            await this.handleProviderMessage(execution, message);
+          if (this.isCurrentProviderLeg(execution, providerEpoch)) {
+            await this.handleProviderMessage(execution, message, providerEpoch);
           }
         })
         .catch((error: unknown) => {
@@ -238,12 +274,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         });
     });
     providerConnection.onClose(() => {
-      if (this.executions.get(input.callSessionId) !== execution) {
+      if (!this.isCurrentProviderLeg(execution, providerEpoch)) {
         return;
       }
       this.failExecution(execution, "premium_provider_closed");
     });
-    await actor.start();
   }
 
   async appendInboundFrame(input: { callSessionId: string; frame: PstnAudioFrame }) {
@@ -258,13 +293,13 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       throw new Error("Premium PSTN execution accepts only inbound G.711 mu-law 8 kHz mono frames for its active stream.");
     }
 
-    const targetSampleRateHz = execution.registered.session.runtime === "gemini-live" ? 16_000 : 24_000;
+    const targetSampleRateHz = execution.inboundRuntime === "gemini-live" ? 16_000 : 24_000;
     const pcm16 = resamplePcm16(
       decodeMuLawBase64(input.frame.payloadBase64),
       8_000,
       targetSampleRateHz,
     );
-    const providerMessage = execution.registered.session.runtime === "gemini-live"
+    const providerMessage = execution.inboundRuntime === "gemini-live"
         ? {
             realtimeInput: {
               audio: {
@@ -298,6 +333,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     }
 
     await execution.actor.stop("pstn_stream_stopped");
+    this.clearProviderTransition(execution, "pstn_stream_stopped");
     if (this.executions.get(input.callSessionId) === execution) {
       this.executions.delete(input.callSessionId);
     }
@@ -323,6 +359,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       return;
     }
 
+    this.clearProviderTransition(execution, reason);
     execution.actor.fail(reason);
     if (execution.actor.getState() !== "failed") {
       return;
@@ -337,7 +374,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     })}`);
   }
 
-  private async handleProviderMessage(execution: ActivePremiumCallExecution, rawProviderMessage: string) {
+  private async handleProviderMessage(
+    execution: ActivePremiumCallExecution,
+    rawProviderMessage: string,
+    providerEpoch: number,
+  ) {
     const registered = execution.registered;
     const result = await this.runtimeSessionsService.processProviderMessage({
       organizationId: registered.organizationId,
@@ -352,11 +393,36 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       rawProviderMessage,
       at: new Date().toISOString(),
     });
-    if (this.executions.get(execution.callSessionId) !== execution) {
+    if (!this.isCurrentProviderLeg(execution, providerEpoch)) {
       return;
     }
+
+    for (const event of parseProviderEvents(registered, rawProviderMessage)) {
+      await this.projectProviderEvent(execution, event);
+      if (!this.isCurrentProviderLeg(execution, providerEpoch)) {
+        return;
+      }
+    }
+
+    if (result.providerSessionTransition?.requiresReplacement === true) {
+      this.beginProviderTransition(execution, result, result.providerSessionTransition);
+      return;
+    }
+
+    this.applyProviderMessageResult(execution, result);
+    for (const providerMessage of result.providerMessages) {
+      execution.actor.sendProviderMessage(providerMessage);
+    }
+  }
+
+  private applyProviderMessageResult(
+    execution: ActivePremiumCallExecution,
+    result: PremiumRealtimeProviderMessageResult,
+  ) {
+    const registered = execution.registered;
     if (result.session !== undefined) {
       registered.session = result.session;
+      execution.inboundRuntime = result.session.runtime;
     }
     if (result.activeAgentId !== undefined) {
       registered.activeAgentId = result.activeAgentId;
@@ -372,13 +438,158 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       ...(result.transcript !== undefined ? { transcript: result.transcript } : {}),
       packet: result.packet,
     });
+  }
 
-    for (const providerMessage of result.providerMessages) {
-      execution.actor.sendProviderMessage(providerMessage);
+  private beginProviderTransition(
+    execution: ActivePremiumCallExecution,
+    result: PremiumRealtimeProviderMessageResult,
+    transition: PremiumRealtimeProviderSessionTransition,
+  ) {
+    if (execution.pendingProviderTransition !== undefined) {
+      return;
+    }
+    execution.actor.beginHandoff();
+    execution.providerEpoch += 1;
+    execution.inboundRuntime = transition.target.runtime;
+    const pending: PendingProviderTransition = {
+      epoch: execution.providerEpoch,
+      result,
+      transition,
+      replacing: false,
+    };
+    pending.deadline = setTimeout(() => {
+      if (execution.pendingProviderTransition === pending) {
+        this.failExecution(execution, "premium_provider_handoff_timeout");
+      }
+    }, providerHandoffTimeoutMs);
+    execution.pendingProviderTransition = pending;
+
+    if (
+      transition.sourceResponseId === undefined
+      || execution.completedPlaybackResponseIds.has(transition.sourceResponseId)
+    ) {
+      void this.replaceProviderSession(execution, pending);
+    }
+  }
+
+  private recordCompletedPlaybackResponse(
+    execution: ActivePremiumCallExecution,
+    responseId: string,
+  ) {
+    execution.completedPlaybackResponseIds.delete(responseId);
+    execution.completedPlaybackResponseIds.add(responseId);
+    if (execution.completedPlaybackResponseIds.size > completedPlaybackResponseLimit) {
+      const oldest = execution.completedPlaybackResponseIds.values().next().value as string | undefined;
+      if (oldest !== undefined) {
+        execution.completedPlaybackResponseIds.delete(oldest);
+      }
     }
 
-    for (const event of parseProviderEvents(registered, rawProviderMessage)) {
-      await this.projectProviderEvent(execution, event);
+    const pending = execution.pendingProviderTransition;
+    if (pending?.transition.sourceResponseId === responseId) {
+      void this.replaceProviderSession(execution, pending);
+    }
+  }
+
+  private async replaceProviderSession(
+    execution: ActivePremiumCallExecution,
+    pending: PendingProviderTransition,
+  ) {
+    if (
+      pending.replacing
+      || execution.pendingProviderTransition !== pending
+      || this.executions.get(execution.callSessionId) !== execution
+    ) {
+      return;
+    }
+    pending.replacing = true;
+    const targetSession = pending.result.session;
+    if (targetSession === undefined) {
+      this.failExecution(execution, "premium_provider_handoff_failed", new Error("Target provider session is missing."));
+      return;
+    }
+
+    let replacement: PremiumRealtimeProviderConnection | undefined;
+    try {
+      replacement = await this.providerTransport.connect({
+        organizationId: execution.registered.organizationId,
+        workspaceId: execution.registered.workspaceId,
+        actorUserId: execution.registered.actorUserId,
+        session: targetSession,
+        manifest: execution.registered.manifest,
+        mediaProfile: "pstn",
+      });
+      if (
+        this.executions.get(execution.callSessionId) !== execution
+        || execution.pendingProviderTransition !== pending
+        || execution.providerEpoch !== pending.epoch
+      ) {
+        replacement.close(1000, "provider_handoff_cancelled");
+        return;
+      }
+      pending.replacementConnection = replacement;
+      await replacement.waitUntilReady();
+      if (
+        this.executions.get(execution.callSessionId) !== execution
+        || execution.pendingProviderTransition !== pending
+        || execution.providerEpoch !== pending.epoch
+      ) {
+        replacement.close(1000, "provider_handoff_cancelled");
+        return;
+      }
+
+      const sourceConnection = execution.providerConnection;
+      execution.providerConnection = replacement;
+      this.applyProviderMessageResult(execution, pending.result);
+      this.bindProviderConnection(execution, replacement, pending.epoch);
+      replacement.send(buildProviderContinuationMessage(pending.transition));
+      pending.replacementConnection = undefined;
+      execution.actor.completeHandoff(adaptProviderConnection(replacement));
+      this.clearProviderTransition(execution);
+      execution.pendingProviderTransition = undefined;
+      sourceConnection.close(1000, "provider_agent_handoff");
+      this.logger.log(`[twilio-pstn] agent.handoff.completed ${JSON.stringify({
+        organizationId: execution.organizationId,
+        dispatchId: execution.dispatchId,
+        callSessionId: execution.callSessionId,
+        transferId: pending.transition.transfer.id,
+        sourceAgentId: pending.transition.source.agentId,
+        targetAgentId: pending.transition.target.agentId,
+        sourceRuntime: pending.transition.source.runtime,
+        targetRuntime: pending.transition.target.runtime,
+      })}`);
+    } catch (error) {
+      if (replacement !== undefined) {
+        if (pending.replacementConnection === replacement) {
+          pending.replacementConnection = undefined;
+        }
+        replacement.close(1011, "premium_provider_handoff_failed");
+      }
+      this.failExecution(execution, "premium_provider_handoff_failed", error);
+    }
+  }
+
+  private isCurrentProviderLeg(
+    execution: ActivePremiumCallExecution,
+    providerEpoch: number,
+  ) {
+    return this.executions.get(execution.callSessionId) === execution
+      && execution.providerEpoch === providerEpoch;
+  }
+
+  private clearProviderTransition(
+    execution: ActivePremiumCallExecution,
+    closeReason?: string | undefined,
+  ) {
+    const pending = execution.pendingProviderTransition;
+    if (pending !== undefined && pending.deadline !== undefined) {
+      clearTimeout(pending.deadline);
+      pending.deadline = undefined;
+    }
+    if (closeReason !== undefined && pending !== undefined && pending.replacementConnection !== undefined) {
+      const replacement = pending.replacementConnection;
+      pending.replacementConnection = undefined;
+      replacement.close(1011, closeReason);
     }
   }
 
@@ -501,6 +712,27 @@ function parseProviderEvents(
         systemPrompt: "",
         tools: registered.session.toolDeclarations,
       }).parseServerMessage(rawProviderMessage);
+}
+
+function buildProviderContinuationMessage(
+  transition: PremiumRealtimeProviderSessionTransition,
+): Record<string, unknown> {
+  if (transition.target.runtime === "gemini-live") {
+    return new GeminiLiveRealtimeAdapter({
+      apiKey: "server-owned-provider-session",
+      model: transition.target.model,
+      systemPrompt: "",
+      tools: transition.target.toolDeclarations,
+    }).createTextInputMessage(transition.continuation.instruction);
+  }
+
+  return new OpenAiRealtimeAdapter({
+    model: transition.target.model,
+    systemPrompt: "",
+    tools: transition.target.toolDeclarations,
+  }).createResponseCreateMessage({
+    instructions: transition.continuation.instruction,
+  });
 }
 
 function isInterruptionEvent(event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent) {

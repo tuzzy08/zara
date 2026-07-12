@@ -195,6 +195,215 @@ describe("PstnPremiumCallActor", () => {
     expect(postSend.callerCloses).toEqual(["premium_provider_congested"]);
   });
 
+  it("buffers inbound media during handoff and flushes it through the replacement provider", async () => {
+    const originalSent: number[] = [];
+    const replacementSent: number[] = [];
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-handoff",
+      provider: {
+        waitUntilReady: () => Promise.resolve(),
+        getBufferedAmountBytes: () => 0,
+        send(message) { originalSent.push(message.sequence as number); return 0; },
+        close() {},
+      },
+      terminateRuntime() {},
+      closeCaller() {},
+    });
+    await actor.start();
+    await waitFor(() => actor.getState() === "active");
+
+    actor.beginHandoff();
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, byteLength: 160 });
+
+    expect(actor.getState()).toBe("handing_off");
+    expect(originalSent).toEqual([]);
+
+    actor.completeHandoff({
+      waitUntilReady: () => Promise.resolve(),
+      getBufferedAmountBytes: () => 0,
+      send(message) { replacementSent.push(message.sequence as number); return 0; },
+      close() {},
+    });
+
+    expect(actor.getState()).toBe("active");
+    expect(replacementSent).toEqual([1, 2]);
+  });
+
+  it("fails both call legs when handoff media exceeds the startup bounds", async () => {
+    const runtimeTerminations: string[] = [];
+    const callerCloses: string[] = [];
+    const providerCloses: string[] = [];
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-handoff-overflow",
+      provider: {
+        waitUntilReady: () => Promise.resolve(),
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close(_code, reason) { providerCloses.push(reason ?? ""); },
+      },
+      terminateRuntime() { runtimeTerminations.push("runtime"); },
+      closeCaller(_code, reason) { callerCloses.push(reason); },
+    });
+    await actor.start();
+    await waitFor(() => actor.getState() === "active");
+    actor.beginHandoff();
+    for (let sequence = 1; sequence <= 50; sequence += 1) {
+      actor.appendInbound({ message: { sequence }, durationMs: 20, byteLength: 160 });
+    }
+
+    expect(() => actor.appendInbound({
+      message: { sequence: 51 }, durationMs: 20, byteLength: 160,
+    })).toThrow("premium_handoff_overflow");
+
+    expect(actor.getState()).toBe("failed");
+    expect(runtimeTerminations).toEqual(["runtime"]);
+    expect(callerCloses).toEqual(["premium_handoff_overflow"]);
+    expect(providerCloses).toEqual(["premium_handoff_overflow"]);
+  });
+
+  it("fails handoff when buffered media exceeds the startup byte bound", async () => {
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-handoff-byte-overflow",
+      provider: {
+        waitUntilReady: () => Promise.resolve(),
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close() {},
+      },
+      terminateRuntime() {},
+      closeCaller() {},
+    });
+    await actor.start();
+    await waitFor(() => actor.getState() === "active");
+    actor.beginHandoff();
+
+    expect(() => actor.appendInbound({
+      message: { sequence: 1 }, durationMs: 20, byteLength: 16_385,
+    })).toThrow("premium_handoff_overflow");
+    expect(actor.getState()).toBe("failed");
+  });
+
+  it("keeps reentrant handoff media ordered and treats repeated completion as a no-op", async () => {
+    const sent: number[] = [];
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-reentrant-handoff",
+      provider: {
+        waitUntilReady: () => Promise.resolve(),
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close() {},
+      },
+      terminateRuntime() {},
+      closeCaller() {},
+    });
+    const replacement = {
+      waitUntilReady: () => Promise.resolve(),
+      getBufferedAmountBytes: () => 0,
+      send(message: Record<string, unknown>) {
+        const sequence = message.sequence as number;
+        sent.push(sequence);
+        if (sequence === 1) {
+          actor.appendInbound({ message: { sequence: 3 }, durationMs: 20, byteLength: 160 });
+        }
+        return 0;
+      },
+      close() {},
+    };
+    await actor.start();
+    await waitFor(() => actor.getState() === "active");
+    actor.beginHandoff();
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, byteLength: 160 });
+
+    actor.completeHandoff(replacement);
+    actor.completeHandoff(replacement);
+
+    expect(actor.getState()).toBe("active");
+    expect(sent).toEqual([1, 2, 3]);
+  });
+
+  it("treats repeated begin handoff signals as a no-op", async () => {
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-repeated-handoff",
+      provider: {
+        waitUntilReady: () => Promise.resolve(),
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close() {},
+      },
+      terminateRuntime() {},
+      closeCaller() {},
+    });
+    await actor.start();
+    await waitFor(() => actor.getState() === "active");
+
+    actor.beginHandoff();
+    actor.beginHandoff();
+
+    expect(actor.getState()).toBe("handing_off");
+  });
+
+  it("stops during handoff without flushing buffered media and remains terminal", async () => {
+    const replacementSent: number[] = [];
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-stop-handoff",
+      provider: {
+        waitUntilReady: () => Promise.resolve(),
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close() {},
+      },
+      terminateRuntime() {},
+      closeCaller() {},
+    });
+    await actor.start();
+    await waitFor(() => actor.getState() === "active");
+    actor.beginHandoff();
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
+
+    await actor.stop("twilio_stop");
+
+    expect(actor.getState()).toBe("stopped");
+    expect(() => actor.completeHandoff({
+      waitUntilReady: () => Promise.resolve(),
+      getBufferedAmountBytes: () => 0,
+      send(message) { replacementSent.push(message.sequence as number); return 0; },
+      close() {},
+    })).toThrow("cannot complete handoff from 'stopped'");
+    expect(replacementSent).toEqual([]);
+  });
+
+  it("fails during handoff without flushing buffered media and remains terminal", async () => {
+    const replacementSent: number[] = [];
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-fail-handoff",
+      provider: {
+        waitUntilReady: () => Promise.resolve(),
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close() {},
+      },
+      terminateRuntime() {},
+      closeCaller() {},
+    });
+    await actor.start();
+    await waitFor(() => actor.getState() === "active");
+    actor.beginHandoff();
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
+
+    actor.fail("premium_provider_closed");
+
+    expect(actor.getState()).toBe("failed");
+    expect(() => actor.completeHandoff({
+      waitUntilReady: () => Promise.resolve(),
+      getBufferedAmountBytes: () => 0,
+      send(message) { replacementSent.push(message.sequence as number); return 0; },
+      close() {},
+    })).toThrow("cannot complete handoff from 'failed'");
+    expect(replacementSent).toEqual([]);
+  });
+
   it("drains and stops both legs once across repeated termination signals", async () => {
     const runtimeTermination = deferred<void>();
     let runtimeTerminations = 0;
