@@ -4918,3 +4918,84 @@ Edge cases:
 - Empty toolbelts are valid and should not render misleading “no tools assigned” or catalog-loading copy.
 - Existing stale tool-node workflows should not be offered as the creation path; stale visual Tool nodes are filtered from the builder load path instead of being revived.
 - Dashboard partial non-auth metric failures may still degrade gracefully without blocking the whole shell.
+
+### ISSUE-184: Bounded premium PSTN call actor and provider readiness
+
+- Priority: P0
+- Area: Runtime / Telephony
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, testing, tdd-required
+- Status: In Progress
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-184-bounded-premium-pstn-call-actor-provider-readiness.md](../docs/Handovers/ISSUE-184-bounded-premium-pstn-call-actor-provider-readiness.md)
+- External: [Linear ZAR-214](https://linear.app/zara-voice/issue/ZAR-214/issue-184-bounded-premium-pstn-call-actor-and-provider-readiness)
+
+Acceptance criteria:
+- One per-call actor owns premium PSTN lifecycle, provider readiness, bounded ingress, backpressure, and idempotent termination.
+- Provider audio waits for acknowledged readiness and early Twilio media flushes in order within strict duration/byte limits.
+- Provider congestion, readiness timeout, startup overflow, shutdown, and repeated termination fail deterministically without unbounded queues.
+- Cost-optimized PSTN and premium tool behavior remain unchanged.
+
+### ISSUE-185: Deterministic Twilio playback and interruption control
+
+- Priority: P1
+- Area: Runtime / Telephony
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-184
+- Handover: [docs/Handovers/ISSUE-185-deterministic-twilio-playback-interruption.md](../docs/Handovers/ISSUE-185-deterministic-twilio-playback-interruption.md)
+- External: [Linear ZAR-215](https://linear.app/zara-voice/issue/ZAR-215/issue-185-deterministic-twilio-playback-and-interruption-control)
+
+Acceptance criteria:
+- Premium provider output is bounded and normalized into ordered 20 ms PCMU frames while retaining OpenAI native PCMU output.
+- Twilio marks track audio completion/playback acknowledgement rather than transcript completion.
+- Interruption clears playback, advances a response generation, and rejects queued or late audio from the old generation.
+
+### ISSUE-186: Provider-aware premium PSTN handoff
+
+- Priority: P1
+- Area: Runtime / Telephony
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-184, ISSUE-185
+- Handover: [docs/Handovers/ISSUE-186-provider-aware-premium-pstn-handoff.md](../docs/Handovers/ISSUE-186-provider-aware-premium-pstn-handoff.md)
+- External: [Linear ZAR-216](https://linear.app/zara-voice/issue/ZAR-216/issue-186-provider-aware-premium-pstn-handoff)
+
+Acceptance criteria:
+- Same-provider immutable voice changes and cross-provider handoffs replace the provider session explicitly.
+- Caller audio is bounded during transition and runtime packet/caller context transfers without exposing workflow metadata to tools.
+- Old provider callbacks and audio cannot affect the replacement session.
+
+### ISSUE-187: Gemini Live PSTN on the shared media contract
+
+- Priority: P1
+- Area: Runtime / Telephony
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-184, ISSUE-185, ISSUE-186
+- Handover: [docs/Handovers/ISSUE-187-gemini-live-pstn-shared-media-contract.md](../docs/Handovers/ISSUE-187-gemini-live-pstn-shared-media-contract.md)
+- External: [Linear ZAR-217](https://linear.app/zara-voice/issue/ZAR-217/issue-187-gemini-live-pstn-on-the-shared-media-contract)
+
+Acceptance criteria:
+- Gemini waits for `setupComplete`, consumes 16-bit PCM 16 kHz input, and returns framed PCMU from 24 kHz PCM output through shared media components.
+- Gemini tools, interruptions, handoffs, pressure limits, and cleanup use the same runtime contracts as OpenAI.
+- OpenAI remains the default and tenant workflow metadata cannot select providers.
+
+### ISSUE-188: Premium PSTN overload observability and release gates
+
+- Priority: P1
+- Area: Runtime / Observability / Telephony
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, observability, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-184, ISSUE-185, ISSUE-186, ISSUE-187
+- Handover: [docs/Handovers/ISSUE-188-premium-pstn-overload-observability-release-gates.md](../docs/Handovers/ISSUE-188-premium-pstn-overload-observability-release-gates.md)
+- External: [Linear ZAR-218](https://linear.app/zara-voice/issue/ZAR-218/issue-188-premium-pstn-overload-observability-and-release-gates)
+
+Acceptance criteria:
+- Redacted metrics/traces expose readiness, ingress/provider/output pressure, playback lag, overflow, interruption, handoff, and cleanup facts.
+- Deterministic OpenAI/Gemini PSTN evals fail on unbounded growth, stale post-interruption audio, wrong completion marks, or provider/runtime drift.
+- Runbooks explain each failure class and cost-optimized PSTN remains independently gated.
