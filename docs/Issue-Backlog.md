@@ -4990,7 +4990,7 @@ Acceptance criteria:
 - Area: Runtime / Observability / Telephony
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, observability, testing, tdd-required
-- Status: Pending
+- Status: In Progress
 - Blocked by: ISSUE-184, ISSUE-185, ISSUE-186, ISSUE-187
 - Handover: [docs/Handovers/ISSUE-188-premium-pstn-overload-observability-release-gates.md](../docs/Handovers/ISSUE-188-premium-pstn-overload-observability-release-gates.md)
 - External: [Linear ZAR-218](https://linear.app/zara-voice/issue/ZAR-218/issue-188-premium-pstn-overload-observability-and-release-gates)
