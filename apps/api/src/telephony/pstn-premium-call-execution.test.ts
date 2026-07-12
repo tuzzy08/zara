@@ -18,6 +18,7 @@ describe("PstnPremiumCallExecution", () => {
     let cleared = 0;
     let providerClosed = false;
     let terminatedRuntimeSessionId: string | undefined;
+    const providerReady = deferred<void>();
     const registered = {
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-support",
@@ -116,8 +117,15 @@ describe("PstnPremiumCallExecution", () => {
         async connect(input) {
           connectedMediaProfile = input.mediaProfile;
           return {
+            waitUntilReady() {
+              return providerReady.promise;
+            },
+            getBufferedAmountBytes() {
+              return 0;
+            },
             send(message: Record<string, unknown>) {
               sentProviderMessages.push(message);
+              return 0;
             },
             close() {
               providerClosed = true;
@@ -153,6 +161,9 @@ describe("PstnPremiumCallExecution", () => {
       },
     });
 
+    expect(sentProviderMessages).toEqual([]);
+    providerReady.resolve();
+    await waitFor(() => sentProviderMessages.length === 1);
     expect(sentProviderMessages[0]).toMatchObject({ type: "input_audio_buffer.append" });
     expect(Buffer.from(String(sentProviderMessages[0]?.audio), "base64")).toHaveLength(960);
     expect(connectedMediaProfile).toBe("pstn");
@@ -211,6 +222,7 @@ describe("PstnPremiumCallExecution", () => {
       },
     });
 
+    await waitFor(() => sentProviderMessages.length === 1);
     expect(sentProviderMessages[0]).toMatchObject({
       realtimeInput: {
         audio: {
@@ -240,6 +252,169 @@ describe("PstnPremiumCallExecution", () => {
     })).rejects.toThrow("provider unavailable");
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
   });
+
+  it("fails once and cleans both legs when the provider closes", async () => {
+    const terminatedSessionIds: string[] = [];
+    const providerCloses: string[] = [];
+    const callerCloses: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
+      onProviderClose: (reason) => providerCloses.push(reason),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() {}, clearAudio() {}, sendMark() {},
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    });
+
+    harness.providerClosed();
+    harness.providerClosed();
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+
+    expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
+    expect(callerCloses).toEqual(["premium_provider_closed"]);
+    expect(providerCloses).toEqual(["premium_provider_closed"]);
+  });
+
+  it("stops every active actor once during application shutdown", async () => {
+    const terminatedSessionIds: string[] = [];
+    const providerCloses: string[] = [];
+    const callerCloses: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
+      onProviderClose: (reason) => providerCloses.push(reason),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() {}, clearAudio() {}, sendMark() {},
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    });
+
+    await harness.execution.onApplicationShutdown();
+    await harness.execution.onApplicationShutdown();
+
+    expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
+    expect(callerCloses).toEqual(["app_shutdown"]);
+    expect(providerCloses).toEqual(["app_shutdown"]);
+  });
+
+  it("does not install an execution when Twilio closes during provider startup", async () => {
+    const connectGate = deferred<void>();
+    const terminatedSessionIds: string[] = [];
+    const providerCloses: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      connectGate: connectGate.promise,
+      onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
+      onProviderClose: (reason) => providerCloses.push(reason),
+    });
+    const starting = harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    await Promise.resolve();
+
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+    connectGate.resolve();
+    await starting;
+
+    expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
+    expect(providerCloses).toEqual(["pstn_stream_stopped"]);
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: {
+        callSessionId: "CA-premium:telephony",
+        mediaStreamId: "MZ-premium-1",
+        direction: "inbound",
+        codec: { name: "g711_mulaw", sampleRateHz: 8000, channels: 1 },
+        sequence: 1,
+        timestampMs: 20,
+        payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
+      },
+    })).rejects.toThrow("is not active");
+  });
+
+  it("does not install an execution when application shutdown starts during provider startup", async () => {
+    const connectGate = deferred<void>();
+    const terminatedSessionIds: string[] = [];
+    const providerCloses: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      connectGate: connectGate.promise,
+      onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
+      onProviderClose: (reason) => providerCloses.push(reason),
+    });
+    const starting = harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    await Promise.resolve();
+
+    await harness.execution.onApplicationShutdown();
+    connectGate.resolve();
+    await starting;
+
+    expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
+    expect(providerCloses).toEqual(["app_shutdown"]);
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: {
+        callSessionId: "CA-premium:telephony",
+        mediaStreamId: "MZ-premium-1",
+        direction: "inbound",
+        codec: { name: "g711_mulaw", sampleRateHz: 8000, channels: 1 },
+        sequence: 1,
+        timestampMs: 20,
+        payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
+      },
+    })).rejects.toThrow("is not active");
+  });
+
+  it("removes a failed execution when provider readiness rejects without a close event", async () => {
+    const providerReady = deferred<void>();
+    const terminatedSessionIds: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      providerReady: providerReady.promise,
+      onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    providerReady.reject(new Error("provider setup failed"));
+    await waitFor(() => terminatedSessionIds.length === 1);
+
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: {
+        callSessionId: "CA-premium:telephony",
+        mediaStreamId: "MZ-premium-1",
+        direction: "inbound",
+        codec: { name: "g711_mulaw", sampleRateHz: 8000, channels: 1 },
+        sequence: 1,
+        timestampMs: 20,
+        payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
+      },
+    })).rejects.toThrow("Premium PSTN execution 'CA-premium:telephony' is not active.");
+  });
 });
 
 function createPremiumManifest() {
@@ -265,6 +440,9 @@ function createMinimalExecutionHarness(
   options: {
     connectError?: Error | undefined;
     onTerminate?: ((sessionId: string) => void) | undefined;
+    onProviderClose?: ((reason: string) => void) | undefined;
+    connectGate?: Promise<void> | undefined;
+    providerReady?: Promise<void> | undefined;
   } = {},
 ) {
   const manifest = createPremiumManifest();
@@ -286,6 +464,7 @@ function createMinimalExecutionHarness(
     transcript: "",
     packet: { packetId: "packet-minimal", events: [] },
   };
+  let providerCloseHandler: ((event: { code: number; reason: string }) => void) | undefined;
   const execution = new PstnPremiumCallExecution(
     {
       async getState() {
@@ -328,19 +507,33 @@ function createMinimalExecutionHarness(
     } as never,
     {
       async connect() {
+        await options.connectGate;
         if (options.connectError !== undefined) {
           throw options.connectError;
         }
         return {
-          send(message: Record<string, unknown>) { sentProviderMessages.push(message); },
-          close() {},
+          waitUntilReady() { return options.providerReady ?? Promise.resolve(); },
+          getBufferedAmountBytes() { return 0; },
+          send(message: Record<string, unknown>) {
+            sentProviderMessages.push(message);
+            return 0;
+          },
+          close(_code?: number, reason?: string) { options.onProviderClose?.(reason ?? ""); },
           onMessage() {},
-          onClose() {},
+          onClose(handler: (event: { code: number; reason: string }) => void) {
+            providerCloseHandler = handler;
+          },
         };
       },
     },
   );
-  return { execution, sentProviderMessages };
+  return {
+    execution,
+    sentProviderMessages,
+    providerClosed() {
+      providerCloseHandler?.({ code: 1006, reason: "provider disconnected" });
+    },
+  };
 }
 
 function waitFor(predicate: () => boolean) {
@@ -359,4 +552,14 @@ function waitFor(predicate: () => boolean) {
     };
     poll();
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

@@ -4,6 +4,288 @@ import type { CompiledRuntimeManifest, PremiumRealtimeSession } from "@zara/core
 import { WsPremiumRealtimeProviderTransport } from "./premium-realtime-provider-transport";
 
 describe("WsPremiumRealtimeProviderTransport", () => {
+  it("waits for OpenAI session.updated before reporting ready", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          runtime: "openai-realtime",
+          model: "gpt-realtime",
+        }),
+        manifest: createManifest(),
+      });
+      const ready = vi.fn();
+      void connection.waitUntilReady().then(ready);
+
+      await Promise.resolve();
+      expect(ready).not.toHaveBeenCalled();
+
+      socket.emitMessage(JSON.stringify({ type: "session.updated" }));
+      await expect(connection.waitUntilReady()).resolves.toBeUndefined();
+      expect(ready).toHaveBeenCalledOnce();
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
+  it("waits for Gemini setupComplete before reporting ready", async () => {
+    const previousGeminiApiKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          runtime: "gemini-live",
+          model: "gemini-3.1-flash-live-preview",
+        }),
+        manifest: createManifest(),
+      });
+      const ready = vi.fn();
+      void connection.waitUntilReady().then(ready);
+
+      socket.emitMessage(JSON.stringify({ serverContent: {} }));
+      await Promise.resolve();
+      expect(ready).not.toHaveBeenCalled();
+
+      socket.emitMessage(JSON.stringify({ setupComplete: {} }));
+      await expect(connection.waitUntilReady()).resolves.toBeUndefined();
+      expect(ready).toHaveBeenCalledOnce();
+    } finally {
+      if (previousGeminiApiKey === undefined) {
+        delete process.env.GEMINI_API_KEY;
+      } else {
+        process.env.GEMINI_API_KEY = previousGeminiApiKey;
+      }
+    }
+  });
+
+  it("rejects readiness when the provider errors before acknowledgement", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          runtime: "openai-realtime",
+          model: "gpt-realtime",
+        }),
+        manifest: createManifest(),
+      });
+      const readiness = connection.waitUntilReady();
+
+      socket.emitError(new Error("provider setup failed"));
+
+      await expect(readiness).rejects.toThrow("provider setup failed");
+      await expect(connection.waitUntilReady()).rejects.toThrow("provider setup failed");
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
+  it("rejects readiness when the provider closes before acknowledgement", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          runtime: "openai-realtime",
+          model: "gpt-realtime",
+        }),
+        manifest: createManifest(),
+      });
+      const readiness = connection.waitUntilReady();
+
+      socket.emitClose(1006, "setup rejected");
+
+      await expect(readiness).rejects.toThrow(
+        "Provider connection closed before readiness (1006): setup rejected",
+      );
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
+  it("rejects connection establishment when the provider closes before WebSocket open", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike({ readyState: 0 });
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connecting = transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime" }),
+        manifest: createManifest(),
+      });
+      socket.emitClose(1006, "closed before open");
+
+      await expect(Promise.race([
+        connecting,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("connection remained pending")), 50)),
+      ])).rejects.toThrow("closed before open");
+    } finally {
+      if (previousOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+    }
+  });
+
+  it("replays a terminal close to a handler registered after readiness", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime" }),
+        manifest: createManifest(),
+      });
+      socket.emitMessage(JSON.stringify({ type: "session.updated" }));
+      await connection.waitUntilReady();
+      socket.emitClose(1006, "provider disappeared");
+      const closes: Array<{ code: number; reason: string }> = [];
+      connection.onClose((event) => closes.push(event));
+
+      expect(closes).toEqual([{ code: 1006, reason: "provider disappeared" }]);
+    } finally {
+      if (previousOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+    }
+  });
+
+  it("reports a provider error after readiness as one terminal close", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime" }),
+        manifest: createManifest(),
+      });
+      socket.emitMessage(JSON.stringify({ type: "session.updated" }));
+      await connection.waitUntilReady();
+      const closes: Array<{ code: number; reason: string }> = [];
+      connection.onClose((event) => closes.push(event));
+
+      socket.emitError(new Error("provider transport failed"));
+      socket.emitClose(1006, "socket closed");
+
+      expect(closes).toEqual([{ code: 1011, reason: "provider transport failed" }]);
+    } finally {
+      if (previousOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+    }
+  });
+
+  it("delivers a ready message to a handler registered just after it arrives", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          runtime: "openai-realtime",
+          model: "gpt-realtime",
+        }),
+        manifest: createManifest(),
+      });
+      const readyMessage = JSON.stringify({ type: "session.updated" });
+      const received: string[] = [];
+
+      socket.emitMessage(readyMessage);
+      connection.onMessage((message) => received.push(message));
+
+      expect(received).toEqual([readyMessage]);
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
+  it("reports the provider socket buffered bytes after send", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      const connection = await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          runtime: "openai-realtime",
+          model: "gpt-realtime",
+        }),
+        manifest: createManifest(),
+      });
+
+      connection.send({ type: "input_audio_buffer.append", audio: "AA==" });
+      socket.bufferedAmount = 2_048;
+
+      expect(connection.getBufferedAmountBytes()).toBe(2_048);
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
   it("configures OpenAI Realtime from provider-native voice settings, not Cartesia voice config", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
@@ -605,10 +887,26 @@ function agentNode(id: string, role: Record<string, unknown>) {
   };
 }
 
-function createSocketLike() {
+function createManifest() {
+  return {
+    manifestId: "manifest-1",
+    graph: {
+      nodes: [
+        agentNode("agent-support", {
+          kind: "support",
+          name: "Support",
+          instructions: "Handle support calls.",
+        }),
+      ],
+    },
+  } as unknown as CompiledRuntimeManifest;
+}
+
+function createSocketLike(options: { readyState?: number } = {}) {
   const handlers = new Map<string, (...args: never[]) => void>();
   const socket = {
-    readyState: 1,
+    readyState: options.readyState ?? 1,
+    bufferedAmount: 0,
     sent: [] as string[],
     send: vi.fn((message: string) => {
       socket.sent.push(message);
@@ -617,6 +915,15 @@ function createSocketLike() {
     on: vi.fn((event: string, handler: (...args: never[]) => void) => {
       handlers.set(event, handler);
     }),
+    emitMessage(message: string) {
+      handlers.get("message")?.(message as never);
+    },
+    emitError(error: Error) {
+      handlers.get("error")?.(error as never);
+    },
+    emitClose(code: number, reason: string) {
+      handlers.get("close")?.(code as never, Buffer.from(reason) as never);
+    },
   };
 
   return socket;

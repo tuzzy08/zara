@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, type OnApplicationShutdown } from "@nestjs/common";
 import type { PstnAudioFrame } from "@zara/core";
 
 import {
@@ -20,6 +20,10 @@ import {
 } from "../runtime-sessions/runtime-sessions.service";
 import { WorkflowsService } from "../workflows/workflows.service";
 import { TelephonyService } from "./telephony.service";
+import {
+  PstnPremiumCallActor,
+  type PstnPremiumCallActorProvider,
+} from "./pstn-premium-call-actor";
 
 export interface PstnPremiumCallOutput {
   sendMedia(frame: PstnAudioFrame): void;
@@ -36,13 +40,25 @@ interface ActivePremiumCallExecution {
   output: PstnPremiumCallOutput;
   registered: RegisteredPremiumRealtimeSession;
   providerConnection: PremiumRealtimeProviderConnection;
+  actor: PstnPremiumCallActor;
   providerMessages: Promise<void>;
   outboundSequence: number;
 }
 
+interface StartPremiumCallExecutionInput {
+  organizationId: string;
+  dispatchId: string;
+  callSessionId: string;
+  streamSid: string;
+  output: PstnPremiumCallOutput;
+}
+
 @Injectable()
-export class PstnPremiumCallExecution {
+export class PstnPremiumCallExecution implements OnApplicationShutdown {
   private readonly executions = new Map<string, ActivePremiumCallExecution>();
+  private readonly startingCallSessionIds = new Set<string>();
+  private readonly cancelledCallSessions = new Map<string, string>();
+  private shuttingDown = false;
   private readonly logger = new Logger(PstnPremiumCallExecution.name);
 
   constructor(
@@ -59,16 +75,24 @@ export class PstnPremiumCallExecution {
     private readonly providerTransport: PremiumRealtimeProviderTransport,
   ) {}
 
-  async start(input: {
-    organizationId: string;
-    dispatchId: string;
-    callSessionId: string;
-    streamSid: string;
-    output: PstnPremiumCallOutput;
-  }) {
-    if (this.executions.has(input.callSessionId)) {
+  async start(input: StartPremiumCallExecutionInput) {
+    if (this.shuttingDown) {
+      throw new Error("Premium PSTN execution is shutting down.");
+    }
+    if (this.executions.has(input.callSessionId) || this.startingCallSessionIds.has(input.callSessionId)) {
       throw new Error(`Premium PSTN execution already exists for '${input.callSessionId}'.`);
     }
+
+    this.startingCallSessionIds.add(input.callSessionId);
+    try {
+      await this.startExecution(input);
+    } finally {
+      this.startingCallSessionIds.delete(input.callSessionId);
+      this.cancelledCallSessions.delete(input.callSessionId);
+    }
+  }
+
+  private async startExecution(input: StartPremiumCallExecutionInput) {
 
     const state = await this.telephonyService.getState(input.organizationId);
     const dispatch = state.dispatches.find(
@@ -126,10 +150,33 @@ export class PstnPremiumCallExecution {
       this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
       throw error;
     }
+    const cancellationReason = this.cancelledCallSessions.get(input.callSessionId);
+    if (cancellationReason !== undefined) {
+      this.cancelledCallSessions.delete(input.callSessionId);
+      this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
+      providerConnection.close(1000, cancellationReason);
+      return;
+    }
+    const actor = new PstnPremiumCallActor({
+      callSessionId: input.callSessionId,
+      provider: adaptProviderConnection(providerConnection),
+      drain: () => this.executions.get(input.callSessionId)?.providerMessages ?? Promise.resolve(),
+      terminateRuntime: () => {
+        this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
+      },
+      closeCaller: (code, reason) => input.output.close(code, reason),
+      onTerminal: () => {
+        const installed = this.executions.get(input.callSessionId);
+        if (installed?.actor === actor) {
+          this.executions.delete(input.callSessionId);
+        }
+      },
+    });
     const execution: ActivePremiumCallExecution = {
       ...input,
       registered,
       providerConnection,
+      actor,
       providerMessages: Promise.resolve(),
       outboundSequence: 0,
     };
@@ -147,6 +194,7 @@ export class PstnPremiumCallExecution {
       }
       this.failExecution(execution, "premium_provider_closed");
     });
+    await actor.start();
   }
 
   async appendInboundFrame(input: { callSessionId: string; frame: PstnAudioFrame }) {
@@ -167,8 +215,7 @@ export class PstnPremiumCallExecution {
       8_000,
       targetSampleRateHz,
     );
-    execution.providerConnection.send(
-      execution.registered.session.runtime === "gemini-live"
+    const providerMessage = execution.registered.session.runtime === "gemini-live"
         ? {
             realtimeInput: {
               audio: {
@@ -180,20 +227,38 @@ export class PstnPremiumCallExecution {
         : {
             type: "input_audio_buffer.append",
             audio: encodePcm16Base64(pcm16),
-          },
-    );
+          };
+    execution.actor.appendInbound({
+      message: providerMessage,
+      durationMs: (Buffer.from(input.frame.payloadBase64, "base64").length / 8_000) * 1_000,
+      byteLength: Buffer.from(input.frame.payloadBase64, "base64").length,
+    });
   }
 
   async stop(input: { callSessionId: string }) {
     const execution = this.executions.get(input.callSessionId);
     if (execution === undefined) {
+      if (this.startingCallSessionIds.has(input.callSessionId)) {
+        this.cancelledCallSessions.set(input.callSessionId, "pstn_stream_stopped");
+      }
       return;
     }
 
-    this.executions.delete(input.callSessionId);
-    await execution.providerMessages;
-    this.runtimeSessionsService.terminateRealtimeSession(execution.registered.session.sessionId);
-    execution.providerConnection.close(1000, "pstn_stream_stopped");
+    await execution.actor.stop("pstn_stream_stopped");
+    if (this.executions.get(input.callSessionId) === execution) {
+      this.executions.delete(input.callSessionId);
+    }
+  }
+
+  async onApplicationShutdown() {
+    this.shuttingDown = true;
+    for (const callSessionId of this.startingCallSessionIds) {
+      this.cancelledCallSessions.set(callSessionId, "app_shutdown");
+    }
+    await Promise.all(
+      [...this.executions.values()].map((execution) => execution.actor.stop("app_shutdown")),
+    );
+    this.executions.clear();
   }
 
   private failExecution(
@@ -205,8 +270,11 @@ export class PstnPremiumCallExecution {
       return;
     }
 
+    execution.actor.fail(reason);
+    if (execution.actor.getState() !== "failed") {
+      return;
+    }
     this.executions.delete(execution.callSessionId);
-    this.runtimeSessionsService.terminateRealtimeSession(execution.registered.session.sessionId);
     this.logger.error(`[twilio-pstn] ${reason} ${JSON.stringify({
       organizationId: execution.organizationId,
       dispatchId: execution.dispatchId,
@@ -214,8 +282,6 @@ export class PstnPremiumCallExecution {
       runtime: execution.registered.session.runtime,
       error: error instanceof Error ? error.message : undefined,
     })}`);
-    execution.output.close(1011, reason);
-    execution.providerConnection.close(1011, reason);
   }
 
   private async handleProviderMessage(execution: ActivePremiumCallExecution, rawProviderMessage: string) {
@@ -252,7 +318,7 @@ export class PstnPremiumCallExecution {
     });
 
     for (const providerMessage of result.providerMessages) {
-      execution.providerConnection.send(providerMessage);
+      execution.actor.sendProviderMessage(providerMessage);
     }
 
     for (const event of parseProviderEvents(registered, rawProviderMessage)) {
@@ -361,6 +427,20 @@ function isInterruptionEvent(event: OpenAiRealtimeEvent | GeminiLiveRealtimeEven
   }
   return event.eventType === "input_audio_buffer.speech_started"
     || event.eventType === "response.cancelled";
+}
+
+function adaptProviderConnection(
+  connection: PremiumRealtimeProviderConnection,
+): PstnPremiumCallActorProvider {
+  return {
+    waitUntilReady: () => connection.waitUntilReady(),
+    getBufferedAmountBytes: () => connection.getBufferedAmountBytes(),
+    send: (message) => {
+      connection.send(message);
+      return connection.getBufferedAmountBytes();
+    },
+    close: (code, reason) => connection.close(code, reason),
+  };
 }
 
 function readSampleRate(mimeType: string) {

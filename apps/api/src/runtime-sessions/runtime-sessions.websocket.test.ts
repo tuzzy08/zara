@@ -2158,6 +2158,14 @@ class FakePremiumRealtimeProviderConnection implements PremiumRealtimeProviderCo
     this.sent.push(message);
   }
 
+  getBufferedAmountBytes() {
+    return 0;
+  }
+
+  waitUntilReady() {
+    return Promise.resolve();
+  }
+
   close(code = 1000, reason = "closed") {
     this.closeHandler?.({ code, reason });
   }

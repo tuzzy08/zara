@@ -26,7 +26,9 @@ export interface PremiumRealtimeProviderTransportConnectInput {
 
 export interface PremiumRealtimeProviderConnection {
   send(message: Record<string, unknown>): void;
+  getBufferedAmountBytes(): number;
   close(code?: number, reason?: string): void;
+  waitUntilReady(): Promise<void>;
   onMessage(handler: (message: string) => void): void;
   onClose(handler: (event: { code: number; reason: string }) => void): void;
 }
@@ -37,6 +39,7 @@ export interface PremiumRealtimeProviderTransport {
 
 interface WebSocketLike {
   readyState: number;
+  bufferedAmount: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   on(event: "open", handler: () => void): void;
@@ -100,7 +103,10 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
         "OpenAI-Safety-Identifier": input.actorUserId,
       },
     });
-    const connection = await WebSocketProviderConnection.open(socket);
+    const connection = await WebSocketProviderConnection.open(
+      socket,
+      (message) => parseMessageType(message) === "session.updated",
+    );
     connection.send(adapter.createSessionUpdateMessage());
     return connection;
   }
@@ -123,7 +129,10 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       tools: input.session.toolDeclarations,
     });
     const socket = this.websocketFactory(adapter.createSession().websocketUrl);
-    const connection = await WebSocketProviderConnection.open(socket);
+    const connection = await WebSocketProviderConnection.open(
+      socket,
+      (message) => hasMessageProperty(message, "setupComplete"),
+    );
     connection.send(adapter.createSetupMessage());
     return connection;
   }
@@ -176,26 +185,63 @@ function resolveGeminiLiveVoiceName(
 class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
   private messageHandler: ((message: string) => void) | null = null;
   private closeHandler: ((event: { code: number; reason: string }) => void) | null = null;
+  private pendingReadyMessage: string | null = null;
+  private ready = false;
+  private readyFailure: Error | null = null;
+  private terminalEvent: { code: number; reason: string } | null = null;
+  private openFailureHandler: ((error: Error) => void) | null = null;
+  private readonly readyWaiters: Array<{
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }> = [];
 
-  private constructor(private readonly socket: WebSocketLike) {
+  private constructor(
+    private readonly socket: WebSocketLike,
+    private readonly isReadyMessage: (message: string) => boolean,
+  ) {
     this.socket.on("message", (message) => {
-      this.messageHandler?.(message.toString());
+      const text = message.toString();
+      const isReadyAcknowledgement = !this.ready && this.isReadyMessage(text);
+      if (isReadyAcknowledgement) {
+        this.ready = true;
+        for (const waiter of this.readyWaiters.splice(0)) {
+          waiter.resolve();
+        }
+      }
+      if (this.messageHandler !== null) {
+        this.messageHandler(text);
+      } else if (isReadyAcknowledgement) {
+        this.pendingReadyMessage = text;
+      }
+    });
+    this.socket.on("error", (error) => {
+      this.recordTerminal({ code: 1011, reason: error.message }, error);
     });
     this.socket.on("close", (code, reason) => {
-      this.closeHandler?.({ code, reason: reason.toString() });
+      const textReason = reason.toString();
+      const error = new Error(
+        `Provider connection closed before readiness (${code})${textReason.length > 0 ? `: ${textReason}` : "."}`,
+      );
+      this.recordTerminal({ code, reason: textReason }, error);
     });
   }
 
-  static open(socket: WebSocketLike): Promise<WebSocketProviderConnection> {
+  static open(
+    socket: WebSocketLike,
+    isReadyMessage: (message: string) => boolean = () => false,
+  ): Promise<WebSocketProviderConnection> {
     return new Promise((resolve, reject) => {
-      const connection = new WebSocketProviderConnection(socket);
+      const connection = new WebSocketProviderConnection(socket, isReadyMessage);
       if (socket.readyState === WebSocket.OPEN) {
         resolve(connection);
         return;
       }
 
-      socket.on("open", () => resolve(connection));
-      socket.on("error", reject);
+      connection.openFailureHandler = reject;
+      socket.on("open", () => {
+        connection.openFailureHandler = null;
+        resolve(connection);
+      });
     });
   }
 
@@ -203,15 +249,88 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
     this.socket.send(JSON.stringify(message));
   }
 
+  getBufferedAmountBytes() {
+    return this.socket.bufferedAmount;
+  }
+
   close(code = 1000, reason = "closed") {
     this.socket.close(code, reason);
   }
 
+  waitUntilReady() {
+    if (this.ready) {
+      return Promise.resolve();
+    }
+    if (this.readyFailure !== null) {
+      return Promise.reject(this.readyFailure);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      this.readyWaiters.push({ resolve, reject });
+    });
+  }
+
   onMessage(handler: (message: string) => void) {
     this.messageHandler = handler;
+    if (this.pendingReadyMessage !== null) {
+      const message = this.pendingReadyMessage;
+      this.pendingReadyMessage = null;
+      handler(message);
+    }
   }
 
   onClose(handler: (event: { code: number; reason: string }) => void) {
     this.closeHandler = handler;
+    if (this.terminalEvent !== null) {
+      handler(this.terminalEvent);
+    }
+  }
+
+  private failReadiness(error: Error) {
+    if (this.ready || this.readyFailure !== null) {
+      return;
+    }
+
+    this.readyFailure = error;
+    for (const waiter of this.readyWaiters.splice(0)) {
+      waiter.reject(error);
+    }
+  }
+
+  private failOpen(error: Error) {
+    const handler = this.openFailureHandler;
+    this.openFailureHandler = null;
+    handler?.(error);
+  }
+
+  private recordTerminal(event: { code: number; reason: string }, error: Error) {
+    this.failReadiness(error);
+    this.failOpen(error);
+    if (this.terminalEvent !== null) {
+      return;
+    }
+    this.terminalEvent = event;
+    this.closeHandler?.(event);
+  }
+}
+
+function parseMessageType(message: string): string | undefined {
+  const parsed = parseProviderMessage(message);
+  return typeof parsed?.type === "string" ? parsed.type : undefined;
+}
+
+function hasMessageProperty(message: string, property: string): boolean {
+  const parsed = parseProviderMessage(message);
+  return parsed !== undefined && Object.prototype.hasOwnProperty.call(parsed, property);
+}
+
+function parseProviderMessage(message: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(message);
+    return typeof parsed === "object" && parsed !== null
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
   }
 }

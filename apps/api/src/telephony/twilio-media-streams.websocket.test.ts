@@ -378,6 +378,53 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
+  it("closes a premium media socket when startup processing exceeds the bounded ingress queue", async () => {
+    const startGate = deferred<void>();
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        async start() { await startGate.promise; },
+        async appendInboundFrame() {},
+        async stop() {},
+      },
+    });
+    const callSid = "CA-premium-overflow";
+    const streamSid = "MZ-premium-overflow";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-overflow",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
+    const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`);
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium overflow websocket open");
+    const closed = nextClose(socket);
+    socket.send(JSON.stringify(createStartMessage({ callSid, streamSid, token: streamToken })));
+    socket.send(JSON.stringify({
+      event: "media",
+      sequenceNumber: "2",
+      streamSid,
+      media: {
+        track: "inbound",
+        chunk: "1",
+        timestamp: "20",
+        payload: Buffer.alloc(70 * 1_024, 0xff).toString("base64"),
+      },
+    }));
+
+    await expect(withTimeout(closed, "premium ingress overflow close")).resolves.toEqual({
+      code: 4408,
+      reason: "twilio_media.ingress_overflow",
+    });
+    startGate.resolve();
+    await app.close();
+  }, 30_000);
+
   it("requires the server-minted Twilio stream token once before media attachment", async () => {
     const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
     const callSid = "CA-websocket-token";
@@ -579,6 +626,14 @@ function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider
       return numbers;
     },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 function createNoopTwilioRoutingProvider(): TwilioNumberRoutingProvider {

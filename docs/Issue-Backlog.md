@@ -4925,7 +4925,7 @@ Edge cases:
 - Area: Runtime / Telephony
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-184-bounded-premium-pstn-call-actor-provider-readiness.md](../docs/Handovers/ISSUE-184-bounded-premium-pstn-call-actor-provider-readiness.md)
 - External: [Linear ZAR-214](https://linear.app/zara-voice/issue/ZAR-214/issue-184-bounded-premium-pstn-call-actor-and-provider-readiness)

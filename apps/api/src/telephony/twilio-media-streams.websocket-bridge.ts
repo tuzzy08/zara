@@ -56,8 +56,13 @@ interface TwilioMediaStreamAttachment {
   authorization?: TwilioMediaStreamAuthorization | undefined;
   events: TwilioMediaStreamSessionEvent[];
   processing: Promise<void>;
+  pendingMessageBytes: number;
+  mediaFrameCount: number;
   recordedPhoneTestCheckpoints: Set<"inboundFrameReceived" | "outboundAudioSent">;
 }
+
+const maxPendingTwilioMessageBytes = 64 * 1_024;
+const maxTwilioEventHistory = 256;
 
 @Injectable()
 export class TwilioMediaStreamsWebSocketBridge
@@ -159,6 +164,8 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         callSessionId,
         events: [],
         processing: Promise.resolve(),
+        pendingMessageBytes: 0,
+        mediaFrameCount: 0,
         recordedPhoneTestCheckpoints: new Set(),
       };
       this.attachments.set(callSessionId, attachment);
@@ -180,6 +187,17 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         });
       });
       client.on("message", (message) => {
+        const messageBytes = rawDataByteLength(message);
+        if (attachment.pendingMessageBytes + messageBytes > maxPendingTwilioMessageBytes) {
+          warnTwilioPstnDiagnostic(this.logger, "media_ingress_overflow", {
+            callSessionId,
+            pendingMessageBytes: attachment.pendingMessageBytes,
+            incomingMessageBytes: messageBytes,
+          });
+          attachment.client.close(4408, "twilio_media.ingress_overflow");
+          return;
+        }
+        attachment.pendingMessageBytes += messageBytes;
         attachment.processing = attachment.processing
           .then(() =>
             this.handleProviderMessage({
@@ -189,6 +207,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
           )
           .catch(() => {
             attachment.client.close(4400, "twilio_media.handler_failed");
+          })
+          .finally(() => {
+            attachment.pendingMessageBytes = Math.max(0, attachment.pendingMessageBytes - messageBytes);
           });
       });
     });
@@ -244,6 +265,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     attachment.events.push(result.event);
+    if (attachment.events.length > maxTwilioEventHistory) {
+      attachment.events.splice(0, attachment.events.length - maxTwilioEventHistory);
+    }
 
     if (result.event.type === "started") {
       logTwilioPstnDiagnostic(this.logger, "media_started", {
@@ -295,8 +319,8 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (result.event.type === "media") {
-      const mediaFrameCount = attachment.events.filter((event) => event.type === "media").length;
-      if (mediaFrameCount === 1) {
+      attachment.mediaFrameCount += 1;
+      if (attachment.mediaFrameCount === 1) {
         logTwilioPstnDiagnostic(this.logger, "media_first_frame", {
           organizationId: attachment.authorization.organizationId,
           connectionId: attachment.authorization.connectionId,
@@ -586,4 +610,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function rawDataByteLength(message: RawData) {
+  if (Array.isArray(message)) {
+    return message.reduce((total, part) => total + part.byteLength, 0);
+  }
+  return message.byteLength;
 }
