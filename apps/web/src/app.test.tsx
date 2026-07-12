@@ -185,7 +185,7 @@ describe("tenant dashboard shell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the live 3D workflow workbench landing for signed-out visitors", () => {
+  it("renders the voice-agent agency landing for signed-out visitors", () => {
     const authClient = createTestAuthClient(null);
 
     render(
@@ -195,19 +195,31 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(screen.getByRole("banner")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Build the team behind every call." })).toBeTruthy();
-    expect(document.title).toBe("Zara Voice Automation | Live AI Workforce");
-    expect(screen.getByText("A LIVE AI WORKFORCE")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Enter the workflow" }).getAttribute("href")).toBe("#workflow");
+    expect(screen.getByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeTruthy();
+    expect(document.title).toBe("Zara Voice Automation | Managed AI Phone Agents");
+    expect(screen.getByText("AI PHONE AGENTS")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Book strategy call" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
-    expect(screen.getByRole("region", { name: "Interactive multi-agent workflow workbench" })).toBeTruthy();
-    expect(screen.getByRole("list", { name: "Live multi-agent workflow" })).toBeTruthy();
-    expect(screen.getByText("Incoming call")).toBeTruthy();
-    expect(screen.getByText("Router agent")).toBeTruthy();
-    expect(screen.getByText("Human escalation")).toBeTruthy();
-    expect(screen.getByText("LIVE CALL · 01:24")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Better conversations, by design." })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "From first ring to resolved." })).toBeTruthy();
+    expect(screen.getByLabelText("Voice routing workflow mockup")).toBeTruthy();
+    expect(screen.getByLabelText("Proof points")).toBeTruthy();
+    expect(screen.getAllByText("(415) 555-0198").length).toBeGreaterThan(0);
+    expect(screen.getByText("San Francisco, CA")).toBeTruthy();
+    expect(screen.getByText("I need to book a cleaning this weekend.")).toBeTruthy();
+    expect(screen.getAllByText("May 27, 2026").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Everything we handle" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Built for high-impact conversations" })).toBeTruthy();
+    expect(screen.getAllByLabelText("Zara voice automation logo mark").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Industry specialists icon")).toBeTruthy();
+    expect(screen.getByLabelText("Fast time to value icon")).toBeTruthy();
+    expect(screen.getByLabelText("Secure & compliant icon")).toBeTruthy();
+    expect(screen.getByLabelText("AI Receptionist service icon")).toBeTruthy();
+    expect(screen.getByLabelText("Lead Qualification service icon")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "From hello to handoff, seamlessly" })).toBeTruthy();
+    expect(screen.getByText("CRM Update")).toBeTruthy();
+    expect(screen.getByText("Optimize")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Simple packages for managed voice agents" })).toBeTruthy();
+    expect(screen.getByText("TRUSTED BY BUSINESSES THAT CAN'T AFFORD MISSED CALLS")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ready to transform your phone into a growth engine?" })).toBeTruthy();
     expect(screen.getByRole("contentinfo").textContent).toContain("Zara Voice Automation");
   }, 15_000);
 
@@ -223,7 +235,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
     expect(document.title).toBe("Zara Tenant Login | Zara Voice Automation");
     expect(screen.getByRole("main").className).toContain("auth-screen");
-    expect(screen.queryByRole("heading", { name: "Build the team behind every call." })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeNull();
   });
 
   it("composes lightweight tenant surfaces with shared ui primitives", async () => {
@@ -366,7 +378,7 @@ describe("tenant dashboard shell", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location-path").textContent).toBe("/");
     }, { timeout: 10_000 });
-    expect(screen.getByRole("heading", { name: "Build the team behind every call." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeTruthy();
     expect(screen.getByTestId("location-path").textContent).toBe("/");
     expect(screen.queryByLabelText("Tenant")).toBeNull();
   });

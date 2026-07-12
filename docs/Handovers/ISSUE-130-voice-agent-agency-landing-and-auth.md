@@ -12,6 +12,9 @@ Implement the public Zara Voice Automation landing page as a voice-agent agency 
 
 ## Work Completed
 
+- Removed the abandoned 3D Glass Workbench redesign and restored the previously implemented voice-agent agency landing page.
+- Removed the missing-scene import, workflow-scene data, React Three Fiber/Three.js dependencies, and orphaned `workbench-*` styles so the landing no longer carries a partial redesign path.
+
 - Added signed-out `/` routing to render a public marketing landing page instead of the tenant auth card.
 - Added a voice-agent agency landing with SEO-oriented copy, service sections, glass workflow-builder proof, process, results, pricing, final CTA, and footer.
 - Added client-side title and description metadata for the landing page.
@@ -34,6 +37,13 @@ Implement the public Zara Voice Automation landing page as a voice-agent agency 
 - Updated tenant sign-out to navigate back to `/` with history replacement so the URL reflects the logged-out public landing instead of the last tenant route.
 
 ## Tests Run
+
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "voice-agent agency landing" --pool=forks --fileParallelism=false`
+  - Passed after restoring the previous landing implementation.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed after removing the 3D redesign.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed after removing the 3D redesign, with the existing large-chunk warning.
 
 - RED: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "voice-agent agency landing|dedicated auth page" --pool=threads`
   - Failed as expected because signed-out `/` still rendered the auth card.
