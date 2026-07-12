@@ -4974,7 +4974,7 @@ Acceptance criteria:
 - Area: Runtime / Telephony
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-184, ISSUE-185, ISSUE-186
 - Handover: [docs/Handovers/ISSUE-187-gemini-live-pstn-shared-media-contract.md](../docs/Handovers/ISSUE-187-gemini-live-pstn-shared-media-contract.md)
 - External: [Linear ZAR-217](https://linear.app/zara-voice/issue/ZAR-217/issue-187-gemini-live-pstn-on-the-shared-media-contract)

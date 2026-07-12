@@ -277,6 +277,129 @@ describe("PstnPremiumCallExecution", () => {
     expect(Buffer.from(audio, "base64")).toHaveLength(640);
   });
 
+  it("frames Gemini 24 kHz PCM output into deterministic Twilio PCMU playback", async () => {
+    const harness = createMinimalExecutionHarness("gemini-live");
+    const outboundFrames: PstnAudioFrame[] = [];
+    const marks: string[] = [];
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia(frame) { outboundFrames.push(frame); },
+        clearAudio() {},
+        sendMark(name) { marks.push(name); },
+        close() {},
+      },
+    });
+
+    harness.emitProviderMessage(JSON.stringify({
+      serverContent: {
+        modelTurn: {
+          parts: [{
+            inlineData: {
+              data: Buffer.alloc(1_920, 0).toString("base64"),
+              mimeType: "audio/pcm;rate=24000",
+            },
+          }],
+        },
+      },
+    }));
+    await waitFor(() => outboundFrames.length === 2);
+
+    expect(outboundFrames.map((frame) => Buffer.from(frame.payloadBase64, "base64").length))
+      .toEqual([160, 160]);
+    expect(outboundFrames.map((frame) => frame.timestampMs)).toEqual([20, 40]);
+    expect(marks).toHaveLength(2);
+
+    harness.emitProviderMessage(JSON.stringify({
+      serverContent: { turnComplete: true },
+    }));
+    await waitFor(() => marks.length === 3);
+    expect(marks[2]).toContain("boundary");
+  });
+
+  it("uses shared playback interruption ownership for Gemini turns", async () => {
+    const harness = createMinimalExecutionHarness("gemini-live");
+    const outboundFrames: PstnAudioFrame[] = [];
+    const marks: string[] = [];
+    let clears = 0;
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia(frame) { outboundFrames.push(frame); },
+        clearAudio() { clears += 1; },
+        sendMark(name) { marks.push(name); },
+        close() {},
+      },
+    });
+    const audioMessage = JSON.stringify({
+      serverContent: {
+        modelTurn: {
+          parts: [{
+            inlineData: {
+              data: Buffer.alloc(960, 0).toString("base64"),
+              mimeType: "audio/pcm;rate=24000",
+            },
+          }],
+        },
+      },
+    });
+
+    harness.emitProviderMessage(audioMessage);
+    await waitFor(() => outboundFrames.length === 1);
+    const staleMark = marks[0]!;
+    harness.emitProviderMessage(JSON.stringify({ serverContent: { interrupted: true } }));
+    await waitFor(() => clears === 1);
+    harness.execution.acknowledgePlaybackMark({
+      callSessionId: "CA-premium:telephony",
+      name: staleMark,
+    });
+
+    harness.emitProviderMessage(audioMessage);
+    harness.emitProviderMessage(JSON.stringify({ serverContent: { turnComplete: true } }));
+    await waitFor(() => outboundFrames.length === 2 && marks.length === 3);
+    expect(clears).toBe(1);
+    expect(marks[2]).toContain("boundary");
+  });
+
+  it("fails closed when Gemini emits audio outside its declared PCM contract", async () => {
+    const harness = createMinimalExecutionHarness("gemini-live");
+    const callerCloses: string[] = [];
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() {},
+        clearAudio() {},
+        sendMark() {},
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    });
+
+    harness.emitProviderMessage(JSON.stringify({
+      serverContent: {
+        modelTurn: {
+          parts: [{
+            inlineData: {
+              data: Buffer.alloc(960, 0).toString("base64"),
+              mimeType: "audio/mpeg",
+            },
+          }],
+        },
+      },
+    }));
+
+    await waitFor(() => callerCloses.length === 1);
+    expect(callerCloses).toEqual(["premium_runtime_failed"]);
+  });
+
   it("removes the runtime session when the provider connection cannot start", async () => {
     const terminatedSessionIds: string[] = [];
     const { execution } = createMinimalExecutionHarness("openai-realtime", {

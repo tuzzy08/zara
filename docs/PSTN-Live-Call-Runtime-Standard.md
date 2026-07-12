@@ -169,6 +169,8 @@ ISSUE-185 makes OpenAI premium playback deterministic. OpenAI `response.created`
 
 ISSUE-186 makes premium PSTN handoff provider-aware. Runtime resolves the target concrete agent's provider, model, voice, prompt, and tools into a replacement session while preserving the logical Zara session and packet context. OpenAI handoff announcements carry transfer-scoped response metadata so only the matching provider response and acknowledged Twilio playback boundary can release the swap. The actor buffers at most 1,000 ms or 16 KiB of target-native caller media during transition; the target continuation is sent before that media flushes. Provider-leg epochs reject every late source callback, and a five-second timeout, replacement readiness failure, actor overflow, caller stop, or shutdown closes all owned legs without silently selecting `pstn-sandwich`.
 
+ISSUE-187 enables Gemini Live on that same premium PSTN execution path. Twilio PCMU input is decoded and resampled to Gemini's documented PCM16 16 kHz input only after `setupComplete`. Gemini PCM16 24 kHz output is resampled to PCMU 8 kHz and enters the shared playback controller, which preserves arbitrary provider chunk remainders while emitting exact 160-byte/20 ms Twilio frames, marks, and a `turnComplete` boundary. Gemini interruptions advance the same playback generation and clear Twilio ownership once. Invalid output media contracts fail closed, while tools, handoffs, pressure limits, terminal cleanup, and the no-sandwich-fallback policy remain provider-neutral.
+
 Core runtime modules must not import Twilio-specific types. Twilio belongs behind interfaces like:
 
 ```ts

@@ -53,6 +53,8 @@ interface ActivePremiumCallExecution {
   pendingProviderMessageBytes: number;
   pendingProviderMessageCount: number;
   outboundSequence: number;
+  geminiResponseSequence: number;
+  activeGeminiResponseId?: string | undefined;
 }
 
 interface PendingProviderTransition {
@@ -228,6 +230,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       pendingProviderMessageBytes: 0,
       pendingProviderMessageCount: 0,
       outboundSequence: 0,
+      geminiResponseSequence: 0,
     };
     this.executions.set(input.callSessionId, execution);
     this.bindProviderConnection(execution, providerConnection, execution.providerEpoch);
@@ -449,6 +452,10 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       return;
     }
     execution.actor.beginHandoff();
+    if (transition.source.runtime === "gemini-live" && execution.activeGeminiResponseId !== undefined) {
+      execution.playback.interrupt();
+      execution.activeGeminiResponseId = undefined;
+    }
     execution.providerEpoch += 1;
     execution.inboundRuntime = transition.target.runtime;
     const pending: PendingProviderTransition = {
@@ -608,21 +615,32 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         }
         return;
       }
-      const sourceRateHz = "mimeType" in event
-        ? readSampleRate(event.mimeType) ?? 24_000
-        : 24_000;
+      if (!("mimeType" in event) || !event.mimeType.startsWith("audio/pcm;")) {
+        throw new Error("premium_gemini_output_format_invalid");
+      }
+      const sourceRateHz = readSampleRate(event.mimeType);
+      if (sourceRateHz !== 24_000) {
+        throw new Error("premium_gemini_output_format_invalid");
+      }
       const pcm16 = decodePcm16Base64(event.audioBase64);
       const pstnSamples = resamplePcm16(pcm16, sourceRateHz, 8_000);
-      execution.outboundSequence += 1;
-      execution.output.sendMedia({
-        callSessionId: execution.callSessionId,
-        mediaStreamId: execution.streamSid,
-        direction: "outbound",
-        codec: { name: "g711_mulaw", sampleRateHz: 8_000, channels: 1 },
-        sequence: execution.outboundSequence,
-        timestampMs: Math.round((pstnSamples.length / 8_000) * 1_000),
-        payloadBase64: encodeMuLawBase64(pstnSamples),
-      });
+      const responseId = this.ensureGeminiPlaybackResponse(execution);
+      const result = execution.playback.appendDelta(responseId, encodeMuLawBase64(pstnSamples));
+      if (!result.accepted && result.reason === "response_unregistered") {
+        throw new Error("premium_playback_response_unregistered");
+      }
+      return;
+    }
+
+    if (event.type === "turn_complete" && execution.registered.session.runtime === "gemini-live") {
+      const responseId = execution.activeGeminiResponseId;
+      if (responseId !== undefined) {
+        execution.activeGeminiResponseId = undefined;
+        const result = execution.playback.finishResponse(responseId);
+        if (!result.accepted && result.reason === "response_unregistered") {
+          throw new Error("premium_playback_response_unregistered");
+        }
+      }
       return;
     }
 
@@ -671,9 +689,24 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       if (execution.registered.session.runtime === "openai-realtime") {
         execution.playback.interrupt();
       } else {
-        execution.output.clearAudio();
+        execution.playback.interrupt();
+        execution.activeGeminiResponseId = undefined;
       }
     }
+  }
+
+  private ensureGeminiPlaybackResponse(execution: ActivePremiumCallExecution) {
+    if (execution.activeGeminiResponseId !== undefined) {
+      return execution.activeGeminiResponseId;
+    }
+    execution.geminiResponseSequence += 1;
+    const responseId = `gemini-turn-${execution.geminiResponseSequence}`;
+    const result = execution.playback.startResponse(responseId);
+    if (!result.accepted) {
+      throw new Error(`premium_playback_${result.reason}`);
+    }
+    execution.activeGeminiResponseId = responseId;
+    return responseId;
   }
 
   private recordCheckpoint(
