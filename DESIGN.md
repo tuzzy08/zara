@@ -14,6 +14,8 @@ Sandbox and telephony testing should keep one operator mental model. Use explici
 
 Tenant operations pages should keep dense, scan-first controls. `/calls` dropdowns should populate from active imported inventory and tenant-published workflows without explanatory helper copy, while `/integrations` should use compact local provider logo badges for scan speed without remote logo/image requests.
 
+Calls-page motion stays crisp and operational: metric/provider/connection entrances use a 40ms stagger with 240ms-or-shorter custom ease-out movement, centered provider dialogs reveal in 220ms, buttons use immediate 0.97 press feedback, and connection operations animate their icons only while busy. Configured LEDs may use a quiet transform/opacity signal. Hover motion must be limited to fine pointers, and `prefers-reduced-motion` replaces movement with a brief opacity-only reveal.
+
 Tenant `/memory` should keep knowledge-base setup in the operational shell rather than a marketing-style wizard. The Add source surface should expose manual text, URL, PDF, and provider import fields in a compact form, default to the active workspace, allow optional workflow IDs, and separate source snapshots from record-level review drafts. Provider imports should collect understandable provider source selections such as Confluence spaces/pages and SharePoint sites/pages/folders, not raw provider API URLs or pasted source text. Source rows should show snapshot/manual/daily sync mode, next sync, and degraded status in scan-friendly metadata. Imported drafts need clear record-type selection, sensitivity labels, activation blockers, and a compact high-risk confirmation control before activation.
 
 ## 1. Visual Theme & Atmosphere

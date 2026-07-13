@@ -135,6 +135,9 @@ describe("TelephonyScreen", () => {
     renderTelephonyScreen({ organizationId });
 
     expect(await screen.findByText("Providers")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Telephony overview" }).className).toContain(
+      "telephony-motion-overview",
+    );
     expect(screen.getByText("Active connections")).toBeTruthy();
     expect(screen.getByText("Routed numbers")).toBeTruthy();
     expect(screen.getByText("Live routes")).toBeTruthy();
@@ -147,9 +150,12 @@ describe("TelephonyScreen", () => {
 
     const connectTwilioButton = screen.getByRole("button", { name: "Connect Twilio" });
     expect(connectTwilioButton.className).toContain("telephony-provider-connect-bordered");
+    expect(connectTwilioButton.className).toContain("telephony-motion-button");
     fireEvent.click(connectTwilioButton);
 
-    expect(screen.getByRole("dialog", { name: "Connect Twilio" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Connect Twilio" }).className).toContain(
+      "telephony-dialog-motion",
+    );
     expect(screen.getByLabelText("Connection name")).toBeTruthy();
     expect(screen.getByLabelText("Account SID")).toBeTruthy();
     expect(screen.getByLabelText("Auth token")).toBeTruthy();
@@ -194,8 +200,12 @@ describe("TelephonyScreen", () => {
 
     renderTelephonyScreen({ organizationId });
 
-    expect(await screen.findByRole("button", { name: "Run heartbeat" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Import phone numbers" })).toBeTruthy();
+    expect((await screen.findByRole("button", { name: "Run heartbeat" })).className).toContain(
+      "telephony-action-heartbeat",
+    );
+    expect(screen.getByRole("button", { name: "Import phone numbers" }).className).toContain(
+      "telephony-action-import",
+    );
   });
 });
 

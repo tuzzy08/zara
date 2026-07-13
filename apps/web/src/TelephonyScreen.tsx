@@ -938,7 +938,7 @@ function TelephonyScreenView({ model }: { model: TelephonyScreenModel }) {
 
 function TelephonyHero({ metrics }: { metrics: TelephonyScreenModel["metrics"] }) {
   return (
-    <section className="telephony-overview-strip" aria-label="Telephony overview">
+    <section className="telephony-overview-strip telephony-motion-overview" aria-label="Telephony overview">
       <MetricTile icon={Phone} label="Active connections" value={String(metrics.activeConnections)} />
       <MetricTile icon={Hash} label="Routed numbers" value={String(metrics.routedNumbers)} />
       <MetricTile icon={Repeat2} label="Live routes" value={String(metrics.liveRoutes)} />
@@ -1050,7 +1050,7 @@ function ProviderRow({
   onAction: () => void;
 }) {
   return (
-    <div className="telephony-provider-row">
+    <div className="telephony-provider-row telephony-motion-provider">
       <div className="telephony-provider-identity">
         <div className="telephony-provider-logo" aria-hidden="true">{icon}</div>
         <div>
@@ -1061,7 +1061,7 @@ function ProviderRow({
           </span>
         </div>
       </div>
-      <Button aria-label={`${configured ? "Manage" : "Connect"} ${name}`} className="workflow-button telephony-provider-connect telephony-provider-connect-bordered" type="button" variant="outline" onClick={onAction}>
+      <Button aria-label={`${configured ? "Manage" : "Connect"} ${name}`} className="workflow-button telephony-provider-connect telephony-provider-connect-bordered telephony-motion-button" type="button" variant="outline" onClick={onAction}>
         {configured ? <Settings size={16} /> : <Plug size={16} />}
         <span>{configured ? "Manage" : "Connect"}</span>
       </Button>
@@ -1098,10 +1098,10 @@ function ConnectionDialogShell({
   title: string;
 }) {
   return (
-    <div className="telephony-dialog-backdrop" role="presentation" onMouseDown={(event) => {
+    <div className="telephony-dialog-backdrop telephony-motion-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <div className="telephony-connection-dialog" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="telephony-connection-dialog telephony-dialog-motion" role="dialog" aria-modal="true" aria-label={title}>
         <div className="telephony-dialog-header">
           <div>
             <h2>{title}</h2>
@@ -1194,13 +1194,13 @@ function TelephonyConnectionTable({ model }: { model: TelephonyScreenModel }) {
   const rotatePending = isOperationPending("credentials:rotate");
 
   return (
-    <Card className="surface-card telephony-connections-panel" id="telephony-connections">
+    <Card className="surface-card telephony-connections-panel telephony-motion-connections" id="telephony-connections">
       <div className="telephony-connections-header">
         <div>
           <h2>Connections</h2>
           <p>Your configured telephony provider connections.</p>
         </div>
-        <Button aria-label="Rotate credentials" aria-busy={rotatePending} className="workflow-button telephony-icon-button" disabled={rotatePending} title="Rotate credentials" type="button" variant="outline" onClick={rotateCredentials}>
+        <Button aria-label="Rotate credentials" aria-busy={rotatePending} className="workflow-button telephony-icon-button telephony-action-button telephony-action-rotate" disabled={rotatePending} title="Rotate credentials" type="button" variant="outline" onClick={rotateCredentials}>
           <KeyRound size={16} />
         </Button>
       </div>
@@ -1239,10 +1239,10 @@ function TelephonyConnectionTable({ model }: { model: TelephonyScreenModel }) {
                   <TableCell>{routeNames.length > 0 ? routeNames.join(", ") : "Not routed"}</TableCell>
                   <TableCell>
                     <div className="telephony-table-actions">
-                      <Button aria-label="Run heartbeat" aria-busy={heartbeatPending} className="workflow-button telephony-icon-button" disabled={heartbeatPending} title={`Run heartbeat for ${connection.label}`} type="button" variant="outline" onClick={() => runConnectionHeartbeat(connection.id)}><Activity size={15} /></Button>
-                      <Button aria-label="Validate provider" aria-busy={validatePending} className="workflow-button telephony-icon-button" disabled={validatePending} title={`Validate ${connection.label}`} type="button" variant="outline" onClick={() => validateConnection(connection.id)}><BadgeCheck size={15} /></Button>
-                      {connection.ownershipMode === "byo_provider_account" ? <Button aria-label="Import phone numbers" aria-busy={importPending} className="workflow-button telephony-icon-button" disabled={importPending} title={`Import numbers from ${connection.label}`} type="button" variant="outline" onClick={() => importNumbers(connection.id)}><PhoneIncoming size={15} /></Button> : null}
-                      <Button aria-label={`Delete ${connection.label}`} aria-busy={deletePending} className="workflow-button workflow-button-danger telephony-icon-button" disabled={deletePending} title="Delete connection" type="button" variant="destructive" onClick={() => deleteConnection(connection.id)}><Trash2 size={15} /></Button>
+                      <Button aria-label="Run heartbeat" aria-busy={heartbeatPending} className="workflow-button telephony-icon-button telephony-action-button telephony-action-heartbeat" disabled={heartbeatPending} title={`Run heartbeat for ${connection.label}`} type="button" variant="outline" onClick={() => runConnectionHeartbeat(connection.id)}><Activity size={15} /></Button>
+                      <Button aria-label="Validate provider" aria-busy={validatePending} className="workflow-button telephony-icon-button telephony-action-button telephony-action-validate" disabled={validatePending} title={`Validate ${connection.label}`} type="button" variant="outline" onClick={() => validateConnection(connection.id)}><BadgeCheck size={15} /></Button>
+                      {connection.ownershipMode === "byo_provider_account" ? <Button aria-label="Import phone numbers" aria-busy={importPending} className="workflow-button telephony-icon-button telephony-action-button telephony-action-import" disabled={importPending} title={`Import numbers from ${connection.label}`} type="button" variant="outline" onClick={() => importNumbers(connection.id)}><PhoneIncoming size={15} /></Button> : null}
+                      <Button aria-label={`Delete ${connection.label}`} aria-busy={deletePending} className="workflow-button workflow-button-danger telephony-icon-button telephony-action-button telephony-action-delete" disabled={deletePending} title="Delete connection" type="button" variant="destructive" onClick={() => deleteConnection(connection.id)}><Trash2 size={15} /></Button>
                     </div>
                   </TableCell>
                 </TableRow>

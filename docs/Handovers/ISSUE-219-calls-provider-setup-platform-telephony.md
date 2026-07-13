@@ -14,6 +14,7 @@ External: [Linear ZAR-219](https://linear.app/zara-voice/issue/ZAR-219/refresh-t
 - Deleted the obsolete tenant-side setup, health, outbound, and provider-card component/model paths.
 - Updated `DESIGN.md` with the approved Calls-page visual contract and the restricted functional color exception.
 - Restored the mockup-strength gray outline and hover ring on provider Connect/Manage buttons, with regression coverage confirming configured Twilio connections retain heartbeat and number-import actions.
+- Added a restrained Calls-page motion layer: staggered metric/provider/connection entrance, centered dialog reveal, tactile provider/action controls, busy-state icon feedback, a quiet configured LED signal, pointer-gated hover effects, and opacity-only reduced-motion fallbacks.
 
 ## Tests Run
 
@@ -24,12 +25,15 @@ External: [Linear ZAR-219](https://linear.app/zara-voice/issue/ZAR-219/refresh-t
 - `npx tsc -p apps/api/tsconfig.json --noEmit`
 - `npx vitest --run --pool=threads --maxWorkers=1 apps/web/src/TelephonyScreen.test.tsx` (4 passed; provider-button and Twilio action follow-up)
 - `npx tsc -p apps/web/tsconfig.json --noEmit` (follow-up)
+- `npx vitest --run --pool=threads --maxWorkers=1 apps/web/src/TelephonyScreen.test.tsx` (4 passed; motion hooks and existing critical flows)
+- `npx tsc -p apps/web/tsconfig.json --noEmit` (motion pass)
 
 ## Decisions
 
 - Credential validation happens before persistence by calling Twilio's incoming-number inventory endpoint without importing inventory.
 - Existing platform-managed tenant records remain readable/routable, but tenants can no longer create them.
 - Connection operations use compact Lucide icon buttons with accessible labels and tooltips.
+- Calls motion uses CSS transform/opacity animation with custom easing; no runtime animation dependency was added.
 
 ## Pending Work
 

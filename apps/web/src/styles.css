@@ -5453,6 +5453,80 @@ button {
   display: grid;
   gap: 24px;
   min-width: 0;
+  --telephony-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --telephony-ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+@keyframes telephony-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes telephony-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes telephony-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes telephony-led-signal {
+  0% {
+    opacity: 0.42;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.15);
+  }
+}
+
+@keyframes telephony-action-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes telephony-action-pulse {
+  50% {
+    opacity: 0.48;
+    transform: scale(0.9);
+  }
+}
+
+.telephony-motion-overview .telephony-metric-card,
+.telephony-motion-provider,
+.telephony-motion-connections {
+  animation: telephony-rise-in 240ms var(--telephony-ease-out) both;
+}
+
+.telephony-motion-overview .telephony-metric-card:nth-child(2) { animation-delay: 40ms; }
+.telephony-motion-overview .telephony-metric-card:nth-child(3) { animation-delay: 80ms; }
+.telephony-motion-overview .telephony-metric-card:nth-child(4) { animation-delay: 120ms; }
+.telephony-motion-provider:nth-child(1) { animation-delay: 140ms; }
+.telephony-motion-provider:nth-child(2) { animation-delay: 180ms; }
+.telephony-motion-connections { animation-delay: 220ms; }
+
+.telephony-motion-backdrop {
+  animation: telephony-fade-in 160ms var(--telephony-ease-out) both;
+}
+
+.telephony-dialog-motion {
+  transform-origin: center;
+  animation: telephony-dialog-in 220ms var(--telephony-ease-out) both;
 }
 
 .telephony-overview-strip {
@@ -5571,6 +5645,7 @@ button {
   border: 1px solid var(--zara-border);
   border-radius: 8px;
   background: #17181c;
+  transition: transform 180ms var(--telephony-ease-out);
 }
 
 .twilio-logo-mark {
@@ -5607,6 +5682,7 @@ button {
 }
 
 .telephony-led {
+  position: relative;
   width: 8px;
   height: 8px;
   flex: 0 0 8px;
@@ -5618,6 +5694,16 @@ button {
 .telephony-led.is-configured {
   background: #35ca76;
   box-shadow: 0 0 0 3px rgba(53, 202, 118, 0.12), 0 0 9px rgba(53, 202, 118, 0.42);
+}
+
+.telephony-led.is-configured::after {
+  position: absolute;
+  inset: -2px;
+  border: 1px solid rgba(53, 202, 118, 0.72);
+  border-radius: 50%;
+  content: "";
+  animation: telephony-led-signal 2.4s var(--telephony-ease-out) infinite;
+  pointer-events: none;
 }
 
 .telephony-provider-connect {
@@ -5633,6 +5719,15 @@ button {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--zara-text) 64%, transparent),
     0 8px 18px -14px color-mix(in srgb, var(--zara-text) 36%, transparent);
+}
+
+.telephony-motion-button {
+  transition: transform 150ms var(--telephony-ease-out);
+}
+
+.telephony-motion-button:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 90ms;
 }
 
 .telephony-connections-panel {
@@ -5697,6 +5792,26 @@ button {
   justify-content: center;
 }
 
+.telephony-action-button {
+  transition: transform 150ms var(--telephony-ease-out);
+}
+
+.telephony-action-button:active:not(:disabled) {
+  transform: scale(0.94);
+  transition-duration: 90ms;
+}
+
+.telephony-action-heartbeat[aria-busy="true"] svg,
+.telephony-action-validate[aria-busy="true"] svg,
+.telephony-action-rotate[aria-busy="true"] svg {
+  animation: telephony-action-spin 760ms linear infinite;
+}
+
+.telephony-action-import[aria-busy="true"] svg,
+.telephony-action-delete[aria-busy="true"] svg {
+  animation: telephony-action-pulse 640ms var(--telephony-ease-in-out) infinite;
+}
+
 .telephony-dialog-backdrop {
   position: fixed;
   z-index: 120;
@@ -5744,12 +5859,32 @@ button {
   width: 32px;
   height: 32px;
   border-radius: 6px;
+  transition: transform 150ms var(--telephony-ease-out);
 }
 
 .telephony-dialog-close:hover,
 .telephony-secret-field button:hover {
   color: var(--zara-text);
   background: rgba(255, 255, 255, 0.06);
+}
+
+.telephony-dialog-close:active {
+  transform: scale(0.94);
+  transition-duration: 90ms;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .telephony-provider-row:hover .telephony-provider-logo {
+    transform: scale(1.04);
+  }
+
+  .telephony-action-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .telephony-dialog-close:hover {
+    transform: rotate(5deg) scale(1.04);
+  }
 }
 
 .telephony-dialog-form {
@@ -5821,6 +5956,38 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .telephony-motion-overview .telephony-metric-card,
+  .telephony-motion-provider,
+  .telephony-motion-connections,
+  .telephony-motion-backdrop,
+  .telephony-dialog-motion {
+    animation: telephony-fade-in 120ms var(--telephony-ease-out) both;
+    animation-delay: 0ms;
+  }
+
+  .telephony-led.is-configured::after,
+  .telephony-action-button[aria-busy="true"] svg {
+    animation: none;
+  }
+
+  .telephony-provider-logo,
+  .telephony-motion-button,
+  .telephony-action-button,
+  .telephony-dialog-close {
+    transition-duration: 0.01ms;
+  }
+
+  .telephony-provider-row:hover .telephony-provider-logo,
+  .telephony-motion-button:active:not(:disabled),
+  .telephony-action-button:hover:not(:disabled),
+  .telephony-action-button:active:not(:disabled),
+  .telephony-dialog-close:hover,
+  .telephony-dialog-close:active {
+    transform: none;
+  }
 }
 
 @media (max-width: 820px) {
