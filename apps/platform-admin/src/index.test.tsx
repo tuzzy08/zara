@@ -57,6 +57,9 @@ describe("platform admin auth gate", () => {
       renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/telephony" />),
     ).toContain("Telephony operations");
     expect(
+      renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/telephony" />),
+    ).toContain("Provision platform connection");
+    expect(
       renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/integrations" />),
     ).toContain("Integration operations");
     expect(

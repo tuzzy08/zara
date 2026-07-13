@@ -83,6 +83,18 @@ describe("TelephonyController", () => {
     expect(initialStateResponse.status).toBe(200);
     expect(initialStateResponse.body.connections).toEqual([]);
 
+    const credentialValidationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections/validate-twilio-credentials")
+      .send({
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+
+    expect(credentialValidationResponse.status).toBe(200);
+    expect(credentialValidationResponse.body).toEqual({ valid: true, numberCount: 3 });
+    expect((await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/telephony/state")).body.connections).toEqual([]);
+
     const connectResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/connections")
       .send({

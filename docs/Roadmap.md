@@ -159,4 +159,6 @@ Current sequencing note: audit logging, call consent/recording notices, retentio
 
 Tenant billing production work now includes the tenant billing page and Polar-backed checkout, subscription, customer portal, webhook, usage-billing integration, feature usage aggregates, provider-connection telephony minute accounting, runtime cost accounting, and configurable tenant budget enforcement.
 
+Tenant telephony setup now uses the ISSUE-219 provider-row and connection-table surface. BYO Twilio credentials are validated before persistence, BYO SIP remains tenant-managed, and Zara-owned platform telephony provisioning is restricted to the platform-admin telephony route.
+
 Deployment planning now includes separate production and staging runbooks covering release flow, secrets, migrations, rollback, smoke tests, staging parity, safe seed data, validation, drift controls, observability dashboards, backup/DR restore checks, and final release-gate ownership.

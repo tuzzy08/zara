@@ -5000,6 +5000,28 @@ Acceptance criteria:
 - Deterministic OpenAI/Gemini PSTN evals fail on unbounded growth, stale post-interruption audio, wrong completion marks, or provider/runtime drift.
 - Runbooks explain each failure class and cost-optimized PSTN remains independently gated.
 
+### ISSUE-219: Calls provider setup refresh and platform telephony ownership
+
+- Priority: P1
+- Area: Frontend / Telephony / Platform Admin
+- Milestone: Tenant Telephony Operations
+- Labels: frontend, backend, telephony, platform-admin, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-219-calls-provider-setup-platform-telephony.md](../docs/Handovers/ISSUE-219-calls-provider-setup-platform-telephony.md)
+- External: [Linear ZAR-219](https://linear.app/zara-voice/issue/ZAR-219/refresh-tenant-calls-provider-setup-and-move-platform-telephony)
+
+Acceptance criteria:
+- Tenant Calls uses the approved metric strip, Twilio/SIP provider rows, configured-state LEDs, connection table, and credential modal hierarchy.
+- Twilio credentials are checked against Twilio before a connection is persisted, and invalid credentials surface provider-safe feedback.
+- Platform-managed telephony provisioning is removed from tenant Calls and exposed through an assured platform-admin mutation.
+- Existing number import, routing, Phone test, live activation, heartbeat, validation, rotation, and deletion flows remain available.
+
+Implementation summary:
+- Replaced the tenant hero and inline setup cards with the approved provider setup surface and responsive connection modal.
+- Removed tenant-side Platform edge, Health, and Outbound cards and deleted their obsolete component/model paths.
+- Added a non-persisting Twilio credential probe and platform-admin-owned platform connection provisioning endpoint/control.
+
 Implementation summary:
 - Added asynchronous redacted premium lifecycle, pressure, playback, failure, handoff, and cleanup telemetry with exact safe failure classification.
 - Reused one bounded provider-output pressure contract in production execution and executable release evals.

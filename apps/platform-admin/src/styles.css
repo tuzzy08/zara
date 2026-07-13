@@ -522,6 +522,44 @@ h1 {
   margin-bottom: 24px;
 }
 
+.admin-form-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(0, 1.35fr);
+  gap: 24px;
+  margin-top: 24px;
+  padding: 20px;
+}
+
+.admin-form-panel-copy h2 {
+  margin: 5px 0 8px;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.admin-form-panel-copy > p:last-child,
+.admin-form-actions output {
+  color: #666666;
+  font-size: 13px;
+}
+
+.admin-form-panel form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-form-panel .zara-ui-field-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .prompt-policy-panel form,
 .route-policy-panel form {
   display: grid;
@@ -567,6 +605,10 @@ h1 {
   .prompt-policy-class-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .admin-form-panel {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
@@ -576,7 +618,8 @@ h1 {
 
   .metric-grid,
   .data-row,
-  .prompt-policy-class-fields {
+  .prompt-policy-class-fields,
+  .admin-form-panel .zara-ui-field-group {
     grid-template-columns: 1fr;
   }
 }

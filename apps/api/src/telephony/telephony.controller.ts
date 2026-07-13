@@ -71,6 +71,20 @@ export class TelephonyController {
     });
   }
 
+  @Post("organizations/:organizationId/telephony/connections/validate-twilio-credentials")
+  @UseGuards(TenantOrganizationGuard)
+  @HttpCode(200)
+  validateTwilioCredentials(
+    @Param("organizationId") organizationId: string,
+    @Body() body: { accountSid: string; authToken: string },
+  ) {
+    return this.telephonyService.validateTwilioCredentials({
+      organizationId,
+      accountSid: body.accountSid,
+      authToken: body.authToken,
+    });
+  }
+
   @Delete("organizations/:organizationId/telephony/connections/:connectionId")
   @UseGuards(TenantOrganizationGuard)
   deleteConnection(

@@ -273,6 +273,17 @@ What distinguishes Vercel from other monochrome design systems is its shadow-as-
 
 ## 8. Responsive Behavior
 
+### Telephony Operations Exception
+
+The tenant Calls page follows the approved dark operational mockup rather than the public-site achromatic presentation rules. Provider identity and state are functional: Twilio uses its official red mark, SIP uses the orange phone/settings mark, configured connections use a small green LED, and unconfigured connections use a gray LED. The primary credential-validation action may use the orange operational accent. These colors are reserved for provider identity, status, and the primary telephony command; they are not general decorative chrome.
+
+- Present top-line call metrics as an unframed four-column strip.
+- Present Twilio and SIP as two full-width provider rows with identity on the left and Connect/Manage on the right.
+- Keep provider credentials inside a centered modal; never return to inline credential cards.
+- Present configured providers in a compact Connections table with icon-only operational actions and tooltips.
+- Platform-managed telephony controls belong only to the platform-admin application.
+- Stack metrics, provider controls, dialog fields, and operations safely at tablet/mobile breakpoints without horizontal text collisions.
+
 ### Breakpoints
 | Name | Width | Key Changes |
 |------|-------|-------------|

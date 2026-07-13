@@ -609,6 +609,9 @@ export function PlatformAdminApp({
         <section className="data-panel" aria-label={`${activeView.title} records`}>
           <DataTable rows={activeView.rows} rowKeyPrefix={activeRoute} />
         </section>
+        {activeRoute === "/telephony" ? (
+          <PlatformTelephonyProvisioningPanel canMutate={platformAuth.mutationAllowed} />
+        ) : null}
         {activeRoute === "/runtime" ? (
           <>
             <RuntimeAiObservabilityPanel />
@@ -1434,6 +1437,65 @@ function DataTable({
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function PlatformTelephonyProvisioningPanel({ canMutate }: { canMutate: boolean }) {
+  const [saveState, setSaveState] = useState("idle");
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const organizationId = String(data.get("organizationId") ?? "").trim();
+    setSaveState("saving");
+
+    try {
+      const response = await fetch(resolvePlatformAdminApiUrl(
+        `/platform-admin/organizations/${encodeURIComponent(organizationId)}/telephony/platform-managed-connections`,
+      ), {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          label: String(data.get("label") ?? "").trim(),
+          provider: String(data.get("provider") ?? "twilio"),
+          region: String(data.get("region") ?? "us-east-1"),
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as { message?: string };
+        throw new Error(payload.message ?? "Platform connection could not be provisioned.");
+      }
+
+      form.reset();
+      setSaveState("saved");
+    } catch (error) {
+      setSaveState(error instanceof Error ? error.message : "Platform connection could not be provisioned.");
+    }
+  };
+
+  return (
+    <Card className="admin-form-panel">
+      <div className="admin-form-panel-copy">
+        <p className="eyebrow">Platform managed</p>
+        <h2>Provision platform connection</h2>
+        <p>Create Zara-owned telephony infrastructure for a tenant. Tenant operators cannot access this control.</p>
+      </div>
+      <form action="/platform-admin/telephony/platform-managed-connections" method="post" onSubmit={submit}>
+        <FieldGroup>
+          <Field><FieldLabel>Organization ID</FieldLabel><Input name="organizationId" placeholder="tenant-west-africa" required /></Field>
+          <Field><FieldLabel>Connection name</FieldLabel><Input name="label" placeholder="Zara edge West" required /></Field>
+          <Field><FieldLabel>Provider</FieldLabel><Select name="provider" defaultValue="twilio"><option value="twilio">Twilio</option><option value="signalwire">SignalWire</option><option value="telnyx">Telnyx</option></Select></Field>
+          <Field><FieldLabel>Region</FieldLabel><Select name="region" defaultValue="us-east-1"><option value="us-east-1">US East</option><option value="eu-west-1">EU West</option></Select></Field>
+        </FieldGroup>
+        <div className="admin-form-actions">
+          <Button disabled={!canMutate || saveState === "saving"} type="submit">{saveState === "saving" ? "Provisioning" : "Provision connection"}</Button>
+          {saveState !== "idle" && saveState !== "saving" ? <output>{saveState === "saved" ? "Platform connection provisioned." : saveState}</output> : null}
+        </div>
+      </form>
+    </Card>
   );
 }
 

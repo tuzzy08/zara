@@ -222,6 +222,26 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async validateTwilioCredentials(input: {
+    organizationId: string;
+    accountSid: string;
+    authToken: string;
+  }) {
+    const accountSid = input.accountSid.trim();
+    const authToken = input.authToken.trim();
+
+    if (!accountSid.startsWith("AC") || authToken.length === 0) {
+      throw new ConflictException("Enter a valid Twilio Account SID and Auth token.");
+    }
+
+    const numbers = await this.fetchTwilioInventory({ accountSid, authToken });
+
+    return {
+      valid: true,
+      numberCount: numbers.length,
+    };
+  }
+
   async deleteConnection(input: {
     organizationId: string;
     connectionId: string;

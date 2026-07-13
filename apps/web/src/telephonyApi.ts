@@ -82,6 +82,23 @@ interface TelephonyStateEnvelope {
   state: TelephonyStateResponse;
 }
 
+export async function validateTwilioCredentialsViaApi(input: {
+  organizationId: string;
+  accountSid: string;
+  authToken: string;
+}) {
+  return requestJson<{ valid: true; numberCount: number }>(
+    `/organizations/${input.organizationId}/telephony/connections/validate-twilio-credentials`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+      }),
+    },
+  );
+}
+
 export async function fetchTelephonyState(organizationId: string) {
   return requestJson<TelephonyStateResponse>(`/organizations/${organizationId}/telephony/state`);
 }
@@ -96,7 +113,7 @@ export async function createTwilioConnectionViaApi(input: {
   blockRoutingOnHealthFailure: boolean;
   recordingPolicy: TelephonyRecordingPolicy;
 }) {
-  return requestJson<TelephonyStateEnvelope>(`/organizations/${input.organizationId}/telephony/connections`, {
+  return requestJson<TelephonyStateEnvelope & { connection: TelephonyConnection }>(`/organizations/${input.organizationId}/telephony/connections`, {
     method: "POST",
     body: JSON.stringify({
       actorUserId: input.actorUserId,

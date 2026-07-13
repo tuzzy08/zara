@@ -36,6 +36,7 @@ const telephonyApiMock = vi.hoisted(() => ({
   runTelephonyHeartbeatViaApi: vi.fn(),
   runTelephonyLoopbackTestViaApi: vi.fn(),
   validateTelephonyConnectionViaApi: vi.fn(),
+  validateTwilioCredentialsViaApi: vi.fn(),
 }));
 
 vi.mock("./telephonyApi", () => telephonyApiMock);
@@ -115,15 +116,43 @@ describe("TelephonyScreen", () => {
 
     renderTelephonyScreen({ organizationId });
 
-    await screen.findByText("Telephony operations");
+    await screen.findByText("Providers");
+    fireEvent.click(screen.getByRole("button", { name: "Connect SIP" }));
     fireEvent.change(screen.getByLabelText("Secret"), {
       target: { value: "sip-secret-value" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Connect SIP" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit SIP connection" }));
 
-    const busyButton = screen.getByRole<HTMLButtonElement>("button", { name: "Connecting SIP" });
+    const busyButton = screen.getByRole<HTMLButtonElement>("button", { name: "Submit SIP connection" });
     expect(busyButton.disabled).toBe(true);
     expect(busyButton.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("renders the approved provider setup surface and opens the Twilio credential dialog", async () => {
+    const organizationId = "tenant-custom-voice";
+    telephonyApiMock.fetchTelephonyState.mockResolvedValue(createTelephonyState(organizationId, []));
+
+    renderTelephonyScreen({ organizationId });
+
+    expect(await screen.findByText("Providers")).toBeTruthy();
+    expect(screen.getByText("Active connections")).toBeTruthy();
+    expect(screen.getByText("Routed numbers")).toBeTruthy();
+    expect(screen.getByText("Live routes")).toBeTruthy();
+    expect(screen.getByText("Recent calls")).toBeTruthy();
+    expect(screen.getByText("Twilio")).toBeTruthy();
+    expect(screen.getByText("SIP")).toBeTruthy();
+    expect(screen.queryByText("Platform edge")).toBeNull();
+    expect(screen.queryByText("Provider posture")).toBeNull();
+    expect(screen.queryByText("Outbound call")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
+
+    expect(screen.getByRole("dialog", { name: "Connect Twilio" })).toBeTruthy();
+    expect(screen.getByLabelText("Connection name")).toBeTruthy();
+    expect(screen.getByLabelText("Account SID")).toBeTruthy();
+    expect(screen.getByLabelText("Auth token")).toBeTruthy();
+    expect(screen.getByLabelText("Region")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Validate and connect" })).toBeTruthy();
   });
 });
 

@@ -5356,72 +5356,30 @@ button {
   }
 }
 
-.telephony-hero-band,
 .telephony-panel {
   min-width: 0;
   padding: 18px;
 }
 
-.telephony-hero-band {
-  display: grid;
-  gap: 18px;
-}
-
-.telephony-page-title {
-  margin: 2px 0 0;
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.05;
-  letter-spacing: -0.05em;
-}
-
-.telephony-page-copy {
-  max-width: 62ch;
-  margin: 10px 0 0;
-}
-
-.telephony-summary-grid,
-.telephony-grid,
-.telephony-setup-grid,
 .telephony-main,
-.telephony-side,
-.telephony-connection-list,
-.telephony-side-stack,
 .telephony-event-list {
   display: grid;
   gap: 14px;
   min-width: 0;
 }
 
-.telephony-summary-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.telephony-main,
-.telephony-side {
-  align-content: start;
-}
-
-.telephony-setup-grid {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.telephony-setup-card {
+.telephony-main {
   align-content: start;
 }
 
 .telephony-metric-card,
-.telephony-connection-card,
-.telephony-health-card,
 .telephony-dispatch-result,
 .telephony-event-card {
   min-width: 0;
 }
 
 .telephony-metric-label,
-.telephony-health-title,
 .telephony-row-actions,
-.telephony-connection-pills,
 .telephony-number-status {
   display: flex;
   align-items: center;
@@ -5440,16 +5398,13 @@ button {
   letter-spacing: -0.04em;
 }
 
-.telephony-section-head,
-.telephony-connection-header,
-.telephony-detail-cell {
+.telephony-section-head {
   display: flex;
   min-width: 0;
   gap: 12px;
 }
 
-.telephony-section-head,
-.telephony-connection-header {
+.telephony-section-head {
   align-items: flex-start;
   justify-content: space-between;
 }
@@ -5482,40 +5437,9 @@ button {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.telephony-connection-card,
-.telephony-health-card,
 .telephony-dispatch-result,
 .telephony-event-card {
   padding: 14px;
-}
-
-.telephony-connection-detail-grid {
-  display: grid;
-  gap: 10px;
-  margin: 14px 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.telephony-detail-cell {
-  flex-direction: column;
-  align-items: flex-start;
-  border-radius: 8px;
-  background: var(--zara-surface);
-  padding: 10px 12px;
-  box-shadow: var(--zara-shadow-soft);
-}
-
-.telephony-detail-cell span {
-  font-size: 11px;
-  color: var(--zara-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
-.telephony-detail-cell strong {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--zara-text);
 }
 
 .telephony-number-table {
@@ -5523,6 +5447,424 @@ button {
   min-width: 0;
   border-collapse: separate;
   border-spacing: 0 10px;
+}
+
+.telephony-page {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.telephony-overview-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+  padding: 10px 4px 24px;
+  border-bottom: 1px solid var(--zara-border-soft);
+}
+
+.telephony-overview-strip .telephony-metric-card {
+  min-height: 70px;
+  padding: 5px 22px;
+  border-left: 1px solid var(--zara-border-soft);
+}
+
+.telephony-overview-strip .telephony-metric-card:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.telephony-overview-strip .telephony-metric-label svg {
+  color: #f4772e;
+}
+
+.telephony-overview-strip .telephony-metric-value {
+  margin-top: 9px;
+  font-size: 25px;
+  letter-spacing: 0;
+}
+
+.telephony-main {
+  gap: 24px;
+}
+
+.telephony-providers {
+  display: grid;
+  gap: 14px;
+}
+
+.telephony-section-heading,
+.telephony-connections-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.telephony-section-heading h2,
+.telephony-connections-header h2,
+.telephony-dialog-header h2 {
+  margin: 3px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.telephony-section-heading p,
+.telephony-connections-header p,
+.telephony-dialog-header p {
+  margin: 0;
+  color: var(--zara-muted);
+  font-size: 13px;
+}
+
+.telephony-provider-list {
+  overflow: hidden;
+  border: 1px solid var(--zara-border);
+  border-radius: 8px;
+  background: var(--zara-surface-strong);
+}
+
+.telephony-provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 82px;
+  padding: 16px 18px;
+}
+
+.telephony-provider-row + .telephony-provider-row {
+  border-top: 1px solid var(--zara-border-soft);
+}
+
+.telephony-provider-identity,
+.telephony-provider-status,
+.telephony-table-provider,
+.telephony-table-actions {
+  display: flex;
+  align-items: center;
+}
+
+.telephony-provider-identity {
+  gap: 13px;
+}
+
+.telephony-provider-identity strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.telephony-provider-status {
+  gap: 7px;
+  margin-top: 5px;
+  color: var(--zara-muted);
+  font-size: 12px;
+}
+
+.telephony-provider-logo {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--zara-border);
+  border-radius: 8px;
+  background: #17181c;
+}
+
+.twilio-logo-mark {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  grid-template-columns: repeat(2, 6px);
+  grid-template-rows: repeat(2, 6px);
+  place-content: center;
+  gap: 3px;
+  border-radius: 50%;
+  background: #f22f46;
+}
+
+.twilio-logo-mark span {
+  border: 1.5px solid #ffffff;
+  border-radius: 50%;
+}
+
+.sip-provider-mark {
+  position: relative;
+  display: grid;
+  color: #f4772e;
+  place-items: center;
+}
+
+.sip-provider-mark svg:last-child {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  padding: 1px;
+  border-radius: 50%;
+  background: #17181c;
+}
+
+.telephony-led {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #6a6d73;
+  box-shadow: 0 0 0 3px rgba(106, 109, 115, 0.12);
+}
+
+.telephony-led.is-configured {
+  background: #35ca76;
+  box-shadow: 0 0 0 3px rgba(53, 202, 118, 0.12), 0 0 9px rgba(53, 202, 118, 0.42);
+}
+
+.telephony-provider-connect {
+  min-width: 112px;
+  justify-content: center;
+}
+
+.telephony-connections-panel {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.telephony-connections-header {
+  align-items: center;
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--zara-border-soft);
+}
+
+.telephony-connections-header p {
+  margin-top: 5px;
+}
+
+.telephony-connections-table {
+  width: 100%;
+}
+
+.telephony-connections-table th {
+  height: 40px;
+  color: var(--zara-muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.telephony-connections-table td {
+  min-width: 120px;
+  height: 62px;
+  font-size: 13px;
+}
+
+.telephony-connections-table td strong,
+.telephony-connections-table td > span {
+  display: block;
+}
+
+.telephony-connections-table td > span {
+  margin-top: 3px;
+  color: var(--zara-muted);
+  font-size: 11px;
+}
+
+.telephony-table-provider {
+  gap: 8px;
+}
+
+.telephony-table-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.telephony-icon-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.telephony-dialog-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 6, 8, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.telephony-connection-dialog {
+  width: min(100%, 500px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  background: #111216;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+}
+
+.telephony-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 22px 17px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.telephony-dialog-header p {
+  margin-top: 7px;
+}
+
+.telephony-dialog-close,
+.telephony-secret-field button {
+  display: grid;
+  border: 0;
+  color: var(--zara-muted);
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+}
+
+.telephony-dialog-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.telephony-dialog-close:hover,
+.telephony-secret-field button:hover {
+  color: var(--zara-text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.telephony-dialog-form {
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px 8px;
+}
+
+.telephony-dialog-form-two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.telephony-dialog-form label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: var(--zara-muted-strong);
+  font-size: 12px;
+}
+
+.telephony-dialog-form input,
+.telephony-dialog-form select {
+  width: 100%;
+  color: var(--zara-text);
+  background: #17181c;
+}
+
+.telephony-secret-field {
+  position: relative;
+  display: block;
+}
+
+.telephony-secret-field input {
+  padding-right: 40px;
+}
+
+.telephony-secret-field button {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  transform: translateY(-50%);
+}
+
+.telephony-dialog-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px 18px;
+  color: var(--zara-muted);
+  font-size: 11px;
+}
+
+.telephony-dialog-note svg {
+  color: #35ca76;
+}
+
+.telephony-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 15px 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.telephony-operations-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+@media (max-width: 820px) {
+  .telephony-overview-strip,
+  .telephony-operations-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .telephony-overview-strip .telephony-metric-card:nth-child(3) {
+    border-left: 0;
+  }
+
+  .telephony-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .telephony-connections-panel {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .telephony-overview-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .telephony-overview-strip .telephony-metric-card {
+    padding: 14px 0;
+    border-top: 1px solid var(--zara-border-soft);
+    border-left: 0;
+  }
+
+  .telephony-overview-strip .telephony-metric-card:first-child {
+    border-top: 0;
+  }
+
+  .telephony-provider-row {
+    padding: 14px;
+  }
+
+  .telephony-provider-connect {
+    min-width: 96px;
+  }
+
+  .telephony-dialog-form-two-column,
+  .telephony-operations-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .telephony-dialog-actions > * {
+    flex: 1;
+  }
 }
 
 .telephony-number-table-head {
@@ -8082,26 +8424,12 @@ button {
     justify-content: space-between;
   }
 
-  .telephony-hero-band {
-    grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
-    align-items: start;
-  }
-
-  .telephony-grid {
-    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
-    align-items: start;
-  }
-
   .tenant-page-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tenant-integrations-page-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .telephony-setup-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .workspace-member-controls {

@@ -5,6 +5,7 @@ import request from "supertest";
 
 import { AppModule } from "../app.module";
 import { PlatformAdminModule } from "./platform-admin.module";
+import { TELEPHONY_STATE_REPOSITORY } from "../telephony/telephony-state.repository";
 
 describe("PlatformAdminController", () => {
   it("rejects tenant admins and allows platform staff to load the dashboard", async () => {
@@ -310,6 +311,28 @@ describe("PlatformAdminController", () => {
       expect.arrayContaining(["platform_managed", "byo_sip_trunk", "byo_provider_account"]),
     );
     expect(JSON.stringify(telephony.body)).not.toMatch(/secret|credential|token/i);
+
+    const platformConnection = await request(server)
+      .post("/platform-admin/organizations/tenant-west-africa/telephony/platform-managed-connections")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "passkey")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        label: "Zara edge West",
+        provider: "twilio",
+        region: "eu-west-1",
+      });
+
+    expect(platformConnection.status).toBe(201);
+    expect(platformConnection.body.connection).toMatchObject({
+      tenantId: "tenant-west-africa",
+      ownershipMode: "platform_managed",
+      provider: "twilio",
+      createdBy: "user-platform-admin",
+    });
+    expect(platformConnection.body.audit.action).toBe("platform.telephony.connection_created");
 
     const integrations = await request(server)
       .get("/platform-admin/integrations")
@@ -932,7 +955,14 @@ describe("PlatformAdminController", () => {
 async function createPlatformAdminApp() {
   const moduleRef = await Test.createTestingModule({
     imports: [PlatformAdminModule],
-  }).compile();
+  })
+    .overrideProvider(TELEPHONY_STATE_REPOSITORY)
+    .useValue({
+      listOrganizationIds: () => [],
+      load: () => null,
+      save: () => undefined,
+    })
+    .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
   await app.init();

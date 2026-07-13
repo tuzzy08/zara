@@ -10,6 +10,7 @@ import type {
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import type { UpdateRuntimeRoutePolicyInput } from "../runtime-route-policy/runtime-route-policy.models";
 import { RuntimeRoutePolicyService } from "../runtime-route-policy/runtime-route-policy.service";
+import { TelephonyService } from "../telephony/telephony.service";
 import type {
   PlatformAbuseComplianceReview,
   PlatformAdminAuditEntry,
@@ -43,6 +44,7 @@ export class PlatformAdminService {
     private readonly auditLogService: AuditLogService,
     private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
     private readonly runtimeRoutePolicyService: RuntimeRoutePolicyService,
+    private readonly telephonyService: TelephonyService,
   ) {}
 
   getDashboard(): PlatformAdminDashboard {
@@ -156,6 +158,41 @@ export class PlatformAdminService {
 
   listTelephonyConnections() {
     return clone(this.telephonyConnections);
+  }
+
+  async createPlatformManagedTelephonyConnection(
+    context: PlatformAdminRequestContext,
+    organizationId: string,
+    input: {
+      label: string;
+      provider: "twilio" | "signalwire" | "telnyx";
+      region: string;
+    },
+  ) {
+    this.findOrganization(organizationId);
+    const result = await this.telephonyService.createConnection({
+      organizationId,
+      actorUserId: context.actorUserId,
+      label: input.label,
+      ownershipMode: "platform_managed",
+      provider: input.provider,
+      region: input.region,
+      blockRoutingOnHealthFailure: true,
+    });
+
+    return {
+      ...result,
+      audit: this.recordAudit(context, {
+        tenantId: organizationId,
+        targetType: "telephony_connection",
+        targetId: result.connection.id,
+        action: "platform.telephony.connection_created",
+        metadata: {
+          provider: input.provider,
+          region: input.region,
+        },
+      }),
+    };
   }
 
   listIntegrationConnections() {

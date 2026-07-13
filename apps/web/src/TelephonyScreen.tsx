@@ -1,5 +1,7 @@
-﻿import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 import { Link } from "react-router-dom";
+import { useState } from "react";
+import type { ReactNode } from "react";
 import {
   Button,
   Card,
@@ -18,19 +20,26 @@ import {
   ArrowRightLeft,
   BadgeCheck,
   Bot,
-  Cable,
   CircleSlash2,
+  Clock3,
+  Eye,
+  EyeOff,
+  Hash,
   KeyRound,
+  Phone,
   PhoneCall,
   PhoneForwarded,
   PhoneIncoming,
   PhoneOff,
-  Router,
+  Plug,
+  Repeat2,
+  Settings,
   ShieldCheck,
   TestTube2,
   Trash2,
   Voicemail,
   Waves,
+  X,
 } from "lucide-react";
 import type {
   TelephonyCallControlEventType,
@@ -44,13 +53,11 @@ import type {
 import {
   assignTelephonyRouteViaApi,
   activateTelephonyLiveRouteViaApi,
-  createPlatformManagedConnectionViaApi,
   createSipConnectionViaApi,
   createTwilioConnectionViaApi,
   deleteTelephonyConnectionViaApi,
   deleteTelephonyPhoneNumberViaApi,
   dispatchInboundTelephonyTestViaApi,
-  dispatchOutboundTelephonyCallViaApi,
   fetchTelephonyState,
   importTwilioNumbersViaApi,
   pauseTelephonyLiveRouteViaApi,
@@ -61,13 +68,13 @@ import {
   runTelephonyHeartbeatViaApi,
   runTelephonyLoopbackTestViaApi,
   validateTelephonyConnectionViaApi,
+  validateTwilioCredentialsViaApi,
   type TelephonyCallControlEvent,
   type TelephonyDispatchRecord,
   type TelephonyStateResponse,
 } from "./telephonyApi";
 import {
   getCallablePhoneNumberOptions,
-  getCallerIdPhoneNumberOptions,
   getCallSessionControlOptions,
   getTenantPublishedWorkflowOptions,
 } from "./telephonyCallsPageModel";
@@ -87,12 +94,6 @@ interface ConnectionDraftBase {
   region: string;
   consentMode: TelephonyRecordingConsentMode;
   consentMessage: string;
-}
-
-interface PlatformConnectionDraft extends ConnectionDraftBase {
-  provider: "twilio" | "signalwire" | "telnyx";
-  phoneNumber: string;
-  friendlyName: string;
 }
 
 interface TwilioConnectionDraft extends ConnectionDraftBase {
@@ -117,19 +118,6 @@ interface InboundDispatchDraft {
   callSid: string;
 }
 
-interface OutboundDispatchDraft {
-  fromPhoneNumber: string;
-  toPhoneNumber: string;
-  callSid: string;
-  selectedWorkflowId: string;
-  consentGranted: boolean;
-  budgetRemainingUsd: string;
-  estimatedCostUsd: string;
-  localHour: string;
-  startHour: string;
-  endHour: string;
-}
-
 interface CallControlDraft {
   callSessionId: string;
   dispatchId: string;
@@ -143,18 +131,6 @@ interface LiveRouteActivationGuidance {
   title: string;
   message: string;
   action: string;
-}
-
-function createInitialPlatformDraft(): PlatformConnectionDraft {
-  return {
-    label: "Zara Edge West",
-    region: "eu-west-1",
-    provider: "twilio",
-    phoneNumber: "+14155550110",
-    friendlyName: "Premium support",
-    consentMode: "two-party",
-    consentMessage: "This line records after consent.",
-  };
 }
 
 function createInitialTwilioDraft(): TwilioConnectionDraft {
@@ -193,21 +169,6 @@ function createInitialInboundDispatchDraft(): InboundDispatchDraft {
   };
 }
 
-function createInitialOutboundDispatchDraft(): OutboundDispatchDraft {
-  return {
-    fromPhoneNumber: "",
-    toPhoneNumber: "+14155550999",
-    callSid: "CA-outbound-test-001",
-    selectedWorkflowId: "",
-    consentGranted: true,
-    budgetRemainingUsd: "5.00",
-    estimatedCostUsd: "0.75",
-    localHour: "11",
-    startHour: "8",
-    endHour: "19",
-  };
-}
-
 function createInitialCallControlDraft(): CallControlDraft {
   return {
     callSessionId: "",
@@ -242,16 +203,13 @@ interface TelephonyResourceState {
 
 interface TelephonyScreenState {
   telephonyResource: TelephonyResourceState;
-  platformDraft: PlatformConnectionDraft;
   twilioDraft: TwilioConnectionDraft;
   sipDraft: SipConnectionDraft;
   dispatchDraft: InboundDispatchDraft;
-  outboundDraft: OutboundDispatchDraft;
   controlDraft: CallControlDraft;
   routeSelections: Record<string, string>;
   pendingOperationIds: Record<string, boolean>;
   lastDispatch: TelephonyDispatchRecord | null;
-  lastOutboundDispatch: TelephonyDispatchRecord | null;
   lastControlEvent: TelephonyCallControlEvent | null;
   workflowCatalogVersion: number;
   activationGuidanceByNumberId: Record<string, LiveRouteActivationGuidance | undefined>;
@@ -284,16 +242,13 @@ function createInitialTelephonyScreenState(telephonyRequestKey: string): Telepho
       loading: true,
       state: null,
     },
-    platformDraft: createInitialPlatformDraft(),
     twilioDraft: createInitialTwilioDraft(),
     sipDraft: createInitialSipDraft(),
     dispatchDraft: createInitialInboundDispatchDraft(),
-    outboundDraft: createInitialOutboundDispatchDraft(),
     controlDraft: createInitialCallControlDraft(),
     routeSelections: {},
     pendingOperationIds: {},
     lastDispatch: null,
-    lastOutboundDispatch: null,
     lastControlEvent: null,
     workflowCatalogVersion: 0,
     activationGuidanceByNumberId: {},
@@ -321,16 +276,13 @@ function useTelephonyScreenModel({
   );
   const {
     telephonyResource,
-    platformDraft,
     twilioDraft,
     sipDraft,
     dispatchDraft,
-    outboundDraft,
     controlDraft,
     routeSelections,
     pendingOperationIds,
     lastDispatch,
-    lastOutboundDispatch,
     lastControlEvent,
     workflowCatalogVersion,
     activationGuidanceByNumberId,
@@ -354,16 +306,13 @@ function useTelephonyScreenModel({
     dispatch({ type: "set", field, value });
   };
   const setTelephonyResource = (value: TelephonyStateSetter<TelephonyResourceState>) => setTelephonyField("telephonyResource", value);
-  const setPlatformDraft = (value: TelephonyStateSetter<PlatformConnectionDraft>) => setTelephonyField("platformDraft", value);
   const setTwilioDraft = (value: TelephonyStateSetter<TwilioConnectionDraft>) => setTelephonyField("twilioDraft", value);
   const setSipDraft = (value: TelephonyStateSetter<SipConnectionDraft>) => setTelephonyField("sipDraft", value);
   const setDispatchDraft = (value: TelephonyStateSetter<InboundDispatchDraft>) => setTelephonyField("dispatchDraft", value);
-  const setOutboundDraft = (value: TelephonyStateSetter<OutboundDispatchDraft>) => setTelephonyField("outboundDraft", value);
   const setControlDraft = (value: TelephonyStateSetter<CallControlDraft>) => setTelephonyField("controlDraft", value);
   const setRouteSelections = (value: TelephonyStateSetter<Record<string, string>>) => setTelephonyField("routeSelections", value);
   const setPendingOperationIds = (value: TelephonyStateSetter<Record<string, boolean>>) => setTelephonyField("pendingOperationIds", value);
   const setLastDispatch = (value: TelephonyDispatchRecord | null) => setTelephonyField("lastDispatch", value);
-  const setLastOutboundDispatch = (value: TelephonyDispatchRecord | null) => setTelephonyField("lastOutboundDispatch", value);
   const setLastControlEvent = (value: TelephonyCallControlEvent | null) => setTelephonyField("lastControlEvent", value);
   const setWorkflowCatalogVersion = (value: TelephonyStateSetter<number>) => setTelephonyField("workflowCatalogVersion", value);
   const setActivationGuidanceByNumberId = (value: TelephonyStateSetter<Record<string, LiveRouteActivationGuidance | undefined>>) =>
@@ -469,68 +418,32 @@ function useTelephonyScreenModel({
   }, [organizationId, showToast, telephonyRequestKey]);
 
   const contentState = state ?? createEmptyTelephonyState(organizationId);
-  const providerHeartbeats = contentState.providerHeartbeats ?? [];
   const executionSessions = contentState.executionSessions ?? [];
   const executionCommands = contentState.executionCommands ?? [];
 
   const metrics = useMemo(() => {
     const routedNumbers = contentState.phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed");
-    const outboundQueued = contentState.dispatches.filter(
-      (dispatch) => dispatch.direction === "outbound" && dispatch.disposition === "queued",
-    );
 
     return {
       activeConnections: contentState.connections.filter((connection) => connection.status === "active").length,
       routedNumbers: routedNumbers.length,
-      outboundQueued: outboundQueued.length,
-      liveControls: contentState.callControlEvents.length,
+      liveRoutes: contentState.phoneNumbers.filter((phoneNumber) => phoneNumber.liveRoute?.activationStatus === "active").length,
+      recentCalls: contentState.dispatches.length,
     };
   }, [contentState]);
 
-  const platformConnections = contentState.connections.filter(
-    (connection) => connection.ownershipMode === "platform_managed",
-  );
-  const twilioConnections = contentState.connections.filter(
-    (connection) => connection.ownershipMode === "byo_provider_account",
-  );
   const sipConnections = contentState.connections.filter(
     (connection) => connection.ownershipMode === "byo_sip_trunk",
   );
-  const primaryHealthConnection =
-    sipConnections[0] ?? twilioConnections[0] ?? platformConnections[0] ?? null;
-  const primaryHealthCheck =
-    primaryHealthConnection === null
-      ? null
-      : contentState.healthChecks.find(
-          (candidate) => candidate.connectionId === primaryHealthConnection.id,
-        ) ?? null;
-  const primaryHeartbeat =
-    primaryHealthConnection === null
-      ? null
-      : providerHeartbeats.find((candidate) => candidate.connectionId === primaryHealthConnection.id) ??
-        null;
 
   const callablePhoneNumberOptions = getCallablePhoneNumberOptions(contentState.phoneNumbers);
-  const callerIdPhoneNumberOptions = getCallerIdPhoneNumberOptions(contentState.phoneNumbers);
   const callControlSessionOptions = getCallSessionControlOptions(contentState);
-  const latestCallerIdNumber = callerIdPhoneNumberOptions[0];
-  const latestWorkflow =
-    getLatestPublishedWorkflow(publishedWorkflows, activeWorkspaceId) ?? publishedWorkflows[0];
   const latestCallSessionOption = callControlSessionOptions[0];
   const effectiveDispatchDraft = {
     ...dispatchDraft,
     toPhoneNumber: dispatchDraft.toPhoneNumber.length > 0
       ? dispatchDraft.toPhoneNumber
       : callablePhoneNumberOptions[0]?.value ?? "",
-  };
-  const effectiveOutboundDraft = {
-    ...outboundDraft,
-    fromPhoneNumber: outboundDraft.fromPhoneNumber.length > 0
-      ? outboundDraft.fromPhoneNumber
-      : latestCallerIdNumber?.value ?? "",
-    selectedWorkflowId: outboundDraft.selectedWorkflowId.length > 0
-      ? outboundDraft.selectedWorkflowId
-      : latestWorkflow?.id ?? "",
   };
   const effectiveControlDraft = {
     ...controlDraft,
@@ -557,27 +470,6 @@ function useTelephonyScreenModel({
     return phoneNumber.liveRoute?.publishedVersionId ?? workspaceWorkflow?.id ?? "";
   };
 
-  const createPlatformConnection = async () => {
-    try {
-      const response = await runOperation("platform:create", () => createPlatformManagedConnectionViaApi({
-        organizationId,
-        actorUserId: activeActorUserId,
-        label: platformDraft.label,
-        region: platformDraft.region,
-        provider: platformDraft.provider,
-        recordingPolicy: buildRecordingPolicy(platformDraft),
-      }));
-      if (response === null) {
-        return;
-      }
-
-      commitTelephonyState(response.state);
-      showToast("Platform telephony edge connected.");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Platform telephony could not be connected.");
-    }
-  };
-
   const createTwilioConnection = async () => {
     if (twilioDraft.accountSid.trim().length === 0 || twilioDraft.authToken.trim().length === 0) {
       showToast("Twilio account SID and auth token are required.");
@@ -585,24 +477,34 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await runOperation("twilio:create", () => createTwilioConnectionViaApi({
-        organizationId,
-        actorUserId: activeActorUserId,
-        label: twilioDraft.label,
-        region: twilioDraft.region,
-        accountSid: twilioDraft.accountSid.trim(),
-        authToken: twilioDraft.authToken.trim(),
-        blockRoutingOnHealthFailure: twilioDraft.blockRoutingOnHealthFailure,
-        recordingPolicy: buildRecordingPolicy(twilioDraft),
-      }));
+      const response = await runOperation("twilio:create", async () => {
+        await validateTwilioCredentialsViaApi({
+          organizationId,
+          accountSid: twilioDraft.accountSid.trim(),
+          authToken: twilioDraft.authToken.trim(),
+        });
+        return createTwilioConnectionViaApi({
+          organizationId,
+          actorUserId: activeActorUserId,
+          label: twilioDraft.label,
+          region: twilioDraft.region,
+          accountSid: twilioDraft.accountSid.trim(),
+          authToken: twilioDraft.authToken.trim(),
+          blockRoutingOnHealthFailure: twilioDraft.blockRoutingOnHealthFailure,
+          recordingPolicy: buildRecordingPolicy(twilioDraft),
+        });
+      });
       if (response === null) {
-        return;
+        return false;
       }
 
       commitTelephonyState(response.state);
+      setTwilioDraft((current) => ({ ...current, authToken: "" }));
       showToast("Twilio provider account connected.");
+      return true;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Twilio connection could not be created.");
+      return false;
     }
   };
 
@@ -626,38 +528,16 @@ function useTelephonyScreenModel({
         recordingPolicy: buildRecordingPolicy(sipDraft),
       }));
       if (response === null) {
-        return;
+        return false;
       }
 
       commitTelephonyState(response.state);
+      setSipDraft((current) => ({ ...current, secret: "" }));
       showToast("SIP trunk connected.");
+      return true;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "SIP trunk could not be created.");
-    }
-  };
-
-  const registerPlatformNumber = async () => {
-    const connection = platformConnections[0];
-    if (connection === undefined) {
-      showToast("Connect a platform telephony edge before provisioning Zara numbers.");
-      return;
-    }
-
-    try {
-      const response = await runOperation("platform:register-number", () => registerTelephonyNumberViaApi({
-        organizationId,
-        connectionId: connection.id,
-        phoneNumber: platformDraft.phoneNumber.trim(),
-        friendlyName: platformDraft.friendlyName.trim(),
-      }));
-      if (response === null) {
-        return;
-      }
-
-      commitTelephonyState(response.state);
-      showToast("Platform number provisioned.");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Platform number could not be provisioned.");
+      return false;
     }
   };
 
@@ -681,8 +561,10 @@ function useTelephonyScreenModel({
 
       commitTelephonyState(response.state);
       showToast("SIP DID added.");
+      return true;
     } catch (error) {
       showToast(error instanceof Error ? error.message : "SIP DID could not be added.");
+      return false;
     }
   };
 
@@ -797,7 +679,7 @@ function useTelephonyScreenModel({
         workspaceId: selectedWorkflow.workspaceId ?? activeWorkspaceId,
         runtimeProfile: selectedWorkflow.manifestPreview.runtimeProfile,
         recordingPolicy:
-          resolveSelectedNumberRecordingPolicy(contentState, numberId) ?? buildRecordingPolicy(platformDraft),
+          resolveSelectedNumberRecordingPolicy(contentState, numberId) ?? buildRecordingPolicy(twilioDraft),
       }));
       if (response === null) {
         return;
@@ -933,60 +815,6 @@ function useTelephonyScreenModel({
     }
   };
 
-  const runOutboundDispatch = async () => {
-    const selectedWorkflow = publishedWorkflows.find(
-      (workflow) => workflow.id === effectiveOutboundDraft.selectedWorkflowId,
-    );
-
-    if (selectedWorkflow === undefined) {
-      showToast("Select a published workflow before running outbound dispatch.");
-      return;
-    }
-
-    if (effectiveOutboundDraft.fromPhoneNumber.trim().length === 0) {
-      showToast("Select a caller ID number before running outbound dispatch.");
-      return;
-    }
-
-    try {
-      const response = await runOperation("dispatch:outbound", () => dispatchOutboundTelephonyCallViaApi({
-        organizationId,
-        toPhoneNumber: effectiveOutboundDraft.toPhoneNumber.trim(),
-        fromPhoneNumber: effectiveOutboundDraft.fromPhoneNumber.trim(),
-        callSid: effectiveOutboundDraft.callSid.trim(),
-        publishedVersionId: selectedWorkflow.id,
-        workflowLabel: selectedWorkflow.graph.name,
-        workspaceId: selectedWorkflow.workspaceId ?? activeWorkspaceId,
-        consentGranted: effectiveOutboundDraft.consentGranted,
-        budgetRemainingUsd: Number(effectiveOutboundDraft.budgetRemainingUsd),
-        estimatedCostUsd: Number(effectiveOutboundDraft.estimatedCostUsd),
-        localHour: Number(effectiveOutboundDraft.localHour),
-        callingWindow: {
-          startHour: Number(effectiveOutboundDraft.startHour),
-          endHour: Number(effectiveOutboundDraft.endHour),
-        },
-      }));
-      if (response === null) {
-        return;
-      }
-
-      commitTelephonyState(response.state);
-      setLastOutboundDispatch(response.dispatch);
-      setControlDraft((current) => ({
-        ...current,
-        callSessionId: response.dispatch.callSessionId ?? current.callSessionId,
-        dispatchId: response.dispatch.id,
-      }));
-      showToast(
-        response.dispatch.disposition === "queued"
-          ? "Outbound dispatch queued."
-          : response.dispatch.reason ?? "Outbound dispatch blocked.",
-      );
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Outbound dispatch could not be evaluated.");
-    }
-  };
-
   const submitCallControlEvent = async () => {
     if (effectiveControlDraft.callSessionId.trim().length === 0 || effectiveControlDraft.dispatchId.trim().length === 0) {
       showToast("Choose a live or recently queued call session before sending call controls.");
@@ -1051,32 +879,23 @@ function useTelephonyScreenModel({
     activationGuidanceByNumberId,
     callControlSessionOptions,
     callablePhoneNumberOptions,
-    callerIdPhoneNumberOptions,
     contentState,
-    createPlatformConnection,
     createSipConnection,
     createTwilioConnection,
     deleteConnection,
     deletePhoneNumber,
     effectiveControlDraft,
     effectiveDispatchDraft,
-    effectiveOutboundDraft,
     executionCommands,
     executionSessions,
     importNumbers,
     isOperationPending,
     lastControlEvent,
     lastDispatch,
-    lastOutboundDispatch,
     loading,
     metrics,
     pauseLiveRoute,
-    platformDraft,
-    primaryHealthCheck,
-    primaryHealthConnection,
-    primaryHeartbeat,
     publishedWorkflows,
-    registerPlatformNumber,
     registerSipDid,
     resolveRouteSelection,
     resumeLiveRoute,
@@ -1084,12 +903,9 @@ function useTelephonyScreenModel({
     runConnectionHeartbeat,
     runInboundDispatch,
     runLoopbackTestCall,
-    runOutboundDispatch,
     saveRoute,
     setControlDraft,
     setDispatchDraft,
-    setOutboundDraft,
-    setPlatformDraft,
     setRouteSelections,
     setSipDraft,
     setTwilioDraft,
@@ -1107,10 +923,14 @@ type TelephonyScreenModel = ReturnType<typeof useTelephonyScreenModel>;
 function TelephonyScreenView({ model }: { model: TelephonyScreenModel }) {
   return (
     <div className="telephony-page">
+      <h1 className="sr-only">Telephony operations</h1>
       <TelephonyHero metrics={model.metrics} />
-      <div className="telephony-grid">
-        <TelephonyMainColumn model={model} />
-        <TelephonySideColumn model={model} />
+      <TelephonyMainColumn model={model} />
+      <div className="telephony-operations-grid">
+        <TelephonyInboundTestPanel model={model} />
+        <TelephonyExecutionPanel model={model} />
+        <TelephonyLiveControlsPanel model={model} />
+        <TelephonyProviderEventsPanel contentState={model.contentState} />
       </div>
     </div>
   );
@@ -1118,300 +938,320 @@ function TelephonyScreenView({ model }: { model: TelephonyScreenModel }) {
 
 function TelephonyHero({ metrics }: { metrics: TelephonyScreenModel["metrics"] }) {
   return (
-    <Card className="surface-card telephony-hero-band">
-      <div className="telephony-hero-copy">
-        <div className="eyebrow-copy">Telephony</div>
-        <h1 className="telephony-page-title">Telephony operations</h1>
-        <p className="body-copy telephony-page-copy">
-          Run platform lines, tenant Twilio accounts, and SIP trunks from one control surface, then validate inbound and outbound traffic before calls hit production.
-        </p>
-      </div>
-
-      <div className="telephony-summary-grid">
-        <MetricTile icon={Cable} label="Active connections" value={String(metrics.activeConnections)} />
-        <MetricTile icon={Router} label="Routed numbers" value={String(metrics.routedNumbers)} />
-        <MetricTile icon={PhoneCall} label="Outbound queued" value={String(metrics.outboundQueued)} />
-        <MetricTile icon={Waves} label="Call controls" value={String(metrics.liveControls)} />
-      </div>
-    </Card>
+    <section className="telephony-overview-strip" aria-label="Telephony overview">
+      <MetricTile icon={Phone} label="Active connections" value={String(metrics.activeConnections)} />
+      <MetricTile icon={Hash} label="Routed numbers" value={String(metrics.routedNumbers)} />
+      <MetricTile icon={Repeat2} label="Live routes" value={String(metrics.liveRoutes)} />
+      <MetricTile icon={Clock3} label="Recent calls" value={String(metrics.recentCalls)} />
+    </section>
   );
 }
 
 function TelephonyMainColumn({ model }: { model: TelephonyScreenModel }) {
   return (
     <div className="telephony-main">
-      <TelephonySetupGrid model={model} />
-      <TelephonyConnectionsPanel model={model} />
+      <TelephonyProviderSetup model={model} />
+      <TelephonyConnectionTable model={model} />
       <TelephonyRoutingPanel model={model} />
     </div>
   );
 }
 
-function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
-  const {
-    createPlatformConnection,
-    createSipConnection,
-    createTwilioConnection,
-    isOperationPending,
-    platformDraft,
-    registerPlatformNumber,
-    registerSipDid,
-    setPlatformDraft,
-    setSipDraft,
-    setTwilioDraft,
-    sipDraft,
-    twilioDraft,
-  } = model;
-  const platformCreatePending = isOperationPending("platform:create");
-  const platformRegisterPending = isOperationPending("platform:register-number");
-  const twilioCreatePending = isOperationPending("twilio:create");
-  const sipCreatePending = isOperationPending("sip:create");
-  const sipRegisterPending = isOperationPending("sip:register-number");
+function TelephonyProviderSetup({ model }: { model: TelephonyScreenModel }) {
+  const [dialog, setDialog] = useState<"twilio" | "sip" | "sip-did" | null>(null);
+  const [showSecret, setShowSecret] = useState(false);
+  const twilioConfigured = model.contentState.connections.some(
+    (connection) => connection.ownershipMode === "byo_provider_account" && connection.provider === "twilio",
+  );
+  const sipConfigured = model.contentState.connections.some(
+    (connection) => connection.ownershipMode === "byo_sip_trunk",
+  );
+
+  const manageConnections = () => {
+    document.getElementById("telephony-connections")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
-    <div className="telephony-setup-grid">
-      <Card className="surface-card telephony-panel telephony-setup-card">
-        <div className="telephony-section-head">
-          <div>
-            <div className="eyebrow-copy">Platform edge</div>
-            <div className="subhead-copy telephony-section-title">Zara-managed telephony</div>
-          </div>
-          <Button aria-busy={platformCreatePending} className="workflow-button workflow-button-primary" disabled={platformCreatePending} type="button" onClick={createPlatformConnection}>
-            <PhoneCall size={15} />
-            <span>{platformCreatePending ? "Connecting edge" : "Connect edge"}</span>
-          </Button>
+    <section className="telephony-providers" aria-labelledby="telephony-providers-title">
+      <div className="telephony-section-heading">
+        <div>
+          <div className="eyebrow-copy">Voice infrastructure</div>
+          <h2 id="telephony-providers-title">Providers</h2>
         </div>
+        <p>Connect and manage your telephony providers.</p>
+      </div>
 
-        <div className="telephony-form-grid telephony-form-grid-compact">
-          <label className="workspace-settings-field">
-            <span>Connection label</span>
-            <Input value={platformDraft.label} onChange={(event) => setPlatformDraft((current) => ({ ...current, label: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Provider rail</span>
-            <Select
-              value={platformDraft.provider}
-              onChange={(event) => setPlatformDraft((current) => ({ ...current, provider: event.target.value as PlatformConnectionDraft["provider"] }))}
-            >
-              <option value="twilio">Twilio</option>
-              <option value="signalwire">SignalWire</option>
-              <option value="telnyx">Telnyx</option>
-            </Select>
-          </label>
-          <label className="workspace-settings-field">
-            <span>Region</span>
-            <Select value={platformDraft.region} onChange={(event) => setPlatformDraft((current) => ({ ...current, region: event.target.value }))}>
-              <option value="eu-west-1">EU West</option>
-              <option value="us-east-1">US East</option>
-            </Select>
-          </label>
-          <label className="workspace-settings-field">
-            <span>Provision number</span>
-            <Input value={platformDraft.phoneNumber} onChange={(event) => setPlatformDraft((current) => ({ ...current, phoneNumber: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Friendly name</span>
-            <Input value={platformDraft.friendlyName} onChange={(event) => setPlatformDraft((current) => ({ ...current, friendlyName: event.target.value }))} />
-          </label>
-        </div>
+      <div className="telephony-provider-list">
+        <ProviderRow
+          configured={twilioConfigured}
+          icon={<TwilioLogo />}
+          name="Twilio"
+          onAction={twilioConfigured ? manageConnections : () => setDialog("twilio")}
+        />
+        <ProviderRow
+          configured={sipConfigured}
+          icon={<SipProviderIcon />}
+          name="SIP"
+          onAction={sipConfigured ? () => setDialog("sip-did") : () => setDialog("sip")}
+        />
+      </div>
 
-        <div className="telephony-row-actions">
-          <Button aria-busy={platformRegisterPending} className="workflow-button" disabled={platformRegisterPending} type="button" variant="outline" onClick={registerPlatformNumber}>
-            <PhoneIncoming size={15} />
-            <span>{platformRegisterPending ? "Provisioning number" : "Provision number"}</span>
-          </Button>
-        </div>
-      </Card>
+      {dialog === "twilio" ? (
+        <TwilioConnectionDialog
+          model={model}
+          showSecret={showSecret}
+          onShowSecret={() => setShowSecret((current) => !current)}
+          onClose={() => setDialog(null)}
+          onSubmit={async () => {
+            if (await model.createTwilioConnection()) {
+              setDialog(null);
+            }
+          }}
+        />
+      ) : null}
+      {dialog === "sip" ? (
+        <SipConnectionDialog
+          model={model}
+          showSecret={showSecret}
+          onShowSecret={() => setShowSecret((current) => !current)}
+          onClose={() => setDialog(null)}
+          onSubmit={async () => {
+            if (await model.createSipConnection()) {
+              setDialog(null);
+            }
+          }}
+        />
+      ) : null}
+      {dialog === "sip-did" ? (
+        <SipDidDialog
+          model={model}
+          onClose={() => setDialog(null)}
+          onSubmit={async () => {
+            if (await model.registerSipDid()) {
+              setDialog(null);
+              manageConnections();
+            }
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
 
-      <Card className="surface-card telephony-panel telephony-setup-card">
-        <div className="telephony-section-head">
-          <div>
-            <div className="eyebrow-copy">BYO provider</div>
-            <div className="subhead-copy telephony-section-title">Twilio account</div>
-          </div>
-          <Button aria-busy={twilioCreatePending} className="workflow-button workflow-button-primary" disabled={twilioCreatePending} type="button" onClick={createTwilioConnection}>
-            <PhoneCall size={15} />
-            <span>{twilioCreatePending ? "Connecting Twilio" : "Connect Twilio"}</span>
-          </Button>
+function ProviderRow({
+  configured,
+  icon,
+  name,
+  onAction,
+}: {
+  configured: boolean;
+  icon: ReactNode;
+  name: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="telephony-provider-row">
+      <div className="telephony-provider-identity">
+        <div className="telephony-provider-logo" aria-hidden="true">{icon}</div>
+        <div>
+          <strong>{name}</strong>
+          <span className="telephony-provider-status">
+            <span className={`telephony-led ${configured ? "is-configured" : ""}`} />
+            {configured ? "Configured" : "Not configured"}
+          </span>
         </div>
-
-        <div className="telephony-form-grid telephony-form-grid-compact">
-          <label className="workspace-settings-field">
-            <span>Connection label</span>
-            <Input value={twilioDraft.label} onChange={(event) => setTwilioDraft((current) => ({ ...current, label: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Region</span>
-            <Select value={twilioDraft.region} onChange={(event) => setTwilioDraft((current) => ({ ...current, region: event.target.value }))}>
-              <option value="us-east-1">US East</option>
-              <option value="eu-west-1">EU West</option>
-            </Select>
-          </label>
-          <label className="workspace-settings-field">
-            <span>Twilio account SID</span>
-            <Input value={twilioDraft.accountSid} onChange={(event) => setTwilioDraft((current) => ({ ...current, accountSid: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Twilio auth token</span>
-            <Input type="password" value={twilioDraft.authToken} onChange={(event) => setTwilioDraft((current) => ({ ...current, authToken: event.target.value }))} />
-          </label>
-        </div>
-      </Card>
-
-      <Card className="surface-card telephony-panel telephony-setup-card">
-        <div className="telephony-section-head">
-          <div>
-            <div className="eyebrow-copy">BYO trunk</div>
-            <div className="subhead-copy telephony-section-title">SIP connection</div>
-          </div>
-          <Button aria-busy={sipCreatePending} className="workflow-button workflow-button-primary" disabled={sipCreatePending} type="button" onClick={createSipConnection}>
-            <Router size={15} />
-            <span>{sipCreatePending ? "Connecting SIP" : "Connect SIP"}</span>
-          </Button>
-        </div>
-
-        <div className="telephony-form-grid telephony-form-grid-compact">
-          <label className="workspace-settings-field">
-            <span>SIP domain</span>
-            <Input value={sipDraft.sipDomain} onChange={(event) => setSipDraft((current) => ({ ...current, sipDomain: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Username</span>
-            <Input value={sipDraft.username} onChange={(event) => setSipDraft((current) => ({ ...current, username: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Secret</span>
-            <Input type="password" value={sipDraft.secret} onChange={(event) => setSipDraft((current) => ({ ...current, secret: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Codecs</span>
-            <Input value={sipDraft.codecs} onChange={(event) => setSipDraft((current) => ({ ...current, codecs: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>DID number</span>
-            <Input value={sipDraft.phoneNumber} onChange={(event) => setSipDraft((current) => ({ ...current, phoneNumber: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Friendly name</span>
-            <Input value={sipDraft.friendlyName} onChange={(event) => setSipDraft((current) => ({ ...current, friendlyName: event.target.value }))} />
-          </label>
-        </div>
-
-        <div className="telephony-row-actions">
-          <Button aria-busy={sipRegisterPending} className="workflow-button" disabled={sipRegisterPending} type="button" variant="outline" onClick={registerSipDid}>
-            <PhoneIncoming size={15} />
-            <span>{sipRegisterPending ? "Adding DID" : "Add DID"}</span>
-          </Button>
-        </div>
-      </Card>
+      </div>
+      <Button aria-label={`${configured ? "Manage" : "Connect"} ${name}`} className="workflow-button telephony-provider-connect" type="button" variant="outline" onClick={onAction}>
+        {configured ? <Settings size={16} /> : <Plug size={16} />}
+        <span>{configured ? "Manage" : "Connect"}</span>
+      </Button>
     </div>
   );
 }
 
-function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
+function TwilioLogo() {
+  return (
+    <span className="twilio-logo-mark">
+      <span /><span /><span /><span />
+    </span>
+  );
+}
+
+function SipProviderIcon() {
+  return (
+    <span className="sip-provider-mark">
+      <Phone size={22} />
+      <Settings size={12} />
+    </span>
+  );
+}
+
+function ConnectionDialogShell({
+  children,
+  description,
+  onClose,
+  title,
+}: {
+  children: ReactNode;
+  description: string;
+  onClose: () => void;
+  title: string;
+}) {
+  return (
+    <div className="telephony-dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <div className="telephony-connection-dialog" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="telephony-dialog-header">
+          <div>
+            <h2>{title}</h2>
+            <p>{description}</p>
+          </div>
+          <button className="telephony-dialog-close" type="button" aria-label={`Close ${title}`} onClick={onClose}>
+            <X size={19} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TwilioConnectionDialog({ model, onClose, onShowSecret, onSubmit, showSecret }: {
+  model: TelephonyScreenModel;
+  onClose: () => void;
+  onShowSecret: () => void;
+  onSubmit: () => Promise<void>;
+  showSecret: boolean;
+}) {
+  const pending = model.isOperationPending("twilio:create");
+  return (
+    <ConnectionDialogShell title="Connect Twilio" description="Enter your Twilio account credentials to connect." onClose={onClose}>
+      <div className="telephony-dialog-form">
+        <label><span>Connection name</span><Input aria-label="Connection name" placeholder="e.g. Main account" value={model.twilioDraft.label} onChange={(event) => model.setTwilioDraft((current) => ({ ...current, label: event.target.value }))} /></label>
+        <label><span>Account SID</span><Input aria-label="Account SID" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value={model.twilioDraft.accountSid} onChange={(event) => model.setTwilioDraft((current) => ({ ...current, accountSid: event.target.value }))} /></label>
+        <label><span>Auth token</span><span className="telephony-secret-field"><Input aria-label="Auth token" placeholder="Your auth token" type={showSecret ? "text" : "password"} value={model.twilioDraft.authToken} onChange={(event) => model.setTwilioDraft((current) => ({ ...current, authToken: event.target.value }))} /><button type="button" aria-label={showSecret ? "Hide auth token" : "Show auth token"} onClick={onShowSecret}>{showSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+        <label><span>Region</span><Select aria-label="Region" value={model.twilioDraft.region} onChange={(event) => model.setTwilioDraft((current) => ({ ...current, region: event.target.value }))}><option value="us-east-1">US East (Virginia)</option><option value="eu-west-1">EU West (Ireland)</option></Select></label>
+      </div>
+      <div className="telephony-dialog-note"><ShieldCheck size={15} /><span>Your credentials are encrypted and stored securely.</span></div>
+      <div className="telephony-dialog-actions">
+        <Button className="workflow-button" type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button aria-busy={pending} className="workflow-button workflow-button-primary" disabled={pending} type="button" onClick={() => void onSubmit()}><ShieldCheck size={16} /><span>{pending ? "Validating" : "Validate and connect"}</span></Button>
+      </div>
+    </ConnectionDialogShell>
+  );
+}
+
+function SipConnectionDialog({ model, onClose, onShowSecret, onSubmit, showSecret }: {
+  model: TelephonyScreenModel;
+  onClose: () => void;
+  onShowSecret: () => void;
+  onSubmit: () => Promise<void>;
+  showSecret: boolean;
+}) {
+  const pending = model.isOperationPending("sip:create");
+  return (
+    <ConnectionDialogShell title="Connect SIP" description="Enter the credentials supplied by your SIP provider." onClose={onClose}>
+      <div className="telephony-dialog-form telephony-dialog-form-two-column">
+        <label><span>Connection name</span><Input value={model.sipDraft.label} onChange={(event) => model.setSipDraft((current) => ({ ...current, label: event.target.value }))} /></label>
+        <label><span>Region</span><Select value={model.sipDraft.region} onChange={(event) => model.setSipDraft((current) => ({ ...current, region: event.target.value }))}><option value="us-east-1">US East</option><option value="eu-west-1">EU West</option></Select></label>
+        <label><span>SIP domain</span><Input value={model.sipDraft.sipDomain} onChange={(event) => model.setSipDraft((current) => ({ ...current, sipDomain: event.target.value }))} /></label>
+        <label><span>Username</span><Input value={model.sipDraft.username} onChange={(event) => model.setSipDraft((current) => ({ ...current, username: event.target.value }))} /></label>
+        <label><span>Secret</span><span className="telephony-secret-field"><Input aria-label="Secret" type={showSecret ? "text" : "password"} value={model.sipDraft.secret} onChange={(event) => model.setSipDraft((current) => ({ ...current, secret: event.target.value }))} /><button type="button" aria-label={showSecret ? "Hide secret" : "Show secret"} onClick={onShowSecret}>{showSecret ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label>
+        <label><span>Codecs</span><Input value={model.sipDraft.codecs} onChange={(event) => model.setSipDraft((current) => ({ ...current, codecs: event.target.value }))} /></label>
+      </div>
+      <div className="telephony-dialog-note"><ShieldCheck size={15} /><span>Your credentials are encrypted and stored securely.</span></div>
+      <div className="telephony-dialog-actions">
+        <Button className="workflow-button" type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button aria-label="Submit SIP connection" aria-busy={pending} className="workflow-button workflow-button-primary" disabled={pending} type="button" onClick={() => void onSubmit()}><Plug size={16} /><span>{pending ? "Connecting SIP" : "Connect SIP"}</span></Button>
+      </div>
+    </ConnectionDialogShell>
+  );
+}
+
+function SipDidDialog({ model, onClose, onSubmit }: {
+  model: TelephonyScreenModel;
+  onClose: () => void;
+  onSubmit: () => Promise<void>;
+}) {
+  const pending = model.isOperationPending("sip:register-number");
+  return (
+    <ConnectionDialogShell title="Manage SIP" description="Add a voice-capable DID to this SIP connection." onClose={onClose}>
+      <div className="telephony-dialog-form">
+        <label><span>DID number</span><Input aria-label="DID number" value={model.sipDraft.phoneNumber} onChange={(event) => model.setSipDraft((current) => ({ ...current, phoneNumber: event.target.value }))} /></label>
+        <label><span>Friendly name</span><Input aria-label="Friendly name" value={model.sipDraft.friendlyName} onChange={(event) => model.setSipDraft((current) => ({ ...current, friendlyName: event.target.value }))} /></label>
+      </div>
+      <div className="telephony-dialog-actions">
+        <Button className="workflow-button" type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button aria-busy={pending} className="workflow-button workflow-button-primary" disabled={pending} type="button" onClick={() => void onSubmit()}><PhoneIncoming size={16} /><span>{pending ? "Adding DID" : "Add DID"}</span></Button>
+      </div>
+    </ConnectionDialogShell>
+  );
+}
+
+function TelephonyConnectionTable({ model }: { model: TelephonyScreenModel }) {
   const { contentState, deleteConnection, importNumbers, isOperationPending, loading, rotateCredentials, runConnectionHeartbeat, validateConnection } = model;
   const rotatePending = isOperationPending("credentials:rotate");
 
   return (
-    <Card className="surface-card telephony-panel">
-      <div className="telephony-section-head">
+    <Card className="surface-card telephony-connections-panel" id="telephony-connections">
+      <div className="telephony-connections-header">
         <div>
-          <div className="eyebrow-copy">Connections</div>
-          <div className="subhead-copy telephony-section-title">Provider state</div>
+          <h2>Connections</h2>
+          <p>Your configured telephony provider connections.</p>
         </div>
-        <div className="telephony-row-actions">
-          <Button aria-busy={rotatePending} className="workflow-button" disabled={rotatePending} type="button" variant="outline" onClick={rotateCredentials}>
-            <KeyRound size={15} />
-            <span>{rotatePending ? "Rotating credentials" : "Rotate credentials"}</span>
-          </Button>
-          {loading ? <div className="panel-meta">Loading</div> : null}
-        </div>
+        <Button aria-label="Rotate credentials" aria-busy={rotatePending} className="workflow-button telephony-icon-button" disabled={rotatePending} title="Rotate credentials" type="button" variant="outline" onClick={rotateCredentials}>
+          <KeyRound size={16} />
+        </Button>
       </div>
 
       {contentState.connections.length === 0 ? (
-        <div className="telephony-empty-state">Connect platform, Twilio, or SIP telephony to begin routing live voice traffic.</div>
+        <div className="telephony-empty-state">No provider connections yet. Connect Twilio or SIP above to get started.</div>
       ) : (
-        <div className="telephony-connection-list">
-          {contentState.connections.map((connection) => {
-            const heartbeatPending = isOperationPending(`connection:${connection.id}:heartbeat`);
-            const validatePending = isOperationPending(`connection:${connection.id}:validate`);
-            const importPending = isOperationPending(`connection:${connection.id}:import`);
-            const deletePending = isOperationPending(`connection:${connection.id}:delete`);
-
-            return (
-              <article key={connection.id} className="telephony-connection-card">
-                <div className="telephony-connection-header">
-                  <div>
-                    <div className="panel-title">{connection.label}</div>
-                    <div className="panel-meta">{formatConnectionMode(connection.ownershipMode)} - {connection.region}</div>
-                  </div>
-                  <div className="telephony-connection-pills">
-                    <span className={resolveHealthPillClassName(connection.healthStatus)}>{formatConnectionHealth(connection.healthStatus)}</span>
-                    <span className="status-pill status-pill-neutral">{formatRecordingLabel(connection.recordingPolicy)}</span>
-                  </div>
-                </div>
-
-                <div className="telephony-connection-detail-grid">
-                  <ConnectionDetail label="Credential" value={connection.credentialReference?.preview ?? "Platform managed"} />
-                  <ConnectionDetail label="Webhook" value={connection.webhookStatus} />
-                  <ConnectionDetail label="Provider" value={connection.provider === "custom-sip" ? connection.sip?.domain ?? "custom-sip" : connection.provider} />
-                  <ConnectionDetail label="Routing guard" value={connection.blockRoutingOnHealthFailure ? "Block on failure" : "Warn only"} />
-                </div>
-
-                <div className="telephony-row-actions">
-                  <Button
-                    aria-busy={heartbeatPending}
-                    className="workflow-button telephony-provider-action-button"
-                    disabled={heartbeatPending}
-                    type="button"
-                    variant="outline"
-                    onClick={() => runConnectionHeartbeat(connection.id)}
-                  >
-                    <Activity size={15} />
-                    <span>{heartbeatPending ? "Running heartbeat" : "Run heartbeat"}</span>
-                  </Button>
-                  <Button
-                    aria-busy={validatePending}
-                    className="workflow-button telephony-provider-action-button"
-                    disabled={validatePending}
-                    type="button"
-                    variant="outline"
-                    onClick={() => validateConnection(connection.id)}
-                  >
-                    <BadgeCheck size={15} />
-                    <span>{validatePending ? "Validating provider" : "Validate provider"}</span>
-                  </Button>
-                  {connection.ownershipMode === "byo_provider_account" ? (
-                    <Button
-                      aria-busy={importPending}
-                      className="workflow-button telephony-provider-action-button"
-                      disabled={importPending}
-                      type="button"
-                      variant="outline"
-                      onClick={() => importNumbers(connection.id)}
-                    >
-                      <PhoneIncoming size={15} />
-                      <span>{importPending ? "Importing numbers" : "Import phone numbers"}</span>
-                    </Button>
-                  ) : null}
-                  <Button
-                    aria-label={`Delete ${connection.label}`}
-                    aria-busy={deletePending}
-                    className="workflow-button workflow-button-danger telephony-provider-action-button telephony-provider-action-button-danger"
-                    disabled={deletePending}
-                    variant="destructive"
-                    type="button"
-                    onClick={() => deleteConnection(connection.id)}
-                  >
-                    <Trash2 size={15} />
-                    <span>{deletePending ? "Deleting" : "Delete"}</span>
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        <Table className="telephony-connections-table" aria-label="Telephony provider connections">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Provider</TableHead>
+              <TableHead>Connection name</TableHead>
+              <TableHead>Imported numbers</TableHead>
+              <TableHead>Routed workflow</TableHead>
+              <TableHead><span className="sr-only">Actions</span></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {contentState.connections.map((connection) => {
+              const numbers = contentState.phoneNumbers.filter((number) => number.connectionId === connection.id);
+              const routeNames = [...new Set(numbers.map((number) => number.liveRoute?.workflowLabel).filter((value): value is string => Boolean(value)))];
+              const importPending = isOperationPending(`connection:${connection.id}:import`);
+              const validatePending = isOperationPending(`connection:${connection.id}:validate`);
+              const heartbeatPending = isOperationPending(`connection:${connection.id}:heartbeat`);
+              const deletePending = isOperationPending(`connection:${connection.id}:delete`);
+              return (
+                <TableRow key={connection.id}>
+                  <TableCell>
+                    <div className="telephony-table-provider">
+                      <span className={`telephony-led ${connection.status === "active" ? "is-configured" : ""}`} />
+                      <span>{formatProviderName(connection.provider)}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell><strong>{connection.label}</strong><span>{connection.region}</span></TableCell>
+                  <TableCell>{numbers.length}</TableCell>
+                  <TableCell>{routeNames.length > 0 ? routeNames.join(", ") : "Not routed"}</TableCell>
+                  <TableCell>
+                    <div className="telephony-table-actions">
+                      <Button aria-label="Run heartbeat" aria-busy={heartbeatPending} className="workflow-button telephony-icon-button" disabled={heartbeatPending} title={`Run heartbeat for ${connection.label}`} type="button" variant="outline" onClick={() => runConnectionHeartbeat(connection.id)}><Activity size={15} /></Button>
+                      <Button aria-label="Validate provider" aria-busy={validatePending} className="workflow-button telephony-icon-button" disabled={validatePending} title={`Validate ${connection.label}`} type="button" variant="outline" onClick={() => validateConnection(connection.id)}><BadgeCheck size={15} /></Button>
+                      {connection.ownershipMode === "byo_provider_account" ? <Button aria-label="Import phone numbers" aria-busy={importPending} className="workflow-button telephony-icon-button" disabled={importPending} title={`Import numbers from ${connection.label}`} type="button" variant="outline" onClick={() => importNumbers(connection.id)}><PhoneIncoming size={15} /></Button> : null}
+                      <Button aria-label={`Delete ${connection.label}`} aria-busy={deletePending} className="workflow-button workflow-button-danger telephony-icon-button" disabled={deletePending} title="Delete connection" type="button" variant="destructive" onClick={() => deleteConnection(connection.id)}><Trash2 size={15} /></Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
+      {loading ? <div className="panel-meta">Loading connections</div> : null}
     </Card>
   );
 }
@@ -1425,13 +1265,13 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
     deletePhoneNumber,
     isOperationPending,
     pauseLiveRoute,
-    platformDraft,
     publishedWorkflows,
     resolveRouteSelection,
     resumeLiveRoute,
     saveRoute,
     setRouteSelections,
     setWorkflowCatalogVersion,
+    twilioDraft,
     workspaceNameById,
   } = model;
 
@@ -1538,7 +1378,7 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                         <span>{liveRoute.workflowLabel}</span>
                         <span>{liveRoute.publishedVersionId}</span>
                         <span>{formatRuntimeProfileLabel(liveRoute.runtimeProfile)}</span>
-                        <span>{formatRecordingSummary(phoneNumber.recordingPolicy ?? resolveSelectedNumberRecordingPolicy(contentState, phoneNumber.id) ?? buildRecordingPolicy(platformDraft))}</span>
+                        <span>{formatRecordingSummary(phoneNumber.recordingPolicy ?? resolveSelectedNumberRecordingPolicy(contentState, phoneNumber.id) ?? buildRecordingPolicy(twilioDraft))}</span>
                         <span>Subscription and budget checked on activation</span>
                       </div>
                     ) : null}
@@ -1555,65 +1395,6 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
             })}
           </TableBody>
         </Table>
-      )}
-    </Card>
-  );
-}
-
-function TelephonySideColumn({ model }: { model: TelephonyScreenModel }) {
-  return (
-    <div className="telephony-side">
-      <TelephonyHealthPanel model={model} />
-      <TelephonyInboundTestPanel model={model} />
-      <TelephonyOutboundPanel model={model} />
-      <TelephonyExecutionPanel model={model} />
-      <TelephonyLiveControlsPanel model={model} />
-      <TelephonyProviderEventsPanel contentState={model.contentState} />
-    </div>
-  );
-}
-
-function TelephonyHealthPanel({ model }: { model: TelephonyScreenModel }) {
-  const { primaryHealthCheck, primaryHealthConnection, primaryHeartbeat } = model;
-
-  return (
-    <Card className="surface-card telephony-panel">
-      <div className="telephony-section-head">
-        <div>
-          <div className="eyebrow-copy">Health</div>
-          <div className="subhead-copy telephony-section-title">Provider posture</div>
-        </div>
-      </div>
-
-      {primaryHealthConnection === null ? (
-        <div className="telephony-empty-state">No provider connected yet.</div>
-      ) : (
-        <div className="telephony-side-stack">
-          <div className="subtle-panel telephony-health-card">
-            <div className="telephony-health-title">
-              <Activity size={15} />
-              <span>{formatConnectionHealth(primaryHealthConnection.healthStatus)}</span>
-            </div>
-            <p className="panel-meta">{primaryHeartbeat?.message ?? primaryHealthCheck?.message ?? "Run a validation pass to confirm readiness before routing traffic."}</p>
-            {primaryHeartbeat?.diagnostics?.length ? (
-              <div className="telephony-policy-grid">
-                {primaryHeartbeat.diagnostics.slice(0, 2).map((diagnostic) => (
-                  <div key={diagnostic} className="telephony-policy-chip">
-                    <span>{diagnostic}</span>
-                    <strong>{primaryHeartbeat.latencyMs}ms</strong>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <div className="subtle-panel telephony-health-card">
-            <div className="telephony-health-title">
-              <ShieldCheck size={15} />
-              <span>Recording policy</span>
-            </div>
-            <p className="panel-meta">{formatRecordingSummary(primaryHealthConnection.recordingPolicy)}</p>
-          </div>
-        </div>
       )}
     </Card>
   );
@@ -1676,98 +1457,6 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
               <span>Outage mode</span>
               <strong>provider fallback</strong>
             </div>
-          </div>
-        ) : null}
-      </div>
-    </Card>
-  );
-}
-
-function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
-  const { callerIdPhoneNumberOptions, effectiveOutboundDraft, isOperationPending, lastOutboundDispatch, publishedWorkflows, runOutboundDispatch, setOutboundDraft } = model;
-  const outboundPending = isOperationPending("dispatch:outbound");
-
-  return (
-    <Card className="surface-card telephony-panel">
-      <div className="telephony-section-head">
-        <div>
-          <div className="eyebrow-copy">Outbound</div>
-          <div className="subhead-copy telephony-section-title">Dispatch policy gate</div>
-        </div>
-      </div>
-
-      <div className="telephony-form-grid telephony-form-grid-compact">
-        <label className="workspace-settings-field">
-          <span>Caller ID</span>
-          <Select value={effectiveOutboundDraft.fromPhoneNumber} onChange={(event) => setOutboundDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))}>
-            <option value="">Select caller ID</option>
-            {callerIdPhoneNumberOptions.map((phoneNumber) => (
-              <option key={phoneNumber.id} value={phoneNumber.value}>{phoneNumber.label}</option>
-            ))}
-          </Select>
-        </label>
-        <label className="workspace-settings-field">
-          <span>Destination</span>
-          <Input value={effectiveOutboundDraft.toPhoneNumber} onChange={(event) => setOutboundDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))} />
-        </label>
-        <label className="workspace-settings-field">
-          <span>Workflow</span>
-          <Select value={effectiveOutboundDraft.selectedWorkflowId} onChange={(event) => setOutboundDraft((current) => ({ ...current, selectedWorkflowId: event.target.value }))}>
-            <option value="">Select workflow</option>
-            {publishedWorkflows.map((workflow) => (
-              <option key={workflow.id} value={workflow.id}>{workflow.graph.name}</option>
-            ))}
-          </Select>
-        </label>
-        <label className="workspace-settings-field">
-          <span>Budget remaining (USD)</span>
-          <Input value={effectiveOutboundDraft.budgetRemainingUsd} onChange={(event) => setOutboundDraft((current) => ({ ...current, budgetRemainingUsd: event.target.value }))} />
-        </label>
-        <label className="workspace-settings-field">
-          <span>Estimated cost (USD)</span>
-          <Input value={effectiveOutboundDraft.estimatedCostUsd} onChange={(event) => setOutboundDraft((current) => ({ ...current, estimatedCostUsd: event.target.value }))} />
-        </label>
-        <div className="telephony-inline-grid">
-          <label className="workspace-settings-field">
-            <span>Local hour</span>
-            <Input value={effectiveOutboundDraft.localHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, localHour: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>Start</span>
-            <Input value={effectiveOutboundDraft.startHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, startHour: event.target.value }))} />
-          </label>
-          <label className="workspace-settings-field">
-            <span>End</span>
-            <Input value={effectiveOutboundDraft.endHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, endHour: event.target.value }))} />
-          </label>
-        </div>
-        <label className="telephony-checkbox">
-          <Input checked={effectiveOutboundDraft.consentGranted} type="checkbox" onChange={(event) => setOutboundDraft((current) => ({ ...current, consentGranted: event.target.checked }))} />
-          <span>Consent confirmed for outbound contact</span>
-        </label>
-      </div>
-
-      <div className="telephony-row-actions">
-        <Button aria-busy={outboundPending} className="workflow-button workflow-button-success" disabled={outboundPending} type="button" onClick={runOutboundDispatch}>
-          <PhoneForwarded size={15} />
-          <span>{outboundPending ? "Checking policy" : "Run outbound policy check"}</span>
-        </Button>
-      </div>
-
-      <div className="telephony-dispatch-result subtle-panel">
-        <div className="telephony-health-title">
-          <PhoneCall size={15} />
-          <span>{lastOutboundDispatch?.disposition === "queued" ? "Queued" : "Policy gate"}</span>
-        </div>
-        <p className="panel-meta">{lastOutboundDispatch?.reason ?? "Run a dry dispatch to verify caller ID, consent, budget, and calling window."}</p>
-        {lastOutboundDispatch?.policyChecks !== undefined ? (
-          <div className="telephony-policy-grid">
-            {Object.entries(lastOutboundDispatch.policyChecks).map(([key, value]) => (
-              <div key={key} className="telephony-policy-chip">
-                <span>{formatPolicyKey(key)}</span>
-                <strong>{value.status}</strong>
-              </div>
-            ))}
           </div>
         ) : null}
       </div>
@@ -2076,27 +1765,12 @@ function MetricTile({
   value: string;
 }) {
   return (
-    <Card className="metric-card telephony-metric-card">
+    <div className="telephony-metric-card">
       <div className="telephony-metric-label">
         <Icon size={14} />
         <span>{label}</span>
       </div>
       <div className="telephony-metric-value">{value}</div>
-    </Card>
-  );
-}
-
-function ConnectionDetail({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="telephony-detail-cell">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }
@@ -2246,32 +1920,6 @@ function formatConnectionMode(value: string) {
       return "BYO Twilio";
     default:
       return value;
-  }
-}
-
-function formatConnectionHealth(status: string) {
-  switch (status) {
-    case "healthy":
-      return "Healthy";
-    case "warning":
-      return "Needs route";
-    case "failed":
-      return "Failed";
-    default:
-      return "Unchecked";
-  }
-}
-
-function resolveHealthPillClassName(status: string) {
-  switch (status) {
-    case "healthy":
-      return "status-pill status-pill-blue";
-    case "warning":
-      return "status-pill status-pill-amber";
-    case "failed":
-      return "status-pill status-pill-red";
-    default:
-      return "status-pill status-pill-neutral";
   }
 }
 
@@ -2427,4 +2075,12 @@ function getLatestPublishedWorkflow(
   }
 
   return latestWorkflow;
+}
+
+function formatProviderName(provider: string) {
+  if (provider === "custom-sip") {
+    return "SIP";
+  }
+
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
 }

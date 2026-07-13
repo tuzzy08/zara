@@ -121,6 +121,26 @@ export class PlatformAdminController {
     };
   }
 
+  @Post("organizations/:organizationId/telephony/platform-managed-connections")
+  createPlatformManagedTelephonyConnection(
+    @Req() request: Record<string | symbol, unknown>,
+    @Param("organizationId") organizationId: string,
+    @Body() body: {
+      label: string;
+      provider: "twilio" | "signalwire" | "telnyx";
+      region: string;
+    },
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context);
+
+    return this.platformAdminService.createPlatformManagedTelephonyConnection(
+      context,
+      organizationId,
+      body,
+    );
+  }
+
   @Get("agent-classes")
   async listAgentClasses() {
     return {

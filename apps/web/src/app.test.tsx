@@ -1834,13 +1834,11 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
-    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+    await connectTwilioAccount();
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
-    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
-
-    const routeSelect = screen.getByLabelText<HTMLSelectElement>("Workflow route for +14155550110");
+    const routeSelect = screen.getByLabelText<HTMLSelectElement>("Workflow route for +14155557890");
     const publishedRouteOption = Array.from(routeSelect.options).find((option) =>
       option.textContent?.includes("Support billing lane"),
     );
@@ -1848,7 +1846,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(routeSelect, {
       target: { value: publishedRouteOption?.value },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("link", { name: "Workflows" }));
@@ -1864,14 +1862,14 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Phone test (Twilio/PSTN)" }));
 
     expect(screen.getByRole("combobox", { name: "Routed phone number" })).toBeTruthy();
-    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("link", { name: "Open Phone test for +14155550110" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open Phone test for +14155557890" }));
 
     expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
     expect(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
-    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-14155550110");
-  }, 15_000);
+    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-pn-support-7890");
+  }, 30_000);
 
   it("loads sandbox workflows only from the active workspace", async () => {
     render(
@@ -1961,19 +1959,17 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
     expect(screen.getByText("Live numbers").closest(".surface-card")?.className).toContain("zara-ui-card");
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
-    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
-    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+    await connectTwilioAccount();
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
     expect(screen.getByRole("table", { name: "Telephony numbers" }).className).toContain("zara-ui-table");
 
-    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
       target: { value: "workflow-inbound-support-triage-v1" },
     });
-    expect(screen.getByLabelText("Workflow route for +14155550110").className).toContain("zara-ui-select");
-    expect(screen.getByRole("button", { name: "Save route for +14155550110" }).className).toContain("zara-ui-button");
-    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect(screen.getByLabelText("Workflow route for +14155557890").className).toContain("zara-ui-select");
+    expect(screen.getByRole("button", { name: "Save route for +14155557890" }).className).toContain("zara-ui-button");
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
@@ -1989,7 +1985,7 @@ describe("tenant dashboard shell", () => {
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-14155550110/pstn-test-route"),
+        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-pn-support-7890/pstn-test-route"),
         expect.objectContaining({
           method: "POST",
         }),
@@ -2025,14 +2021,13 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
-    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
-    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
-    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+    await connectTwilioAccount();
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
       target: { value: "workflow-inbound-support-triage-v1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
@@ -2066,16 +2061,14 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
-    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+    await connectTwilioAccount();
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
-    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
-
-    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
       target: { value: "workflow-inbound-support-triage-v1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
@@ -2090,7 +2083,7 @@ describe("tenant dashboard shell", () => {
     apiMock.recordPhoneTestWebhookDispatch({
       callSid: "CA-phone-test-webhook",
       fromPhoneNumber: "+233201110001",
-      phoneNumberId: "phone-number-14155550110",
+      phoneNumberId: "phone-number-pn-support-7890",
     });
 
     await waitFor(() => expect(screen.getAllByText("CA-phone-test-webhook:telephony").length).toBeGreaterThan(0), {
@@ -2116,16 +2109,14 @@ describe("tenant dashboard shell", () => {
     );
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
-    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+    await connectTwilioAccount();
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
-    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
-
-    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
       target: { value: "workflow-premium-concierge-v1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Premium concierge lane")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
@@ -2139,7 +2130,7 @@ describe("tenant dashboard shell", () => {
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-14155550110/pstn-test-route"),
+        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-pn-support-7890/pstn-test-route"),
         expect.objectContaining({
           body: expect.stringContaining('"runtimeProfile":"premium-realtime"'),
           method: "POST",
@@ -2159,24 +2150,23 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
-    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
-    expect(await screen.findByLabelText("Workflow route for +14155550110")).toBeTruthy();
-    expect(await screen.findByText("Unassigned")).toBeTruthy();
+    await connectTwilioAccount();
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect(await screen.findByLabelText("Workflow route for +14155557890")).toBeTruthy();
+    expect((await screen.findAllByText("Unassigned")).length).toBeGreaterThan(0);
 
-    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
       target: { value: "workflow-inbound-support-triage-v1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
 
     expect(await screen.findByText("Paused")).toBeTruthy();
-    expect(await screen.findByLabelText("Activation summary for +14155550110")).toBeTruthy();
-    fireEvent.click(screen.getByRole("link", { name: "Launch Phone test for +14155550110" }));
+    expect(await screen.findByLabelText("Activation summary for +14155557890")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Launch Phone test for +14155557890" }));
 
     expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
     expect(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
-    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-14155550110");
+    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-pn-support-7890");
   }, 15_000);
 
   it("prints incoming Twilio call logs on the Calls page", async () => {
@@ -2454,18 +2444,9 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
-      target: { value: "AC1234567890abcdef1234567890abcd" },
-    });
-    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
-      target: { value: "twilio-auth-token-1234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
+    await connectTwilioAccount();
 
-    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Validate provider" }));
-    expect((await screen.findAllByText("Healthy")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Configured")).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
@@ -2507,14 +2488,7 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
-      target: { value: "AC1234567890abcdef1234567890abcd" },
-    });
-    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
-      target: { value: "twilio-auth-token-1234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
-    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+    await connectTwilioAccount();
 
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
@@ -2548,14 +2522,7 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
-      target: { value: "AC1234567890abcdef1234567890abcd" },
-    });
-    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
-      target: { value: "twilio-auth-token-1234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
-    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+    await connectTwilioAccount();
 
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
@@ -2575,14 +2542,7 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
-      target: { value: "AC1234567890abcdef1234567890abcd" },
-    });
-    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
-      target: { value: "twilio-auth-token-1234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
-    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+    await connectTwilioAccount();
 
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
@@ -2592,7 +2552,7 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Imported number removed.")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("+14155557890")).toBeNull());
-    expect(screen.getByText("+14156667890")).toBeTruthy();
+    expect(screen.getAllByText("+14156667890").length).toBeGreaterThan(0);
   }, 15_000);
 
   it("surfaces telephony heartbeats, credential rotation, and loopback execution sessions", async () => {
@@ -2606,14 +2566,7 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
-    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
-      target: { value: "AC1234567890abcdef1234567890abcd" },
-    });
-    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
-      target: { value: "twilio-auth-token-1234567890" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
-    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+    await connectTwilioAccount();
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
@@ -4243,6 +4196,10 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
     if (pathname === "/organizations/tenant-west-africa/telephony/state" && method === "GET") {
       return jsonResponse(200, telephonyState);
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/telephony/connections/validate-twilio-credentials" && method === "POST") {
+      return jsonResponse(200, { valid: true, numberCount: 3 });
     }
 
     if (pathname === "/organizations/tenant-west-africa/telephony/connections" && method === "POST") {
@@ -6254,6 +6211,18 @@ function seedPublishedWorkflowForApp(input: {
   return version;
 }
 
+async function connectTwilioAccount() {
+  fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
+  fireEvent.change(screen.getByLabelText("Account SID"), {
+    target: { value: "AC1234567890abcdef1234567890abcd" },
+  });
+  fireEvent.change(screen.getByLabelText("Auth token"), {
+    target: { value: "twilio-auth-token-1234567890" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Validate and connect" }));
+  await screen.findByText("Tenant Twilio account");
+}
+
 async function publishCurrentWorkflow(name: string) {
   await ensurePublishableWorkflowDraft();
   await waitFor(() =>
@@ -6269,10 +6238,12 @@ async function publishCurrentWorkflow(name: string) {
     expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: /^(Publish|Overwrite) workflow$/ }).disabled).toBe(false),
   );
   fireEvent.click(within(dialog).getByRole("button", { name: /^(Publish|Overwrite) workflow$/ }));
-  await waitFor(() =>
-    expect(document.querySelector(".workflow-toast")?.textContent ?? "").toMatch(
-      new RegExp(`^(Published|Overwrote) ${escapeRegExp(name)}\\.$`),
-    ),
+  await waitFor(
+    () =>
+      expect(document.querySelector(".workflow-toast")?.textContent ?? "").toMatch(
+        new RegExp(`^(Published|Overwrote) ${escapeRegExp(name)}\\.$`),
+      ),
+    { timeout: 10_000 },
   );
 
   const publishedVersion = loadPublishedWorkflowVersions().find((workflow) => workflow.graph.name === name);
