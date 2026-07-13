@@ -1,7 +1,7 @@
 # ISSUE-188: Premium PSTN overload observability and release gates
 
 Status: Implemented
-Date: 2026-07-12
+Date: 2026-07-13
 External: [Linear ZAR-218](https://linear.app/zara-voice/issue/ZAR-218/issue-188-premium-pstn-overload-observability-and-release-gates)
 
 ## Work Completed
@@ -13,6 +13,7 @@ External: [Linear ZAR-218](https://linear.app/zara-voice/issue/ZAR-218/issue-188
 - Replaced reference-copying PSTN eval output with executable actor/playback/pressure scenarios. Empty gates fail, provider drift affects only its provider gate, and cost-optimized, OpenAI, and Gemini gates remain separate.
 - Added the premium PSTN failure runbook covering readiness, congestion, queue/playback overflow, stale generations, playback clear, handoff replacement, cleanup, and release decisions.
 - Completed an independent code review and resolved all six findings before completion.
+- Fixed API bootstrap for `PstnPremiumCallExecution` by assigning explicit Nest injection tokens to its three structurally typed service dependencies; added a focused provider-graph regression test so `Pick<Service, ...>` metadata cannot silently regress to unresolved `Object` tokens.
 ## Tests Run
 - `npm run test:run -- apps/api/src/telephony/pstn-premium-call-execution.test.ts apps/api/src/telephony/pstn-premium-playback-controller.test.ts apps/api/src/runtime-observability/runtime-observability.test.ts` (39 passed).
 - `npm run test:run -- apps/api/src/telephony/premium-provider-message-pressure.test.ts apps/api/src/telephony/pstn-premium-call-execution.test.ts apps/api/src/runtime-evals/runtime-evals.test.ts` (33 passed).
@@ -20,11 +21,16 @@ External: [Linear ZAR-218](https://linear.app/zara-voice/issue/ZAR-218/issue-188
 - Focused ESLint for changed runtime/observability files (passed).
 - Combined runtime/telephony suite: 11 files, 136 tests passed.
 - `npm run eval:pstn`: 25/25 scenarios passed across the three release gates.
+- `npx.cmd vitest run apps/api/src/telephony/pstn-premium-call-execution.test.ts apps/api/src/telephony/pstn-premium-call-execution.wiring.test.ts --pool=forks --fileParallelism=false` (21 passed).
+- `npm.cmd run typecheck --workspace @zara/api` (passed).
+- TSC-built API bootstrap smoke check initialized `AppModule`, `RuntimeSessionsModule`, and `TelephonyModule`, logged `Nest application successfully started`, and closed cleanly.
+- `apps/api/src/app.module.test.ts` no longer raised the reported dependency exception, but its first test exceeded the existing hardcoded 15-second timeout on this machine after a 43-second module import.
 ## Pending Work
 - None for ISSUE-188.
 ## Risks
 - Eval scenarios are deterministic contract probes, not live-provider load tests; production provider benchmarks and staged canaries remain separate release evidence.
 - Observability export remains asynchronous and must not add latency to the media path.
+- The broad `AppModule` test has a 15-second per-test timeout that can be shorter than local module initialization under load; the focused wiring regression remains the deterministic DI gate.
 ## Decisions
 - OpenAI/Gemini premium evals and cost-optimized PSTN regression gates remain distinct.
 - Provider payloads, caller content, credentials, and provider-controlled errors are excluded from logs and observability projections.

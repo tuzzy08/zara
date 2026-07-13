@@ -93,11 +93,14 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
   private readonly logger = new Logger(PstnPremiumCallExecution.name);
 
   constructor(
+    @Inject(TelephonyService)
     private readonly telephonyService: Pick<
       TelephonyService,
       "getState" | "recordPstnPhoneTestCheckpoint"
     >,
+    @Inject(WorkflowsService)
     private readonly workflowsService: Pick<WorkflowsService, "getPublishedManifest">,
+    @Inject(RuntimeSessionsService)
     private readonly runtimeSessionsService: Pick<
       RuntimeSessionsService,
       "createRealtimeSession" | "getRegisteredSession" | "processProviderMessage" | "updateRegisteredSession" | "terminateRealtimeSession"
