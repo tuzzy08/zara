@@ -5625,6 +5625,16 @@ button {
   justify-content: center;
 }
 
+.telephony-provider-connect-bordered {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--zara-text) 48%, transparent);
+}
+
+.telephony-provider-connect-bordered:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--zara-text) 64%, transparent),
+    0 8px 18px -14px color-mix(in srgb, var(--zara-text) 36%, transparent);
+}
+
 .telephony-connections-panel {
   min-width: 0;
   padding: 0;

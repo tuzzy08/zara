@@ -145,7 +145,9 @@ describe("TelephonyScreen", () => {
     expect(screen.queryByText("Provider posture")).toBeNull();
     expect(screen.queryByText("Outbound call")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
+    const connectTwilioButton = screen.getByRole("button", { name: "Connect Twilio" });
+    expect(connectTwilioButton.className).toContain("telephony-provider-connect-bordered");
+    fireEvent.click(connectTwilioButton);
 
     expect(screen.getByRole("dialog", { name: "Connect Twilio" })).toBeTruthy();
     expect(screen.getByLabelText("Connection name")).toBeTruthy();
@@ -153,6 +155,47 @@ describe("TelephonyScreen", () => {
     expect(screen.getByLabelText("Auth token")).toBeTruthy();
     expect(screen.getByLabelText("Region")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Validate and connect" })).toBeTruthy();
+  });
+
+  it("keeps heartbeat and number import actions on configured Twilio connections", async () => {
+    const organizationId = "tenant-custom-voice";
+    const state = createTelephonyState(organizationId, []);
+    telephonyApiMock.fetchTelephonyState.mockResolvedValue({
+      ...state,
+      connections: [
+        {
+          id: "connection-twilio",
+          tenantId: organizationId,
+          label: "Tenant Twilio account",
+          ownershipMode: "byo_provider_account",
+          provider: "twilio",
+          region: "us1",
+          status: "active",
+          healthStatus: "healthy",
+          recordingPolicy: {
+            enabled: true,
+            consentMode: "single-party",
+            consentMessage: "This call may be recorded for quality assurance.",
+          },
+          blockRoutingOnHealthFailure: true,
+          credentialReference: {
+            id: "connection-twilio:cred",
+            provider: "twilio",
+            keyVersion: 1,
+            preview: "****oken",
+          },
+          externalReference: "test-account-sid",
+          webhookBaseUrl: "https://api.zharaai.com/telephony/webhooks/twilio",
+          webhookStatus: "configured",
+          createdBy: "user-custom-ops",
+        },
+      ],
+    });
+
+    renderTelephonyScreen({ organizationId });
+
+    expect(await screen.findByRole("button", { name: "Run heartbeat" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Import phone numbers" })).toBeTruthy();
   });
 });
 

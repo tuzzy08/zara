@@ -13,6 +13,7 @@ External: [Linear ZAR-219](https://linear.app/zara-voice/issue/ZAR-219/refresh-t
 - Added an assured platform-admin endpoint and control panel for platform-managed telephony connections.
 - Deleted the obsolete tenant-side setup, health, outbound, and provider-card component/model paths.
 - Updated `DESIGN.md` with the approved Calls-page visual contract and the restricted functional color exception.
+- Restored the mockup-strength gray outline and hover ring on provider Connect/Manage buttons, with regression coverage confirming configured Twilio connections retain heartbeat and number-import actions.
 
 ## Tests Run
 
@@ -21,6 +22,8 @@ External: [Linear ZAR-219](https://linear.app/zara-voice/issue/ZAR-219/refresh-t
 - `npx tsc -p apps/web/tsconfig.json --noEmit`
 - `npx tsc -p apps/platform-admin/tsconfig.json --noEmit`
 - `npx tsc -p apps/api/tsconfig.json --noEmit`
+- `npx vitest --run --pool=threads --maxWorkers=1 apps/web/src/TelephonyScreen.test.tsx` (4 passed; provider-button and Twilio action follow-up)
+- `npx tsc -p apps/web/tsconfig.json --noEmit` (follow-up)
 
 ## Decisions
 

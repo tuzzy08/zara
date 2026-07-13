@@ -1061,7 +1061,7 @@ function ProviderRow({
           </span>
         </div>
       </div>
-      <Button aria-label={`${configured ? "Manage" : "Connect"} ${name}`} className="workflow-button telephony-provider-connect" type="button" variant="outline" onClick={onAction}>
+      <Button aria-label={`${configured ? "Manage" : "Connect"} ${name}`} className="workflow-button telephony-provider-connect telephony-provider-connect-bordered" type="button" variant="outline" onClick={onAction}>
         {configured ? <Settings size={16} /> : <Plug size={16} />}
         <span>{configured ? "Manage" : "Connect"}</span>
       </Button>
