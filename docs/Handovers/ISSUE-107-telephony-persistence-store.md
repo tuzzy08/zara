@@ -27,6 +27,7 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 - Follow-up on 2026-06-04: added a Coolify one-shot `migrate` service that runs `npm run db:migrate` before the API starts, preventing deployed schema drift such as missing `telephony_phone_numbers.live_route` during Twilio number import.
 - Follow-up on 2026-07-14: added the missing executable `policy_state` forward migration for `telephony_execution_sessions`; the column had previously existed only in the TypeScript schema and Drizzle snapshot.
 - Made inbound dispatch IDs derive from Twilio's unique `CallSid` for every route outcome, preventing repeated blocked or unavailable calls to the same number from colliding on `telephony_dispatches_pkey`.
+- Fixed connection deletion to remove connection-owned execution sessions, execution commands, webhook events, and media-stream tokens before persisting the remaining tenant state, matching the Postgres cascade ownership model.
 
 ## Tests Run
 
@@ -46,11 +47,14 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 - Verification: `npm.cmd run db:generate` reported no schema changes after the forward migration was added.
 - Verification: `npm.cmd run lint`.
 - Verification: `npm.cmd run typecheck`.
+- RED: `npx.cmd vitest run --maxWorkers=1 apps/api/src/telephony/telephony.persistence.test.ts -t "removes connection-owned execution and webhook state"` failed because deleted connections retained execution-session children.
+- GREEN: `npx.cmd vitest run --maxWorkers=1 apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/postgres-telephony-state.repository.test.ts` (33 tests).
 
 ## Pending Work
 
 - Redeploy the Coolify Compose application so the one-shot `migrate` service applies `0008_telephony_execution_policy_state.sql` before the API restarts.
 - Repeat one Phone test call and confirm the webhook reaches TwiML/media execution without `policy_state` or dispatch primary-key errors.
+- Delete and reconnect the existing Twilio integration once after redeploy to confirm no connection-child foreign-key error remains.
 
 ## Risks And Edge Cases
 
@@ -73,6 +77,7 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 - The file-backed repository remains available for isolated tests, while production wiring resolves through the Postgres repository token.
 - Production Compose must treat schema migrations as an API startup prerequisite rather than a purely manual operator step.
 - Inbound dispatch identity is call-scoped from the provider `CallSid`, including blocked outcomes that do not create an execution session.
+- Connection deletion retains non-FK dispatch and call-control audit history while removing all records whose lifecycle is owned by the deleted provider connection.
 
 ## Next Recommended Step
 

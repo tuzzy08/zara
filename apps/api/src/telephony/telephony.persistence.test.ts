@@ -130,6 +130,77 @@ describe("telephony persistence and secret storage", () => {
     });
   });
 
+  it("removes connection-owned execution and webhook state when deleting a connection", async () => {
+    const { service, storePath } = createHarness();
+    const organizationId = "tenant-west-africa";
+    const connection = await service.createConnection({
+      organizationId,
+      actorUserId: "user-ops-lead",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      blockRoutingOnHealthFailure: true,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token-1234567890",
+    });
+
+    await service.importTwilioNumbers({ organizationId, connectionId: connection.connection.id });
+    const phoneNumber = (await service.getState(organizationId)).phoneNumbers[0]!;
+    await service.assignNumberRoute({
+      organizationId,
+      numberId: phoneNumber.id,
+      publishedVersionId: "workflow-support-v1",
+      workflowLabel: "Support triage",
+      workspaceId: "workspace-customer-success",
+    });
+    await service.activateLiveRoute({
+      organizationId,
+      numberId: phoneNumber.id,
+      actorUserId: "user-ops-lead",
+      now: "2026-07-14T13:00:00.000Z",
+      override: {
+        actorUserId: "user-ops-lead",
+        approvedByUserId: "platform-admin-1",
+        reason: "Connection deletion persistence fixture.",
+      },
+    });
+
+    const webhookPayload = {
+      AccountSid: "AC1234567890abcdef1234567890abcd",
+      CallSid: "CA-delete-connection-1",
+      EventSid: "EVT-delete-connection-1",
+      EventType: "incoming.call",
+      To: phoneNumber.phoneNumber,
+      From: "+233201110001",
+    };
+    await service.handleTwilioWebhook({
+      signature: computeTwilioWebhookSignature({
+        url: "http://127.0.0.1/telephony/webhooks/twilio",
+        parameters: webhookPayload,
+        authToken: "twilio-auth-token-1234567890",
+      }),
+      payload: webhookPayload,
+    });
+
+    const repository = new FileTelephonyStateRepository(storePath);
+    const beforeDeletion = await repository.load(organizationId);
+    expect(beforeDeletion?.executionSessions).toHaveLength(1);
+    expect(beforeDeletion?.executionCommands?.length).toBeGreaterThan(0);
+    expect(beforeDeletion?.webhookEvents).toHaveLength(1);
+    expect(beforeDeletion?.mediaStreamTokens).toHaveLength(1);
+
+    await service.deleteConnection({ organizationId, connectionId: connection.connection.id });
+
+    const afterDeletion = await repository.load(organizationId);
+    expect(afterDeletion?.connections).toEqual([]);
+    expect(afterDeletion?.executionSessions).toEqual([]);
+    expect(afterDeletion?.executionCommands).toEqual([]);
+    expect(afterDeletion?.webhookEvents).toEqual([]);
+    expect(afterDeletion?.mediaStreamTokens).toEqual([]);
+    expect(afterDeletion?.credentials).toEqual([]);
+  });
+
   it("encrypts stored provider secrets at rest and records key version metadata", async () => {
     const { service, storePath } = createHarness({
       keyVersion: 7,

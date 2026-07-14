@@ -249,6 +249,11 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   }) {
     const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
+    const connectionSessionIds = new Set(
+      state.executionSessions
+        .filter((session) => session.connectionId === connection.id)
+        .map((session) => session.id),
+    );
 
     state.connections = state.connections.filter((candidate) => candidate.id !== connection.id);
     state.phoneNumbers = state.phoneNumbers.filter(
@@ -259,6 +264,18 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     );
     state.providerHeartbeats = state.providerHeartbeats.filter(
       (heartbeat) => heartbeat.connectionId !== connection.id,
+    );
+    state.executionSessions = state.executionSessions.filter(
+      (session) => session.connectionId !== connection.id,
+    );
+    state.executionCommands = state.executionCommands.filter(
+      (command) => !connectionSessionIds.has(command.sessionId),
+    );
+    state.webhookEvents = state.webhookEvents.filter(
+      (event) => event.connectionId !== connection.id,
+    );
+    state.mediaStreamTokens = state.mediaStreamTokens.filter(
+      (token) => token.connectionId !== connection.id,
     );
     state.credentialVault.delete(connection.id);
     await this.persistState(state);
