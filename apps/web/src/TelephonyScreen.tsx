@@ -1961,17 +1961,6 @@ function formatProvisionSource(value: string) {
   }
 }
 
-function formatPolicyKey(value: string) {
-  switch (value) {
-    case "callingWindow":
-      return "Window";
-    case "callerId":
-      return "Caller ID";
-    default:
-      return value.charAt(0).toUpperCase() + value.slice(1);
-  }
-}
-
 function formatExecutionStatus(value: string) {
   switch (value) {
     case "ringing":
