@@ -41,6 +41,39 @@ export interface PstnPremiumCallOutput {
   close(code: number, reason: string): void;
 }
 
+export class PstnPremiumCallStartupError extends Error {
+  constructor(
+    readonly failureCode: string,
+    readonly stage: string,
+    options?: { cause?: unknown; message?: string },
+  ) {
+    super(options?.message ?? failureCode, { cause: options?.cause });
+    this.name = "PstnPremiumCallStartupError";
+  }
+}
+
+export function classifyPremiumCallStartupFailure(error: unknown) {
+  if (error instanceof PstnPremiumCallStartupError) {
+    return {
+      failureCode: error.failureCode,
+      stage: error.stage,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : "";
+  if (message === "The exact premium workflow manifest for this PSTN dispatch is unavailable or invalid.") {
+    return { failureCode: "premium_manifest_unavailable", stage: "manifest_validation" };
+  }
+  if (message === "Premium PSTN execution requires a routed premium dispatch with an exact workflow version.") {
+    return { failureCode: "premium_dispatch_unavailable", stage: "dispatch_validation" };
+  }
+  if (message.includes("Missing: OPENAI_API_KEY") || message.includes("Missing: GEMINI_API_KEY")) {
+    return { failureCode: "premium_provider_not_configured", stage: "provider_connect" };
+  }
+
+  return { failureCode: "premium_execution_start_failed", stage: "unknown" };
+}
+
 interface ActivePremiumCallExecution {
   organizationId: string;
   dispatchId: string;
@@ -130,8 +163,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
   }
 
   private async startExecution(input: StartPremiumCallExecutionInput) {
-
-    const state = await this.telephonyService.getState(input.organizationId);
+    const state = await runPremiumStartupStage(
+      "state_load",
+      "premium_state_unavailable",
+      () => this.telephonyService.getState(input.organizationId),
+    );
     const dispatch = state.dispatches.find(
       (candidate) => candidate.id === input.dispatchId && candidate.callSessionId === input.callSessionId,
     );
@@ -142,13 +178,23 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       || dispatch.publishedVersionId === undefined
       || dispatch.workspaceId === undefined
     ) {
-      throw new Error("Premium PSTN execution requires a routed premium dispatch with an exact workflow version.");
+      throw new PstnPremiumCallStartupError(
+        "premium_dispatch_unavailable",
+        "dispatch_validation",
+        { message: "Premium PSTN execution requires a routed premium dispatch with an exact workflow version." },
+      );
     }
+    const publishedVersionId = dispatch.publishedVersionId;
+    const workspaceId = dispatch.workspaceId;
 
-    const manifest = await this.workflowsService.getPublishedManifest({
-      organizationId: input.organizationId,
-      publishedVersionId: dispatch.publishedVersionId,
-    });
+    const manifest = await runPremiumStartupStage(
+      "manifest_load",
+      "premium_manifest_load_failed",
+      () => this.workflowsService.getPublishedManifest({
+        organizationId: input.organizationId,
+        publishedVersionId,
+      }),
+    );
     if (
       manifest === null
       || manifest.tenantId !== input.organizationId
@@ -157,20 +203,33 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       || manifest.runtimeProfile !== "premium-realtime"
       || manifest.entryAgentId === undefined
     ) {
-      throw new Error("The exact premium workflow manifest for this PSTN dispatch is unavailable or invalid.");
+      throw new PstnPremiumCallStartupError(
+        "premium_manifest_unavailable",
+        "manifest_validation",
+        { message: "The exact premium workflow manifest for this PSTN dispatch is unavailable or invalid." },
+      );
     }
+    const entryAgentId = manifest.entryAgentId;
 
-    const session = await this.runtimeSessionsService.createRealtimeSession({
-      manifest,
-      activeAgentId: manifest.entryAgentId,
-      budgetAllowed: true,
-      organizationId: input.organizationId,
-      workspaceId: dispatch.workspaceId,
-      actorUserId: `pstn:${input.callSessionId}`,
-    });
+    const session = await runPremiumStartupStage(
+      "runtime_session_create",
+      "premium_runtime_session_create_failed",
+      () => this.runtimeSessionsService.createRealtimeSession({
+        manifest,
+        activeAgentId: entryAgentId,
+        budgetAllowed: true,
+        organizationId: input.organizationId,
+        workspaceId,
+        actorUserId: `pstn:${input.callSessionId}`,
+      }),
+    );
     const registered = this.runtimeSessionsService.getRegisteredSession(session.sessionId);
     if (registered === null) {
-      throw new Error("Premium realtime session registration failed for the PSTN call.");
+      throw new PstnPremiumCallStartupError(
+        "premium_runtime_session_registration_failed",
+        "runtime_session_registration",
+        { message: "Premium realtime session registration failed for the PSTN call." },
+      );
     }
 
     let providerConnection: PremiumRealtimeProviderConnection;
@@ -214,7 +273,14 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         }],
       }).catch(() => undefined);
       this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
-      throw error;
+      throw new PstnPremiumCallStartupError(
+        "premium_provider_start_failed",
+        "provider_connect",
+        {
+          cause: error,
+          ...(error instanceof Error ? { message: error.message } : {}),
+        },
+      );
     }
     const cancellationReason = this.cancelledCallSessions.get(input.callSessionId);
     if (cancellationReason !== undefined) {
@@ -305,7 +371,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     };
     this.executions.set(input.callSessionId, execution);
     this.bindProviderConnection(execution, providerConnection, execution.providerEpoch);
-    await actor.start();
+    await runPremiumStartupStage(
+      "provider_readiness",
+      "premium_provider_readiness_failed",
+      () => actor.start(),
+    );
   }
 
   private bindProviderConnection(
@@ -943,6 +1013,21 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       throw new Error(`Premium PSTN execution '${callSessionId}' is not active.`);
     }
     return execution;
+  }
+}
+
+async function runPremiumStartupStage<T>(
+  stage: string,
+  failureCode: string,
+  action: () => Promise<T>,
+) {
+  try {
+    return await action();
+  } catch (error) {
+    if (error instanceof PstnPremiumCallStartupError) {
+      throw error;
+    }
+    throw new PstnPremiumCallStartupError(failureCode, stage, { cause: error });
   }
 }
 

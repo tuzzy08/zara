@@ -295,6 +295,55 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
+  it("logs a safe premium startup failure code before closing the Twilio media stream", async () => {
+    const warnings: string[] = [];
+    vi.spyOn(Logger.prototype, "warn").mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        async start() {
+          throw new Error("The exact premium workflow manifest for this PSTN dispatch is unavailable or invalid.");
+        },
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        async stop() {},
+      } as never,
+    });
+    const callSid = "CA-premium-start-failure";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-start-failure",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
+    const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`);
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium startup failure websocket open");
+
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-start-failure",
+      token: streamToken,
+    })));
+
+    await expect(withTimeout(nextClose(socket), "premium startup failure websocket close")).resolves.toEqual({
+      code: 4400,
+      reason: "premium_manifest_unavailable",
+    });
+    expect(warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("[twilio-pstn] media_handler_failed"),
+      expect.stringContaining('"failureCode":"premium_manifest_unavailable"'),
+    ]));
+
+    await app.close();
+  }, 30_000);
+
   it("forwards authorized premium media into call execution and returns its audio to Twilio", async () => {
     const starts: Array<{ callSessionId: string; output: PstnPremiumCallOutput }> = [];
     const frames: PstnAudioFrame[] = [];

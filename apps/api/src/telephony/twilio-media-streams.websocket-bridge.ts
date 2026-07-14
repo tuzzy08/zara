@@ -31,7 +31,10 @@ import {
   logTwilioPstnDiagnostic,
   warnTwilioPstnDiagnostic,
 } from "./twilio-pstn-diagnostics";
-import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
+import {
+  classifyPremiumCallStartupFailure,
+  PstnPremiumCallExecution,
+} from "./pstn-premium-call-execution";
 
 type TwilioMediaStreamSessionEvent =
   | TwilioMediaStreamBridgeEvent
@@ -205,8 +208,18 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
               message,
             }),
           )
-          .catch(() => {
-            attachment.client.close(4400, "twilio_media.handler_failed");
+          .catch((error: unknown) => {
+            const failure = classifyPremiumCallStartupFailure(error);
+            warnTwilioPstnDiagnostic(this.logger, "media_handler_failed", {
+              organizationId: attachment.authorization?.organizationId,
+              connectionId: attachment.authorization?.connectionId,
+              dispatchId: attachment.authorization?.dispatchId,
+              callSessionId: attachment.callSessionId,
+              runtimePath: attachment.authorization?.runtimePath,
+              failureCode: failure.failureCode,
+              stage: failure.stage,
+            });
+            attachment.client.close(4400, failure.failureCode);
           })
           .finally(() => {
             attachment.pendingMessageBytes = Math.max(0, attachment.pendingMessageBytes - messageBytes);
