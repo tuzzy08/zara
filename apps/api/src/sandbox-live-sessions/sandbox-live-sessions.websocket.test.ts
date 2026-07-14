@@ -546,7 +546,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     });
     expect(modelInputs[0]?.activeAgent.agentId).toBe("agent-billing");
-    expect(modelInputs[0]?.activeAgent.modelProvider).toBe("google-gemini");
+    expect(modelInputs[0]?.activeAgent.modelProvider).toBe("openai");
     expect(modelInputs[0]?.context.language).toBe("fr");
     expect(transcribedEvent).toMatchObject({
       payload: {
@@ -555,7 +555,7 @@ describe("Sandbox live session websocket stream", () => {
     });
     expect(modelTelemetryEvent).toMatchObject({
       payload: {
-        provider: "google-gemini",
+        provider: "openai-chat",
       },
     });
     expect(modelInputs[0]?.agentContext?.transfer).toEqual({
@@ -796,7 +796,7 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
-  it("blocks live voice sessions when the selected text model provider is not configured", async () => {
+  it("blocks live voice sessions when the platform default text model provider is not configured", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
@@ -804,9 +804,9 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createTextModelProviderWithAvailability({
-        "google-gemini": {
+        openai: {
           configured: false,
-          missingEnv: ["GEMINI_API_KEY"],
+          missingEnv: ["OPENAI_API_KEY"],
         },
       }))
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
@@ -818,9 +818,7 @@ describe("Sandbox live session websocket stream", () => {
     const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
-    const manifest = withAgentRoleConfig(createCompiledManifest("workspace-default"), "agent-front-desk", {
-      modelProvider: "google-gemini",
-    });
+    const manifest = createCompiledManifest("workspace-default");
     const createResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
@@ -833,8 +831,8 @@ describe("Sandbox live session websocket stream", () => {
       });
 
     expect(createResponse.status).toBe(409);
-    expect(createResponse.body.message).toContain("Gemini text model is not configured");
-    expect(createResponse.body.message).toContain("GEMINI_API_KEY");
+    expect(createResponse.body.message).toContain("OpenAI text model is not configured");
+    expect(createResponse.body.message).toContain("OPENAI_API_KEY");
 
     await app.close();
   }, 60_000);

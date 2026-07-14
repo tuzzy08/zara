@@ -29,6 +29,10 @@ import {
   type PersistedMemoryStateRecord,
 } from "../memory/memory-state.repository";
 import type { TenantKnowledgeRecordResponse } from "../memory/memory.models";
+import {
+  InMemoryPublishedWorkflowManifestRepository,
+  PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY,
+} from "./published-workflow-manifest.repository";
 
 let tempDirectories: string[] = [];
 
@@ -313,6 +317,8 @@ async function createTestingApp(
     .useValue(repository)
     .overrideProvider(MEMORY_STATE_REPOSITORY)
     .useValue(memoryRepository)
+    .overrideProvider(PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY)
+    .useValue(new InMemoryPublishedWorkflowManifestRepository())
     .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();

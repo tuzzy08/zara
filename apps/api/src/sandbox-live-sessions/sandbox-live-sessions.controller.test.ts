@@ -272,15 +272,15 @@ describe("SandboxLiveSessionsController", () => {
     await app.close();
   }, 15_000);
 
-  it("checks the concrete entry agent text provider before stale role snapshots", async () => {
+  it("uses the platform OpenAI default instead of stale role model metadata", async () => {
     const textModelProvider = createTextModelProviderAvailabilityProbe({
       "google-gemini": {
-        configured: false,
-        missingEnv: ["GEMINI_API_KEY"],
-      },
-      openai: {
         configured: true,
         missingEnv: [],
+      },
+      openai: {
+        configured: false,
+        missingEnv: ["OPENAI_API_KEY"],
       },
     });
     const moduleRef = await Test.createTestingModule({
@@ -307,9 +307,9 @@ describe("SandboxLiveSessionsController", () => {
 
     expect(response.status).toBe(409);
     expect(response.body.message).toBe(
-      "Gemini text model is not configured. Missing: GEMINI_API_KEY.",
+      "OpenAI text model is not configured. Missing: OPENAI_API_KEY.",
     );
-    expect(textModelProvider.getProviderAvailability).toHaveBeenCalledWith("google-gemini");
+    expect(textModelProvider.getProviderAvailability).toHaveBeenCalledWith("openai");
 
     await app.close();
   }, 15_000);
