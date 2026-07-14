@@ -196,6 +196,7 @@ describe("TelephonyController", () => {
 
     expect(blockedBeforeActivationResponse.status).toBe(201);
     expect(blockedBeforeActivationResponse.body.dispatch).toMatchObject({
+      id: "CA-dispatch-before-activation:telephony:manual",
       disposition: "blocked",
       publishedVersionId: "workflow-support-v1",
     });

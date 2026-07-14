@@ -238,6 +238,26 @@ describe("database foundations", () => {
     );
   });
 
+  it("ships the execution-session policy state as an executable migration", () => {
+    const migrationFile = readFileSync(
+      resolve(repositoryRoot, "apps/api/src/database/migrations/0008_telephony_execution_policy_state.sql"),
+      "utf8",
+    );
+    const migrationJournal = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, "apps/api/src/database/migrations/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+
+    expect(migrationFile).toContain(
+      'ALTER TABLE "telephony_execution_sessions" ADD COLUMN IF NOT EXISTS "policy_state" jsonb',
+    );
+    expect(migrationJournal.entries).toContainEqual(
+      expect.objectContaining({ tag: "0008_telephony_execution_policy_state" }),
+    );
+  });
+
   it("defines pgvector-backed memory embedding storage and index migration", () => {
     expect(getTableName(memoryEmbeddings)).toBe("memory_embeddings");
     expect(Object.keys(getTableColumns(memoryEmbeddings))).toEqual([

@@ -842,6 +842,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     const dispatch = buildDispatchRecord({
       organizationId: input.organizationId,
       resolution,
+      callSid: input.callSid,
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
       source: input.source ?? "manual",
@@ -2578,13 +2579,14 @@ function isTwilioActiveInboundCallStatus(status: string | undefined) {
 function buildDispatchRecord(input: {
   organizationId: string;
   resolution: InboundCallResolution;
+  callSid: string;
   toPhoneNumber: string;
   fromPhoneNumber: string;
   source: "manual" | "webhook";
   now: string;
 }): TelephonyDispatchRecord {
   return {
-    id: `${input.resolution.callSessionId ?? input.resolution.phoneNumberId ?? "dispatch"}:${input.source}`,
+    id: `${input.callSid}:telephony:${input.source}`,
     tenantId: input.organizationId,
     direction: "inbound",
     toPhoneNumber: input.toPhoneNumber,
