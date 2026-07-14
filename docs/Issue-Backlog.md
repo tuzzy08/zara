@@ -3845,6 +3845,7 @@ Implementation summary:
 - Labeled premium realtime PSTN separately in the unified Phone test sandbox while keeping one sandbox surface.
 - Added regression coverage for blocked-by-default premium calls, approved premium route selection, provider unavailable, interruption normalization, provider failure blocking, redacted trace export, and the premium PSTN eval fixture.
 - Connected authorized Twilio premium Media Streams to exact persisted published manifests and server-owned premium sessions, with OpenAI Realtime as the platform-admin-owned default, native PCMU output, provider tool-loop reuse, interruption clearing, and deterministic two-leg cleanup.
+- Requests one provider-native opening turn after the initial premium provider becomes ready so an answered PSTN call greets the caller instead of waiting silently for caller VAD; provider handoffs continue through their separate continuation contract.
 
 ### ISSUE-150: Server-owned auth context contract
 

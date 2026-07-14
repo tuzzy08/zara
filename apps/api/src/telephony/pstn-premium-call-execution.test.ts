@@ -165,9 +165,15 @@ describe("PstnPremiumCallExecution", () => {
 
     expect(sentProviderMessages).toEqual([]);
     providerReady.resolve();
-    await waitFor(() => sentProviderMessages.length === 1);
+    await waitFor(() => sentProviderMessages.length === 2);
     expect(sentProviderMessages[0]).toMatchObject({ type: "input_audio_buffer.append" });
     expect(Buffer.from(String(sentProviderMessages[0]?.audio), "base64")).toHaveLength(960);
+    expect(sentProviderMessages[1]).toMatchObject({
+      type: "response.create",
+      response: {
+        instructions: expect.stringContaining("Greet the caller"),
+      },
+    });
     expect(connectedMediaProfile).toBe("pstn");
 
     providerMessageHandler?.(JSON.stringify({
@@ -265,16 +271,54 @@ describe("PstnPremiumCallExecution", () => {
       },
     });
 
-    await waitFor(() => sentProviderMessages.length === 1);
-    expect(sentProviderMessages[0]).toMatchObject({
+    await waitFor(() => sentProviderMessages.length === 2);
+    const audioMessage = sentProviderMessages.find((message) =>
+      (message.realtimeInput as { audio?: unknown } | undefined)?.audio !== undefined);
+    const greetingMessage = sentProviderMessages.find((message) =>
+      (message.realtimeInput as { text?: unknown } | undefined)?.text !== undefined);
+    expect(audioMessage).toMatchObject({
       realtimeInput: {
         audio: {
           mimeType: "audio/pcm;rate=16000",
         },
       },
     });
-    const audio = (sentProviderMessages[0]?.realtimeInput as { audio: { data: string } }).audio.data;
+    const audio = (audioMessage?.realtimeInput as { audio: { data: string } }).audio.data;
     expect(Buffer.from(audio, "base64")).toHaveLength(640);
+    expect(greetingMessage).toMatchObject({
+      realtimeInput: {
+        text: expect.stringContaining("Greet the caller"),
+      },
+    });
+  });
+
+  it("fails both call legs when the initial greeting cannot be sent", async () => {
+    const callerCloses: string[] = [];
+    const providerCloses: string[] = [];
+    const terminatedSessions: string[] = [];
+    const { execution } = createMinimalExecutionHarness("openai-realtime", {
+      sendError: new Error("provider socket write failed"),
+      onProviderClose: (reason) => providerCloses.push(reason),
+      onTerminate: (sessionId) => terminatedSessions.push(sessionId),
+    });
+
+    await execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() {},
+        clearAudio() {},
+        sendMark() {},
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    });
+
+    await waitFor(() => callerCloses.length === 1);
+    expect(callerCloses).toEqual(["premium_provider_send_failed"]);
+    expect(providerCloses).toEqual(["premium_provider_send_failed"]);
+    expect(terminatedSessions).toEqual(["premium-session-minimal"]);
   });
 
   it("frames Gemini 24 kHz PCM output into deterministic Twilio PCMU playback", async () => {
@@ -843,7 +887,9 @@ describe("PstnPremiumCallExecution", () => {
       callSessionId: "CA-premium:telephony",
       frame: premiumInboundFrame(1),
     });
-    expect(source.sent).toEqual([]);
+    expect(source.sent).toEqual([
+      expect.objectContaining({ type: "response.create" }),
+    ]);
     expect(harness.connections[1]!.sent).toEqual([]);
 
     targetReady.resolve();
@@ -1054,6 +1100,7 @@ function createMinimalExecutionHarness(
     connectGate?: Promise<void> | undefined;
     providerReady?: Promise<void> | undefined;
     processProviderGate?: Promise<void> | undefined;
+    sendError?: Error | undefined;
     onUpdate?: (() => void) | undefined;
     onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
   } = {},
@@ -1132,6 +1179,9 @@ function createMinimalExecutionHarness(
           waitUntilReady() { return options.providerReady ?? Promise.resolve(); },
           getBufferedAmountBytes() { return 0; },
           send(message: Record<string, unknown>) {
+            if (options.sendError !== undefined) {
+              throw options.sendError;
+            }
             sentProviderMessages.push(message);
             return 0;
           },

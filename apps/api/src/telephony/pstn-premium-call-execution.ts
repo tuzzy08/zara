@@ -108,6 +108,8 @@ interface PendingProviderTransition {
 
 const completedPlaybackResponseLimit = 64;
 const providerHandoffTimeoutMs = 5_000;
+const initialGreetingInstruction =
+  "Greet the caller briefly using your configured identity and business context, then ask how you can help. Do not claim the caller has already said anything.";
 
 interface StartPremiumCallExecutionInput {
   organizationId: string;
@@ -310,6 +312,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
             readinessLatencyMs: Math.max(0, Date.now() - readinessStartedAt),
           },
         });
+        try {
+          execution.actor.sendProviderMessage(buildInitialGreetingMessage(execution.registered));
+        } catch {
+          execution.actor.fail("premium_provider_send_failed");
+        }
       },
       onFailure: (reason) => {
         if (!readinessRecorded && reason.startsWith("premium_provider_readiness_")) {
@@ -1076,6 +1083,27 @@ function buildProviderContinuationMessage(
     tools: transition.target.toolDeclarations,
   }).createResponseCreateMessage({
     instructions: transition.continuation.instruction,
+  });
+}
+
+function buildInitialGreetingMessage(
+  registered: RegisteredPremiumRealtimeSession,
+): Record<string, unknown> {
+  if (registered.session.runtime === "gemini-live") {
+    return new GeminiLiveRealtimeAdapter({
+      apiKey: "server-owned-provider-session",
+      model: registered.session.model,
+      systemPrompt: "",
+      tools: registered.session.toolDeclarations,
+    }).createTextInputMessage(initialGreetingInstruction);
+  }
+
+  return new OpenAiRealtimeAdapter({
+    model: registered.session.model,
+    systemPrompt: "",
+    tools: registered.session.toolDeclarations,
+  }).createResponseCreateMessage({
+    instructions: initialGreetingInstruction,
   });
 }
 

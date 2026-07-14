@@ -19,6 +19,7 @@ External: [Linear ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-p
 - Follow-up on 2026-07-11: connected authorized Twilio premium Media Streams to `RuntimeSessionsService` and the server-owned provider transport, including inbound mu-law conversion, provider-native tools/handoffs, transcript/checklist projection, interruption clears, and outbound Twilio media.
 - Follow-up on 2026-07-11: made OpenAI Realtime the platform-policy default, requested native `audio/pcmu` output for PSTN, kept provider/model mutation platform-admin-only, exposed only the effective provider to tenant voice UI, and prevented stale tenant provider/model values from overriding policy.
 - Follow-up on 2026-07-11: moved phone-test persistence off the 20 ms audio path, records media checkpoints once, closes Twilio on unexpected provider termination, and explicitly removes completed PSTN runtime sessions.
+- Follow-up on 2026-07-14: traced a routed call that authorized its Twilio Media Stream, delivered inbound media, and closed normally without agent audio to the missing initial provider response request. Premium PSTN execution now requests one brief opening greeting after initial OpenAI or Gemini provider readiness, without fabricating prior caller speech or repeating the greeting during provider handoff. A failed greeting write closes both call legs and the runtime session with the safe `premium_provider_send_failed` code.
 
 ## Tests Run
 
@@ -33,6 +34,8 @@ External: [Linear ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-p
 - `npm.cmd run typecheck`
 - Follow-up on 2026-07-11: focused workflow-manifest, premium PSTN execution, Twilio Media Streams, runtime-policy, runtime-session, agent-class API, and builder provider-display suites passed.
 - Follow-up on 2026-07-11: `npm.cmd run typecheck --workspace @zara/api` passed.
+- Follow-up on 2026-07-14: `npx.cmd vitest run apps/api/src/telephony/pstn-premium-call-execution.test.ts --pool=forks --maxWorkers=1 --testTimeout=30000 --reporter=dot` passed 21 tests.
+- Follow-up on 2026-07-14: focused ESLint passed, `npm.cmd run typecheck --workspace @zara/api` passed, and `npm.cmd run eval:pstn` passed all 25 scenarios.
 
 ## Pending Work
 
@@ -53,4 +56,4 @@ External: [Linear ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-p
 
 ## Next Recommended Step
 
-- Deploy migration `0007_published_workflow_manifests.sql`, republish the target workflow, and run one real OpenAI premium Phone test. Confirm logs progress through media authorization, premium provider connection, first inbound frame, transcript/response, outbound audio, and clean stop.
+- Deploy the initial-greeting fix and run one real OpenAI premium Phone test. Confirm the call progresses from media authorization and provider readiness through the initial response, outbound audio, caller turn, and clean stop.
