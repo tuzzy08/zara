@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional, type OnApplicationShutdown } from "@nestjs/common";
-import type { PstnAudioFrame } from "@zara/core";
+import { resolveRuntimeAgent, type PstnAudioFrame } from "@zara/core";
 
 import {
   GeminiLiveRealtimeAdapter,
@@ -108,9 +108,6 @@ interface PendingProviderTransition {
 
 const completedPlaybackResponseLimit = 64;
 const providerHandoffTimeoutMs = 5_000;
-const initialGreetingInstruction =
-  "Greet the caller briefly using your configured identity and business context, then ask how you can help. Do not claim the caller has already said anything.";
-
 interface StartPremiumCallExecutionInput {
   organizationId: string;
   dispatchId: string;
@@ -314,8 +311,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         });
         try {
           execution.actor.sendProviderMessage(buildInitialGreetingMessage(execution.registered));
-        } catch {
-          execution.actor.fail("premium_provider_send_failed");
+        } catch (error) {
+          execution.actor.fail(
+            error instanceof Error && error.message === "premium_initial_agent_identity_unavailable"
+              ? error.message
+              : "premium_provider_send_failed",
+          );
         }
       },
       onFailure: (reason) => {
@@ -1089,6 +1090,8 @@ function buildProviderContinuationMessage(
 function buildInitialGreetingMessage(
   registered: RegisteredPremiumRealtimeSession,
 ): Record<string, unknown> {
+  const initialGreetingInstruction = buildInitialGreetingInstruction(registered);
+
   if (registered.session.runtime === "gemini-live") {
     return new GeminiLiveRealtimeAdapter({
       apiKey: "server-owned-provider-session",
@@ -1105,6 +1108,23 @@ function buildInitialGreetingMessage(
   }).createResponseCreateMessage({
     instructions: initialGreetingInstruction,
   });
+}
+
+function buildInitialGreetingInstruction(registered: RegisteredPremiumRealtimeSession): string {
+  const agent = resolveRuntimeAgent(registered.manifest, registered.activeAgentId);
+  const agentName = agent?.name.trim() ?? "";
+  const businessName = agent?.businessName.trim() ?? "";
+
+  if (agentName.length === 0 || businessName.length === 0) {
+    throw new Error("premium_initial_agent_identity_unavailable");
+  }
+
+  return [
+    `Begin with exactly: "Hello, this is ${agentName} from ${businessName}. How may I help you today?"`,
+    "Use both the configured agent name and business name.",
+    "Do not replace either name with a generic role such as support assistant.",
+    "Do not claim the caller has already said anything.",
+  ].join(" ");
 }
 
 function isInterruptionEvent(event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent) {

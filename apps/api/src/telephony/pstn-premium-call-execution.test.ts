@@ -171,7 +171,9 @@ describe("PstnPremiumCallExecution", () => {
     expect(sentProviderMessages[1]).toMatchObject({
       type: "response.create",
       response: {
-        instructions: expect.stringContaining("Greet the caller"),
+        instructions: expect.stringContaining(
+          'Begin with exactly: "Hello, this is Jane from Tuzzy Labs. How may I help you today?"',
+        ),
       },
     });
     expect(connectedMediaProfile).toBe("pstn");
@@ -287,9 +289,38 @@ describe("PstnPremiumCallExecution", () => {
     expect(Buffer.from(audio, "base64")).toHaveLength(640);
     expect(greetingMessage).toMatchObject({
       realtimeInput: {
-        text: expect.stringContaining("Greet the caller"),
+        text: expect.stringContaining(
+          'Begin with exactly: "Hello, this is Jane from Tuzzy Labs. How may I help you today?"',
+        ),
       },
     });
+  });
+
+  it("fails closed instead of using a fallback when the initial agent identity is unavailable", async () => {
+    const callerCloses: string[] = [];
+    const invalidManifest = {
+      ...createPremiumManifest(),
+      graph: { id: "workflow-premium", name: "Premium support", nodes: [], edges: [] },
+    } as CompiledRuntimeManifest;
+    const { execution } = createMinimalExecutionHarness("openai-realtime", {
+      manifest: invalidManifest,
+    });
+
+    await execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() {},
+        clearAudio() {},
+        sendMark() {},
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    });
+
+    await waitFor(() => callerCloses.length === 1);
+    expect(callerCloses).toEqual(["premium_initial_agent_identity_unavailable"]);
   });
 
   it("fails both call legs when the initial greeting cannot be sent", async () => {
@@ -1084,7 +1115,33 @@ function createPremiumManifest() {
     runtime: "openai-realtime",
     runtimeProfile: "premium-realtime",
     entryAgentId: "agent-jane",
-    graph: { nodes: [] },
+    graph: {
+      id: "workflow-premium",
+      name: "Premium support",
+      nodes: [{
+        id: "agent-jane",
+        kind: "agent",
+        label: "Jane",
+        position: { x: 0, y: 0 },
+        config: {
+          role: {
+            kind: "support",
+            name: "Jane",
+            businessName: "Tuzzy Labs",
+            instructions: "Help callers with support questions.",
+            defaultModelTier: "standard",
+            runtimeProfileOverride: "premium-realtime",
+            realtimeProvider: "openai-realtime",
+            languagePolicy: {
+              defaultLanguage: "en",
+              supportedLanguages: ["en"],
+              allowMidCallSwitching: false,
+            },
+          },
+        },
+      }],
+      edges: [],
+    },
     budget: { monthlyCapUsd: 100, currentSpendUsd: 0 },
     toolBindings: [],
     agentToolAssignments: [],
@@ -1101,11 +1158,12 @@ function createMinimalExecutionHarness(
     providerReady?: Promise<void> | undefined;
     processProviderGate?: Promise<void> | undefined;
     sendError?: Error | undefined;
+    manifest?: CompiledRuntimeManifest | undefined;
     onUpdate?: (() => void) | undefined;
     onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
   } = {},
 ) {
-  const manifest = createPremiumManifest();
+  const manifest = options.manifest ?? createPremiumManifest();
   const sentProviderMessages: Record<string, unknown>[] = [];
   const registered = {
     organizationId: "tenant-west-africa",
