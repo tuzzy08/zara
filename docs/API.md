@@ -187,6 +187,8 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - PATCH /platform-admin/runtime/route-policy
 - GET /platform-admin/runtime/prompt-policy
 - PATCH /platform-admin/runtime/prompt-policy
+- GET /platform-admin/runtime/premium-realtime-policy
+- PATCH /platform-admin/runtime/premium-realtime-policy
 - PATCH /platform-admin/organizations/:orgId/billing-controls
 - GET /platform-admin/audit-logs
 - GET /platform-admin/abuse-compliance/reviews
@@ -256,7 +258,7 @@ Request body:
 
 Response body:
 
-- `session`: premium realtime session contract including runtime (`openai-realtime` or `gemini-live`), policy, model, voice, Zara-owned transport URL, expiry, and observed event types
+- `session`: premium realtime session contract including runtime (`openai-realtime` or `gemini-live`), policy, model, immutable `providerConfig` (provider, model, media profile, media contract, provider turn/activity policy, and conversation-policy version), voice, Zara-owned transport URL, expiry, and observed event types
 
 Behavior rules:
 
@@ -275,6 +277,15 @@ Platform admins can inspect and update the runtime prompt policy used by live sa
 - `PATCH /platform-admin/runtime/prompt-policy`
 
 The policy contains global platform guardrails plus agent class templates keyed by platform-owned agent classes. Each class template owns the base prompt, routing profile, default sandwich text provider/tier/model ID, and default premium realtime provider/model ID. Updates require `expectedVersion` and `reason`, are restricted to mutating platform runtime policy, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text and raw model IDs are not copied into audit metadata; audit metadata stores version, guardrail count, changed class keys, and reason.
+
+## Platform Premium Realtime Conversation Policy Contract
+
+Platform admins can inspect and update the versioned premium realtime provider/channel policy:
+
+- `GET /platform-admin/runtime/premium-realtime-policy`
+- `PATCH /platform-admin/runtime/premium-realtime-policy`
+
+OpenAI Realtime is the default provider and `gpt-realtime-2.1` is the default model. OpenAI PSTN sessions use native `audio/pcmu` input/output and provider-owned semantic VAD with low eagerness, automatic response creation, and interruption enabled. Gemini Live retains provider-native activity handling and its documented PCM media contracts. Updates require a matching `expectedVersion`, a non-empty audit reason, and fresh platform-admin mutation assurance. Media contracts are fixed server-side; the admin surface can change the supported provider/model defaults and OpenAI turn policy but tenant workflow metadata cannot override the resolved session contract. Each call snapshots the full policy version at session creation, and provider replacement during handoff resolves the target from that same call-start policy snapshot.
 
 Platform admins create specialist agent classes through `POST /platform-admin/agent-classes`. The request supplies the class key, label, base prompt, routing description/examples, model defaults, `expectedVersion`, and audit reason. The endpoint writes through the runtime prompt policy version gate and returns the created class, updated prompt policy, and safe audit metadata. Tenants never create platform specialist classes; tenant builders read the safe class catalog through `GET /organizations/:orgId/agents/classes`, which exposes class keys, labels, and routing metadata without platform base prompts or raw model IDs.
 

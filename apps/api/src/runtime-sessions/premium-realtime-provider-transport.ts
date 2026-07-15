@@ -21,7 +21,6 @@ export interface PremiumRealtimeProviderTransportConnectInput {
   actorUserId: string;
   session: PremiumRealtimeSession;
   manifest: CompiledRuntimeManifest;
-  mediaProfile?: "browser" | "pstn" | undefined;
 }
 
 export interface PremiumRealtimeProviderConnection {
@@ -63,13 +62,22 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
         `Premium realtime active agent '${input.session.activeAgentId}' was not found in runtime manifest '${input.manifest.manifestId}'.`,
       );
     }
+    const providerConfig = input.session.providerConfig;
+    if (
+      input.session.runtime !== providerConfig.provider
+      || input.session.model !== providerConfig.model
+    ) {
+      throw new Error(
+        "Premium realtime session provider contract does not match the session projection.",
+      );
+    }
 
     const systemPrompt = buildPremiumRealtimeAgentPrompt({
       manifest: input.manifest,
       agent: activeAgentConfig,
     });
 
-    if (input.session.runtime === "gemini-live") {
+    if (providerConfig.provider === "gemini-live") {
       return this.connectGemini(input, systemPrompt, activeAgentConfig);
     }
 
@@ -87,21 +95,21 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
     }
 
     const url = new URL("/v1/realtime", config.openAiBaseUrl.replace(/^http/, "ws"));
-    url.searchParams.set("model", input.session.model);
+    const providerConfig = input.session.providerConfig;
+    if (providerConfig.provider !== "openai-realtime") {
+      throw new Error("OpenAI transport received a non-OpenAI premium realtime session contract.");
+    }
+    url.searchParams.set("model", providerConfig.model);
     const adapter = new OpenAiRealtimeAdapter({
-      model: input.session.model,
+      model: providerConfig.model,
       systemPrompt,
       voice: resolveOpenAiRealtimeVoice(agent),
       language: agent?.languagePolicy.defaultLanguage,
       ...resolveOpenAiRealtimeSpeed(agent),
       tools: input.session.toolDeclarations,
-      ...(input.mediaProfile === "pstn"
-        ? {
-            inputAudioFormat: "pcmu" as const,
-            outputAudioFormat: "pcmu" as const,
-            turnDetectionMode: "server_vad" as const,
-          }
-        : {}),
+      inputAudioFormat: providerConfig.media.input.type === "audio/pcmu" ? "pcmu" : "pcm",
+      outputAudioFormat: providerConfig.media.output.type === "audio/pcmu" ? "pcmu" : "pcm",
+      turnDetection: providerConfig.turnDetection,
     });
     const socket = this.websocketFactory(url.toString(), {
       headers: {
@@ -127,9 +135,13 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       throw new Error("Gemini Live is not configured. Missing: GEMINI_API_KEY.");
     }
 
+    const providerConfig = input.session.providerConfig;
+    if (providerConfig.provider !== "gemini-live") {
+      throw new Error("Gemini transport received a non-Gemini premium realtime session contract.");
+    }
     const adapter = new GeminiLiveRealtimeAdapter({
       apiKey: config.geminiApiKey,
-      model: input.session.model,
+      model: providerConfig.model,
       systemPrompt,
       voiceName: resolveGeminiLiveVoiceName(agent),
       tools: input.session.toolDeclarations,

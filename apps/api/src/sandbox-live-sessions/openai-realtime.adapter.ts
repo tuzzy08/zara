@@ -1,4 +1,10 @@
-import { projectRealtimeProviderToolInputSchema, type RealtimeProviderToolDeclaration } from "@zara/core";
+import {
+  projectRealtimeProviderToolInputSchema,
+  type OpenAiRealtimeTurnDetectionPolicy,
+  type RealtimeProviderToolDeclaration,
+} from "@zara/core";
+
+import type { PremiumRealtimeLifecycleEvent } from "./premium-realtime-events";
 
 export interface OpenAiRealtimeAdapterConfig {
   model: string;
@@ -11,9 +17,11 @@ export interface OpenAiRealtimeAdapterConfig {
   inputAudioFormat?: "pcm" | "pcmu" | undefined;
   outputAudioFormat?: "pcm" | "pcmu" | undefined;
   turnDetectionMode?: "semantic_vad" | "server_vad" | undefined;
+  turnDetection?: OpenAiRealtimeTurnDetectionPolicy | undefined;
 }
 
 export type OpenAiRealtimeEvent =
+  | PremiumRealtimeLifecycleEvent
   | {
       type: "session_ready";
     }
@@ -28,6 +36,7 @@ export type OpenAiRealtimeEvent =
       audioBase64: string;
       responseId?: string | undefined;
       itemId?: string | undefined;
+      contentIndex?: number | undefined;
     }
   | {
       type: "input_audio_committed";
@@ -135,6 +144,33 @@ interface OpenAiAudioFormat {
   rate?: number | undefined;
 }
 
+function projectOpenAiTurnDetection(config: OpenAiRealtimeAdapterConfig) {
+  const policy = config.turnDetection;
+  if (policy?.type === "semantic_vad") {
+    return {
+      type: policy.type,
+      eagerness: policy.eagerness,
+      create_response: policy.createResponse,
+      interrupt_response: policy.interruptResponse,
+    };
+  }
+  if (policy?.type === "server_vad") {
+    return {
+      type: policy.type,
+      threshold: policy.threshold,
+      prefix_padding_ms: policy.prefixPaddingMs,
+      silence_duration_ms: policy.silenceDurationMs,
+      create_response: policy.createResponse,
+      interrupt_response: policy.interruptResponse,
+    };
+  }
+  return {
+    type: config.turnDetectionMode ?? "semantic_vad",
+    create_response: config.autoCreateResponse ?? true,
+    interrupt_response: config.autoCreateResponse ?? true,
+  };
+}
+
 export class OpenAiRealtimeAdapter {
   constructor(private readonly config: OpenAiRealtimeAdapterConfig) {
     if (config.model.trim().length === 0) {
@@ -161,9 +197,7 @@ export class OpenAiRealtimeAdapter {
               ...(this.config.language !== undefined ? { language: this.config.language } : {}),
             },
             turn_detection: {
-              type: this.config.turnDetectionMode ?? "semantic_vad",
-              create_response: this.config.autoCreateResponse ?? true,
-              interrupt_response: this.config.autoCreateResponse ?? true,
+              ...projectOpenAiTurnDetection(this.config),
             },
           },
           output: {
@@ -200,6 +234,11 @@ export class OpenAiRealtimeAdapter {
     if (payload.type === "input_audio_buffer.committed") {
       return [
         {
+          type: "caller_turn",
+          state: "committed",
+          ...(payload.item_id !== undefined ? { itemId: payload.item_id } : {}),
+        },
+        {
           type: "input_audio_committed",
           ...(payload.item_id !== undefined ? { itemId: payload.item_id } : {}),
         },
@@ -207,14 +246,56 @@ export class OpenAiRealtimeAdapter {
       ];
     }
 
+    if (payload.type === "input_audio_buffer.speech_started" || payload.type === "input_audio_buffer.speech_stopped") {
+      return [
+        {
+          type: "caller_activity",
+          state: payload.type.endsWith("speech_started") ? "started" : "stopped",
+          ...(payload.item_id !== undefined ? { itemId: payload.item_id } : {}),
+        },
+        providerEvidence(payload.type, buildProviderEvidence(payload)),
+      ];
+    }
+
+    if (payload.type === "response.created") {
+      return [
+        {
+          type: "assistant_response",
+          state: "started",
+          ...(payload.response?.id !== undefined ? { responseId: payload.response.id } : {}),
+        },
+        providerEvidence(payload.type, buildProviderEvidence(payload)),
+      ];
+    }
+
+    if (payload.type === "response.cancelled") {
+      return [
+        {
+          type: "assistant_response",
+          state: "cancelled",
+          ...(payload.response_id !== undefined
+            ? { responseId: payload.response_id }
+            : payload.response?.id !== undefined ? { responseId: payload.response.id } : {}),
+        },
+        providerEvidence(payload.type, buildProviderEvidence(payload)),
+      ];
+    }
+
+    if (payload.type === "response.output_audio.done" || payload.type === "response.audio.done") {
+      return [
+        {
+          type: "assistant_response",
+          state: "audio_completed",
+          ...(payload.response_id !== undefined ? { responseId: payload.response_id } : {}),
+          ...(payload.item_id !== undefined ? { itemId: payload.item_id } : {}),
+          ...(payload.content_index !== undefined ? { contentIndex: payload.content_index } : {}),
+        },
+        providerEvidence(payload.type, buildProviderEvidence(payload)),
+      ];
+    }
+
     if (
-      payload.type === "input_audio_buffer.speech_started"
-      || payload.type === "input_audio_buffer.speech_stopped"
-      || payload.type === "conversation.item.input_audio_transcription.failed"
-      || payload.type === "response.cancelled"
-      || payload.type === "response.created"
-      || payload.type === "response.output_audio.done"
-      || payload.type === "response.audio.done"
+      payload.type === "conversation.item.input_audio_transcription.failed"
       || payload.type === "conversation.item.truncated"
       || payload.type === "error"
     ) {
@@ -229,6 +310,7 @@ export class OpenAiRealtimeAdapter {
               audioBase64: payload.delta,
               ...(payload.response_id !== undefined ? { responseId: payload.response_id } : {}),
               ...(payload.item_id !== undefined ? { itemId: payload.item_id } : {}),
+              ...(payload.content_index !== undefined ? { contentIndex: payload.content_index } : {}),
             },
           ]
         : [];
@@ -295,7 +377,14 @@ export class OpenAiRealtimeAdapter {
     }
 
     if (payload.response?.status !== undefined && payload.response.status !== "completed") {
-      return [providerEvidence(payload.type, buildProviderEvidence(payload))];
+      return [
+        {
+          type: "assistant_response",
+          state: payload.response.status === "cancelled" ? "cancelled" : "interrupted",
+          ...(payload.response.id !== undefined ? { responseId: payload.response.id } : {}),
+        },
+        providerEvidence(payload.type, buildProviderEvidence(payload)),
+      ];
     }
 
     const toolCallEvents = (payload.response?.output ?? []).flatMap((item) => {
@@ -312,7 +401,14 @@ export class OpenAiRealtimeAdapter {
     });
 
     if (toolCallEvents.length > 0) {
-      return toolCallEvents;
+      return [
+        ...toolCallEvents,
+        {
+          type: "assistant_response",
+          state: "completed",
+          ...(payload.response?.id !== undefined ? { responseId: payload.response.id } : {}),
+        },
+      ];
     }
 
     const outputTranscript = extractResponseOutputTranscript(payload);
@@ -324,10 +420,35 @@ export class OpenAiRealtimeAdapter {
           done: true,
         },
         providerEvidence(payload.type, buildProviderEvidence(payload, { outputText: outputTranscript })),
+        {
+          type: "assistant_response",
+          state: "completed",
+          ...(payload.response?.id !== undefined ? { responseId: payload.response.id } : {}),
+        },
       ];
     }
 
-    return [providerEvidence(payload.type, buildProviderEvidence(payload))];
+    return [
+      {
+        type: "assistant_response",
+        state: "completed",
+        ...(payload.response?.id !== undefined ? { responseId: payload.response.id } : {}),
+      },
+      providerEvidence(payload.type, buildProviderEvidence(payload)),
+    ];
+  }
+
+  createConversationItemTruncateMessage(input: {
+    itemId: string;
+    contentIndex: number;
+    audioEndMs: number;
+  }) {
+    return {
+      type: "conversation.item.truncate",
+      item_id: input.itemId,
+      content_index: input.contentIndex,
+      audio_end_ms: input.audioEndMs,
+    };
   }
 
   createFunctionCallOutputMessage(input: {

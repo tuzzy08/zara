@@ -5028,3 +5028,29 @@ Implementation summary:
 - Added asynchronous redacted premium lifecycle, pressure, playback, failure, handoff, and cleanup telemetry with exact safe failure classification.
 - Reused one bounded provider-output pressure contract in production execution and executable release evals.
 - Added 25 deterministic PSTN scenarios split across cost-optimized, OpenAI, and Gemini gates plus the premium failure runbook.
+
+### ISSUE-220: Premium realtime turn policy, interruption truncation, and ingress contract
+
+- Priority: P1
+- Area: Runtime / Telephony / Platform Admin / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: architecture, backend, frontend, platform-admin, runtime, observability, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-220-premium-realtime-turn-policy-ingress.md](../docs/Handovers/ISSUE-220-premium-realtime-turn-policy-ingress.md)
+- External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220-premium-realtime-turn-policy-interruption-truncation-and)
+
+Acceptance criteria:
+- OpenAI Realtime remains the default premium provider and `gpt-realtime-2.1` is the default premium model unless platform-admin policy explicitly selects another supported model.
+- Platform-admin-owned, versioned provider/channel turn policy is resolved and snapshotted into each premium session; tenant workflow metadata cannot override it and `mediaProfile` cannot select turn semantics.
+- OpenAI PSTN defaults to semantic VAD with low eagerness, automatic response creation, and provider interruption while Zara performs no local VAD.
+- Provider adapters emit normalized caller/assistant lifecycle events so premium execution does not branch on raw OpenAI event names.
+- Caller interruption clears Twilio playback and truncates unheard OpenAI audio from provider conversation state using acknowledged playback duration and exact item/content identity.
+- Startup and handoff ingress limits are independently named, aligned with their readiness deadlines, account for actual resident provider payload bytes, enforce aggregate memory bounds, and fail once without repeated terminal media errors.
+- Provider/model/policy, readiness, overflow, interruption, and truncation diagnostics remain redacted; focused tests, typecheck, lint, and `npm run eval:pstn` pass.
+
+Implementation summary:
+- Added a guarded, audited, versioned platform-admin premium realtime conversation policy and control surface with OpenAI `gpt-realtime-2.1` as the default, low-eagerness semantic VAD for PSTN, fixed channel media contracts, and provider-native Gemini activity handling.
+- Snapshotted resolved provider/model/media/turn policy and policy version into premium sessions, preserved the call-start policy across cross-provider handoff, and removed media-profile VAD selection plus raw OpenAI event-name branching.
+- Added normalized provider lifecycle events, acknowledged Twilio-mark playback accounting, exact OpenAI item/content truncation, separate startup/handoff resident-byte limits, process-wide aggregate ingress admission, stable terminal media handling, and redacted provider/policy diagnostics.
+- Updated deterministic PSTN evals to enforce serialized resident-byte buffering and release; focused runtime, bridge, admin, typecheck, lint, and 25-case PSTN eval gates pass.

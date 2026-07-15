@@ -35,7 +35,13 @@ import { getConnectorToolSchemaById } from "../integrations/connector-tools.serv
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
 import type { LiveSandboxRouteEvent } from "../sandbox-live-sessions/sandbox-live-session-router";
-import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
+import {
+  defaultPremiumRealtimeConversationPolicy,
+  type PremiumRealtimeConversationPolicy,
+  type PremiumRealtimeMediaProfile,
+} from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
+import { resolvePremiumRealtimeProviderSessionConfig } from "../premium-realtime-policy/premium-realtime-conversation-policy.resolver";
+import { PremiumRealtimeConversationPolicyService } from "../premium-realtime-policy/premium-realtime-conversation-policy.service";
 import { applyRuntimePromptPolicyModelDefaultsToManifest } from "../runtime-prompt-policy/runtime-prompt-policy.model-defaults";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
@@ -71,6 +77,7 @@ export interface CreateRealtimeSessionRequest {
   now?: string | undefined;
   ttlMinutes?: number | undefined;
   realtimeAvailable?: boolean | undefined;
+  mediaProfile?: PremiumRealtimeMediaProfile | undefined;
 }
 
 export interface RegisteredPremiumRealtimeSession {
@@ -82,6 +89,7 @@ export interface RegisteredPremiumRealtimeSession {
   activeAgentId: string;
   transcript: string;
   packet: TurnRuntimePacket;
+  conversationPolicy: PremiumRealtimeConversationPolicy;
 }
 
 export interface ProcessPremiumRealtimeProviderMessageRequest {
@@ -131,6 +139,8 @@ export class RuntimeSessionsService {
     >,
     @Optional()
     private readonly runtimePromptPolicyService?: Pick<RuntimePromptPolicyService, "getPromptPolicy">,
+    @Optional()
+    private readonly conversationPolicyService?: Pick<PremiumRealtimeConversationPolicyService, "getPolicy">,
   ) {}
 
   async createRealtimeSession(input: CreateRealtimeSessionRequest): Promise<PremiumRealtimeSession> {
@@ -145,11 +155,31 @@ export class RuntimeSessionsService {
             input.manifest,
             await this.runtimePromptPolicyService.getPromptPolicy(),
           );
+      const conversationPolicy = this.conversationPolicyService === undefined
+        ? structuredClone(defaultPremiumRealtimeConversationPolicy)
+        : await this.conversationPolicyService.getPolicy();
+      const activeAgent = resolveRuntimeAgent(manifest, input.activeAgentId);
+      const resolvedProviderConfig = resolvePremiumRealtimeProviderSessionConfig({
+        policy: conversationPolicy,
+        mediaProfile: input.mediaProfile ?? "browser",
+        ...(activeAgent === undefined
+          ? {}
+          : {
+              platformOverride: {
+                ...(activeAgent.realtimeProvider !== undefined
+                  ? { provider: activeAgent.realtimeProvider }
+                  : {}),
+                ...(activeAgent.realtimeModelId !== undefined
+                  ? { model: activeAgent.realtimeModelId }
+                  : {}),
+              },
+            }),
+      });
       const baseSession = createPremiumRealtimeSession({
         manifest,
         activeAgentId: input.activeAgentId,
         budgetAllowed: input.budgetAllowed,
-        defaultGeminiLiveModel: resolveLiveSandboxProviderConfig(process.env).geminiLiveModel,
+        resolvedProviderConfig,
         ...(input.now !== undefined ? { now: () => input.now! } : {}),
         ...(input.ttlMinutes !== undefined ? { ttlMinutes: input.ttlMinutes } : {}),
       });
@@ -191,6 +221,7 @@ export class RuntimeSessionsService {
           manifest,
           workspaceId,
         }),
+        conversationPolicy: structuredClone(conversationPolicy),
       });
 
       return session;
@@ -413,8 +444,13 @@ export class RuntimeSessionsService {
       at: input.at,
       handoffArguments: input.handoffArguments,
     });
+    const registeredSession = this.sessions.get(input.session.sessionId);
+    if (registeredSession === undefined) {
+      throw new Error("premium_realtime_session_snapshot_unavailable");
+    }
     const targetSessionResolution = resolvePremiumRealtimeHandoffTargetSession({
       manifest,
+      conversationPolicy: registeredSession.conversationPolicy,
       sourceSession: input.session,
       sourceAgentId: input.activeAgentId,
       targetAgentId: routeResult.activeAgentId,
@@ -1352,6 +1388,7 @@ function createHandoffResponseMetadata(transferId: string) {
 
 function resolvePremiumRealtimeHandoffTargetSession(input: {
   manifest: CompiledRuntimeManifest;
+  conversationPolicy: PremiumRealtimeConversationPolicy;
   sourceSession: PremiumRealtimeSession;
   sourceAgentId: string;
   targetAgentId: string;
@@ -1383,7 +1420,14 @@ function resolvePremiumRealtimeHandoffTargetSession(input: {
     manifest: input.manifest,
     activeAgentId: targetAgent.agentId,
     budgetAllowed: true,
-    defaultGeminiLiveModel: resolveLiveSandboxProviderConfig(process.env).geminiLiveModel,
+    resolvedProviderConfig: resolvePremiumRealtimeProviderSessionConfig({
+      policy: input.conversationPolicy,
+      mediaProfile: input.sourceSession.providerConfig.mediaProfile,
+      platformOverride: {
+        ...(targetAgent.realtimeProvider !== undefined ? { provider: targetAgent.realtimeProvider } : {}),
+        ...(targetAgent.realtimeModelId !== undefined ? { model: targetAgent.realtimeModelId } : {}),
+      },
+    }),
     now: () => input.at,
   });
   const session: PremiumRealtimeSession = {

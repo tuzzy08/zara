@@ -14,6 +14,7 @@ describe("PstnPremiumCallExecution", () => {
     const outboundFrames: PstnAudioFrame[] = [];
     const playbackMarks: string[] = [];
     const checkpoints: string[] = [];
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
     let providerMessageHandler: ((message: string) => void) | undefined;
     let providerCloseHandler: ((event: { code: number; reason: string }) => void) | undefined;
     let connectedMediaProfile: string | undefined;
@@ -29,6 +30,7 @@ describe("PstnPremiumCallExecution", () => {
         sessionId: "premium-session-1",
         runtime: "openai-realtime",
         model: "gpt-realtime",
+        providerConfig: openAiPstnProviderConfig("gpt-realtime"),
         activeAgentId: "agent-jane",
         expiresAt: "2026-07-11T12:00:00.000Z",
         toolDeclarations: [],
@@ -117,7 +119,7 @@ describe("PstnPremiumCallExecution", () => {
       } as never,
       {
         async connect(input) {
-          connectedMediaProfile = input.mediaProfile;
+          connectedMediaProfile = input.session.providerConfig.mediaProfile;
           return {
             waitUntilReady() {
               return providerReady.promise;
@@ -141,6 +143,12 @@ describe("PstnPremiumCallExecution", () => {
           };
         },
       },
+      {
+        async recordPstnCall(input: { events: Array<{ type: string; payload: Record<string, unknown> }> }) {
+          observed.push(...input.events);
+          return { exportedSpanCount: 0, langsmithExported: false, warnings: [], metrics: {} };
+        },
+      } as never,
     );
 
     await execution.start({
@@ -185,6 +193,8 @@ describe("PstnPremiumCallExecution", () => {
     providerMessageHandler?.(JSON.stringify({
       type: "response.output_audio.delta",
       response_id: "response-1",
+      item_id: "assistant-item-1",
+      content_index: 0,
       delta: Buffer.alloc(160, 0xff).toString("base64"),
     }));
     await waitFor(() => outboundFrames.length === 1);
@@ -209,6 +219,10 @@ describe("PstnPremiumCallExecution", () => {
     }));
     await waitFor(() => playbackMarks.length === 2);
     expect(playbackMarks).toHaveLength(2);
+    execution.acknowledgePlaybackMark({
+      callSessionId: "CA-premium:telephony",
+      name: playbackMarks[0]!,
+    });
 
     providerMessageHandler?.(JSON.stringify({
       type: "input_audio_buffer.speech_started",
@@ -219,6 +233,18 @@ describe("PstnPremiumCallExecution", () => {
       response: { id: "response-1", status: "cancelled" },
     }));
     await waitFor(() => cleared === 1);
+    expect(sentProviderMessages.at(-1)).toEqual({
+      type: "conversation.item.truncate",
+      item_id: "assistant-item-1",
+      content_index: 0,
+      audio_end_ms: 20,
+    });
+    await waitFor(() => observed.some((event) => event.type === "premium.interruption"));
+    expect(observed.find((event) => event.type === "premium.interruption")?.payload).toMatchObject({
+      playbackCleared: true,
+      truncationCount: 1,
+      acknowledgedAudioMs: 20,
+    });
 
     providerMessageHandler?.(JSON.stringify({
       type: "response.created",
@@ -227,6 +253,8 @@ describe("PstnPremiumCallExecution", () => {
     providerMessageHandler?.(JSON.stringify({
       type: "response.output_audio.delta",
       response_id: "response-1",
+      item_id: "assistant-item-1",
+      content_index: 0,
       delta: Buffer.alloc(160, 0xee).toString("base64"),
     }));
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -235,6 +263,8 @@ describe("PstnPremiumCallExecution", () => {
     providerMessageHandler?.(JSON.stringify({
       type: "response.output_audio.delta",
       response_id: "response-2",
+      item_id: "assistant-item-2",
+      content_index: 0,
       delta: Buffer.alloc(160, 0xdd).toString("base64"),
     }));
     await waitFor(() => outboundFrames.length === 2);
@@ -442,6 +472,85 @@ describe("PstnPremiumCallExecution", () => {
     expect(marks[2]).toContain("boundary");
   });
 
+  it("attaches the redacted resolved premium session contract to observability events", async () => {
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onObservedEvent(event) { observed.push(event); },
+    });
+
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    await waitFor(() => observed.some((event) => event.type === "premium.readiness"));
+
+    expect(observed.find((event) => event.type === "premium.readiness")?.payload).toMatchObject({
+      realtimeProvider: "openai-realtime",
+      realtimeModel: "gpt-realtime",
+      conversationPolicyVersion: 1,
+      mediaProfile: "pstn",
+    });
+    expect(JSON.stringify(observed)).not.toMatch(/prompt|transcript|credential|token|apiKey/i);
+
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+  });
+
+  it("accounts for the actual resident Gemini provider payload while startup is pending", async () => {
+    const ready = deferred<void>();
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const harness = createMinimalExecutionHarness("gemini-live", {
+      providerReady: ready.promise,
+      onObservedEvent(event) { observed.push(event); },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    await harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(1),
+    });
+    const pressure = observed.find((event) => event.type === "premium.pressure");
+    const residentBytes = pressure?.payload["ingressDepthBytes"];
+    expect(residentBytes).toEqual(expect.any(Number));
+    expect(residentBytes).toBeGreaterThan(160);
+
+    ready.resolve();
+    await waitFor(() => harness.sentProviderMessages.length >= 1);
+    expect(residentBytes).toBe(Buffer.byteLength(
+      JSON.stringify(harness.sentProviderMessages[0]),
+      "utf8",
+    ));
+  });
+
+  it("ignores later Twilio media after terminal cleanup without repeating failure work", async () => {
+    const harness = createMinimalExecutionHarness("openai-realtime");
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(2),
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(3),
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
+  });
+
   it("fails closed when Gemini emits audio outside its declared PCM contract", async () => {
     const harness = createMinimalExecutionHarness("gemini-live");
     const callerCloses: string[] = [];
@@ -559,10 +668,13 @@ describe("PstnPremiumCallExecution", () => {
     log.mockRestore();
   });
 
-  it("logs privacy-safe OpenAI turn lifecycle events without provider-controlled content", async () => {
+  it("observes privacy-safe normalized OpenAI turn lifecycle events without provider-controlled content", async () => {
     const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
     const sensitive = "raw caller transcript and provider secret";
-    const harness = createMinimalExecutionHarness("openai-realtime");
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onObservedEvent(event) { observed.push(event); },
+    });
 
     await harness.execution.start({
       organizationId: "tenant-west-africa",
@@ -572,7 +684,7 @@ describe("PstnPremiumCallExecution", () => {
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     harness.emitProviderMessage(JSON.stringify({
-      type: "input_audio_buffer.speech_stopped",
+      type: "input_audio_buffer.speech_started",
       transcript: sensitive,
     }));
     harness.emitProviderMessage(JSON.stringify({
@@ -580,12 +692,17 @@ describe("PstnPremiumCallExecution", () => {
       error: { message: sensitive },
     }));
 
-    await waitFor(() => log.mock.calls.flat().join(" ").includes("premium_provider_turn_event"));
-    const output = log.mock.calls.flat().join(" ");
-    expect(output).toContain("input_audio_buffer.speech_stopped");
-    expect(output).toContain('"eventType":"error"');
-    expect(output).toContain('"callSessionId":"CA-premium:telephony"');
-    expect(output).not.toContain(sensitive);
+    await waitFor(() => observed.some((event) => event.type === "premium.interruption"));
+    expect(observed.find((event) => event.type === "premium.interruption")?.payload).toMatchObject({
+      realtimeProvider: "openai-realtime",
+      realtimeModel: "gpt-realtime",
+      conversationPolicyVersion: 1,
+      mediaProfile: "pstn",
+      playbackCleared: false,
+      truncationCount: 0,
+      acknowledgedAudioMs: 0,
+    });
+    expect(JSON.stringify({ observed, logs: log.mock.calls })).not.toContain(sensitive);
 
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
     log.mockRestore();
@@ -768,7 +885,7 @@ describe("PstnPremiumCallExecution", () => {
         timestampMs: 20,
         payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
       },
-    })).rejects.toThrow("Premium PSTN execution 'CA-premium:telephony' is not active.");
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
   });
 
   it("fails when serialized provider output exceeds its bounded ingress ledger", async () => {
@@ -866,6 +983,8 @@ describe("PstnPremiumCallExecution", () => {
     harness.connections[0]!.emitMessage(JSON.stringify({
       type: "response.output_audio.delta",
       response_id: "response-source",
+      item_id: "assistant-item-source",
+      content_index: 0,
       delta: Buffer.alloc(160, 0xff).toString("base64"),
     }));
     harness.connections[0]!.emitMessage(JSON.stringify({
@@ -974,10 +1093,16 @@ describe("PstnPremiumCallExecution", () => {
     expect(harness.callerCloses).toEqual([]);
     expect(harness.connections).toHaveLength(2);
     expect(observed).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "premium.handoff", payload: { phase: "started" } }),
       expect.objectContaining({
         type: "premium.handoff",
-        payload: { phase: "completed", handoffDurationMs: expect.any(Number) },
+        payload: expect.objectContaining({ phase: "started" }),
+      }),
+      expect.objectContaining({
+        type: "premium.handoff",
+        payload: expect.objectContaining({
+          phase: "completed",
+          handoffDurationMs: expect.any(Number),
+        }),
       }),
     ]));
   });
@@ -1102,7 +1227,7 @@ describe("PstnPremiumCallExecution", () => {
     harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.actor-overflow" }));
     await waitFor(() => harness.connections.length === 2);
 
-    for (let sequence = 1; sequence <= 50; sequence += 1) {
+    for (let sequence = 1; sequence <= 262; sequence += 1) {
       await harness.execution.appendInboundFrame({
         callSessionId: "CA-premium:telephony",
         frame: premiumInboundFrame(sequence),
@@ -1110,7 +1235,7 @@ describe("PstnPremiumCallExecution", () => {
     }
     await expect(harness.execution.appendInboundFrame({
       callSessionId: "CA-premium:telephony",
-      frame: premiumInboundFrame(51),
+      frame: premiumInboundFrame(263),
     })).rejects.toThrow("premium_handoff_overflow");
 
     expect(harness.connections[1]!.closedReasons).toEqual(["provider_handoff_cancelled"]);
@@ -1205,6 +1330,9 @@ function createMinimalExecutionHarness(
       sessionId: "premium-session-minimal",
       runtime,
       model: runtime === "gemini-live" ? "gemini-live-default" : "gpt-realtime",
+      providerConfig: runtime === "gemini-live"
+        ? geminiPstnProviderConfig("gemini-live-default")
+        : openAiPstnProviderConfig("gpt-realtime"),
       activeAgentId: "agent-jane",
       expiresAt: "2099-07-11T12:00:00.000Z",
       toolDeclarations: [],
@@ -1421,6 +1549,7 @@ function createHandoffRegisteredSession(manifest = createPremiumManifest()) {
       sessionId: "premium-session-handoff",
       runtime: "openai-realtime" as const,
       model: "gpt-realtime",
+      providerConfig: openAiPstnProviderConfig("gpt-realtime"),
       activeAgentId: "agent-jane",
       expiresAt: "2099-07-11T12:00:00.000Z",
       toolDeclarations: [],
@@ -1488,6 +1617,39 @@ function premiumInboundFrame(sequence: number): PstnAudioFrame {
     sequence,
     timestampMs: sequence * 20,
     payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
+  };
+}
+
+function openAiPstnProviderConfig(model: string) {
+  return {
+    provider: "openai-realtime" as const,
+    model,
+    mediaProfile: "pstn" as const,
+    conversationPolicyVersion: 1,
+    media: {
+      input: { type: "audio/pcmu" as const },
+      output: { type: "audio/pcmu" as const },
+    },
+    turnDetection: {
+      type: "semantic_vad" as const,
+      eagerness: "low" as const,
+      createResponse: true,
+      interruptResponse: true,
+    },
+  };
+}
+
+function geminiPstnProviderConfig(model: string) {
+  return {
+    provider: "gemini-live" as const,
+    model,
+    mediaProfile: "pstn" as const,
+    conversationPolicyVersion: 1,
+    media: {
+      input: { mimeType: "audio/pcm;rate=16000" as const },
+      output: { mimeType: "audio/pcm;rate=24000" as const },
+    },
+    activityHandling: { type: "provider_native" as const },
   };
 }
 

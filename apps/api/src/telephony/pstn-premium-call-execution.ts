@@ -32,6 +32,7 @@ import {
   PstnPremiumCallActor,
   type PstnPremiumCallActorProvider,
 } from "./pstn-premium-call-actor";
+import { PstnPremiumIngressAdmission } from "./pstn-premium-ingress-admission";
 import { PstnPremiumPlaybackController } from "./pstn-premium-playback-controller";
 
 export interface PstnPremiumCallOutput {
@@ -106,20 +107,9 @@ interface PendingProviderTransition {
   deadline?: ReturnType<typeof setTimeout> | undefined;
 }
 
-const loggedOpenAiTurnEvents = new Set([
-  "input_audio_buffer.speech_started",
-  "input_audio_buffer.speech_stopped",
-  "input_audio_buffer.committed",
-  "conversation.item.input_audio_transcription.completed",
-  "conversation.item.input_audio_transcription.failed",
-  "response.created",
-  "response.output_audio.done",
-  "response.audio.done",
-  "error",
-]);
-
 const completedPlaybackResponseLimit = 64;
 const providerHandoffTimeoutMs = 5_000;
+const terminalCallSessionLimit = 1_024;
 interface StartPremiumCallExecutionInput {
   organizationId: string;
   dispatchId: string;
@@ -133,6 +123,8 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
   private readonly executions = new Map<string, ActivePremiumCallExecution>();
   private readonly startingCallSessionIds = new Set<string>();
   private readonly cancelledCallSessions = new Map<string, string>();
+  private readonly terminalCallSessionIds = new Set<string>();
+  private readonly ingressAdmission = new PstnPremiumIngressAdmission();
   private shuttingDown = false;
   private readonly logger = new Logger(PstnPremiumCallExecution.name);
 
@@ -164,6 +156,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       throw new Error(`Premium PSTN execution already exists for '${input.callSessionId}'.`);
     }
 
+    this.terminalCallSessionIds.delete(input.callSessionId);
     this.startingCallSessionIds.add(input.callSessionId);
     try {
       await this.startExecution(input);
@@ -232,6 +225,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         organizationId: input.organizationId,
         workspaceId,
         actorUserId: `pstn:${input.callSessionId}`,
+        mediaProfile: "pstn",
       }),
     );
     const registered = this.runtimeSessionsService.getRegisteredSession(session.sessionId);
@@ -251,7 +245,6 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         actorUserId: registered.actorUserId,
         session: registered.session,
         manifest: registered.manifest,
-        mediaProfile: "pstn",
       });
     } catch (error) {
       this.logger.error(`[twilio-pstn] premium_provider_start_failed ${JSON.stringify({
@@ -305,6 +298,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     const actor = new PstnPremiumCallActor({
       callSessionId: input.callSessionId,
       provider: adaptProviderConnection(providerConnection),
+      ingressAdmission: this.ingressAdmission,
       drain: () => this.executions.get(input.callSessionId)?.providerMessages ?? Promise.resolve(),
       terminateRuntime: () => {
         this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
@@ -353,6 +347,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
           this.recordCleanup(installed, actor.getState());
           this.clearProviderTransition(installed, "provider_handoff_cancelled");
           this.executions.delete(input.callSessionId);
+          this.rememberTerminalCallSession(input.callSessionId);
         }
       },
     });
@@ -448,8 +443,16 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     });
   }
 
-  async appendInboundFrame(input: { callSessionId: string; frame: PstnAudioFrame }) {
-    const execution = this.requireExecution(input.callSessionId);
+  async appendInboundFrame(
+    input: { callSessionId: string; frame: PstnAudioFrame },
+  ): Promise<void | { readonly accepted: false; readonly reason: "terminal" }> {
+    const execution = this.executions.get(input.callSessionId);
+    if (execution === undefined) {
+      if (this.terminalCallSessionIds.has(input.callSessionId)) {
+        return { accepted: false, reason: "terminal" } as const;
+      }
+      throw new Error(`Premium PSTN execution '${input.callSessionId}' is not active.`);
+    }
     if (
       input.frame.codec.name !== "g711_mulaw"
       || input.frame.codec.sampleRateHz !== 8_000
@@ -482,10 +485,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         audio: input.frame.payloadBase64,
       };
     }
+    const decodedInputByteLength = Buffer.from(input.frame.payloadBase64, "base64").length;
     execution.actor.appendInbound({
       message: providerMessage,
-      durationMs: (Buffer.from(input.frame.payloadBase64, "base64").length / 8_000) * 1_000,
-      byteLength: Buffer.from(input.frame.payloadBase64, "base64").length,
+      durationMs: (decodedInputByteLength / 8_000) * 1_000,
+      residentByteLength: Buffer.byteLength(JSON.stringify(providerMessage), "utf8"),
     });
     const pressure = execution.actor.getDiagnostics();
     this.recordPremiumEvent(execution, {
@@ -705,7 +709,6 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         actorUserId: execution.registered.actorUserId,
         session: targetSession,
         manifest: execution.registered.manifest,
-        mediaProfile: "pstn",
       });
       if (
         this.executions.get(execution.callSessionId) !== execution
@@ -793,27 +796,21 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     execution: ActivePremiumCallExecution,
     event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent,
   ) {
-    if (
-      event.type === "provider_event"
-      && "eventType" in event
-      && execution.registered.session.runtime === "openai-realtime"
-      && loggedOpenAiTurnEvents.has(event.eventType)
-    ) {
-      this.logger.log(`[twilio-pstn] premium_provider_turn_event ${JSON.stringify({
-        organizationId: execution.organizationId,
-        dispatchId: execution.dispatchId,
-        callSessionId: execution.callSessionId,
-        runtime: execution.registered.session.runtime,
-        eventType: event.eventType,
-      })}`);
-    }
-
     if (event.type === "audio") {
       if (execution.registered.session.runtime === "openai-realtime") {
-        if (!("responseId" in event) || event.responseId === undefined) {
-          throw new Error("premium_playback_response_id_missing");
+        if (
+          !("responseId" in event)
+          || event.responseId === undefined
+          || event.itemId === undefined
+          || event.contentIndex === undefined
+        ) {
+          throw new Error("premium_playback_response_identity_missing");
         }
-        const result = execution.playback.appendDelta(event.responseId, event.audioBase64);
+        const result = execution.playback.appendDelta(
+          event.responseId,
+          event.audioBase64,
+          { itemId: event.itemId, contentIndex: event.contentIndex },
+        );
         if (!result.accepted && result.reason === "response_invalidated") {
           this.logger.log(`[twilio-pstn] premium_stale_generation_discard ${JSON.stringify({
             organizationId: execution.organizationId,
@@ -850,7 +847,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       return;
     }
 
-    if (event.type === "turn_complete" && execution.registered.session.runtime === "gemini-live") {
+    if (
+      event.type === "assistant_response"
+      && event.state === "completed"
+      && execution.registered.session.runtime === "gemini-live"
+    ) {
       const responseId = execution.activeGeminiResponseId;
       if (responseId !== undefined) {
         execution.activeGeminiResponseId = undefined;
@@ -873,26 +874,27 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     }
 
     if (
-      event.type === "provider_event"
-      && "eventType" in event
+      event.type === "assistant_response"
+      && event.state === "started"
       && execution.registered.session.runtime === "openai-realtime"
-      && event.eventType === "response.created"
     ) {
-      const responseId = readString(event.evidence.responseId);
+      const responseId = event.responseId;
       if (responseId === undefined) {
         throw new Error("premium_playback_response_id_missing");
       }
-      execution.playback.startResponse(responseId);
+      const result = execution.playback.startResponse(responseId);
+      if (!result.accepted) {
+        throw new Error(`premium_playback_${result.reason}`);
+      }
       return;
     }
 
     if (
-      event.type === "provider_event"
-      && "eventType" in event
+      event.type === "assistant_response"
+      && event.state === "audio_completed"
       && execution.registered.session.runtime === "openai-realtime"
-      && (event.eventType === "response.output_audio.done" || event.eventType === "response.audio.done")
     ) {
-      const responseId = readString(event.evidence.responseId);
+      const responseId = event.responseId;
       if (responseId === undefined) {
         throw new Error("premium_playback_response_id_missing");
       }
@@ -903,17 +905,45 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       return;
     }
 
-    if (isInterruptionEvent(event)) {
-      const playbackCleared = execution.playback.interrupt();
+    const interruption = event.type === "caller_activity" && event.state === "started"
+      ? "caller_activity"
+      : event.type === "assistant_response"
+        && event.state === "interrupted"
+        && execution.registered.session.runtime === "gemini-live"
+        ? "provider_interrupted"
+        : undefined;
+    if (interruption !== undefined) {
+      const playbackInterruption = execution.playback.interrupt();
+      if (
+        execution.registered.session.runtime === "openai-realtime"
+        && interruption === "caller_activity"
+      ) {
+        const adapter = new OpenAiRealtimeAdapter({
+          model: execution.registered.session.model,
+          systemPrompt: "",
+        });
+        for (const truncation of playbackInterruption.truncations) {
+          execution.actor.sendProviderMessage(
+            adapter.createConversationItemTruncateMessage(truncation),
+          );
+        }
+      }
       if (execution.registered.session.runtime === "gemini-live") {
         execution.activeGeminiResponseId = undefined;
       }
       this.recordPremiumEvent(execution, {
         type: "premium.interruption",
         at: new Date().toISOString(),
-        payload: { playbackCleared },
+        payload: {
+          playbackCleared: playbackInterruption.playbackCleared,
+          truncationCount: playbackInterruption.truncations.length,
+          acknowledgedAudioMs: playbackInterruption.truncations.reduce(
+            (maximum, truncation) => Math.max(maximum, truncation.audioEndMs),
+            0,
+          ),
+        },
       });
-      if (playbackCleared) {
+      if (playbackInterruption.playbackCleared) {
         this.logger.log(`[twilio-pstn] premium_playback_clear ${JSON.stringify({
           organizationId: execution.organizationId,
           callSessionId: execution.callSessionId,
@@ -1004,6 +1034,17 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
   }
 
   private recordPremiumEvent(execution: ActivePremiumCallExecution, event: PstnCallObservabilityEvent) {
+    const providerConfig = execution.registered.session.providerConfig;
+    const projectedEvent: PstnCallObservabilityEvent = {
+      ...event,
+      payload: {
+        realtimeProvider: providerConfig.provider,
+        realtimeModel: providerConfig.model,
+        conversationPolicyVersion: providerConfig.conversationPolicyVersion,
+        mediaProfile: providerConfig.mediaProfile,
+        ...event.payload,
+      },
+    };
     void this.observabilityRecorder?.recordPstnCall({
       traceId: `twilio:${execution.callSessionId}`,
       call: {
@@ -1016,7 +1057,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         publishedWorkflowVersionId: execution.registered.manifest.publishedVersionId,
         mediaStreamId: execution.streamSid,
       },
-      events: [event],
+      events: [projectedEvent],
     }).catch(() => undefined);
   }
 
@@ -1045,12 +1086,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     });
   }
 
-  private requireExecution(callSessionId: string) {
-    const execution = this.executions.get(callSessionId);
-    if (execution === undefined) {
-      throw new Error(`Premium PSTN execution '${callSessionId}' is not active.`);
-    }
-    return execution;
+  private rememberTerminalCallSession(callSessionId: string) {
+    this.terminalCallSessionIds.delete(callSessionId);
+    this.terminalCallSessionIds.add(callSessionId);
+    if (this.terminalCallSessionIds.size <= terminalCallSessionLimit) return;
+    const oldest = this.terminalCallSessionIds.values().next().value as string | undefined;
+    if (oldest !== undefined) this.terminalCallSessionIds.delete(oldest);
   }
 }
 
@@ -1157,17 +1198,6 @@ function buildInitialGreetingInstruction(registered: RegisteredPremiumRealtimeSe
   ].join(" ");
 }
 
-function isInterruptionEvent(event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent) {
-  if (event.type !== "provider_event") {
-    return false;
-  }
-  if ("event" in event) {
-    return event.event === "interrupted" || event.event === "activity_start";
-  }
-  return event.eventType === "input_audio_buffer.speech_started"
-    || event.eventType === "response.cancelled";
-}
-
 function adaptProviderConnection(
   connection: PremiumRealtimeProviderConnection,
 ): PstnPremiumCallActorProvider {
@@ -1185,10 +1215,6 @@ function adaptProviderConnection(
 function readSampleRate(mimeType: string) {
   const match = mimeType.match(/rate=(\d+)/u);
   return match?.[1] === undefined ? undefined : Number(match[1]);
-}
-
-function readString(value: unknown) {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function decodeMuLawBase64(audioBase64: string) {

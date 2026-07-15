@@ -1,3 +1,8 @@
+import {
+  PstnPremiumIngressAdmission,
+  type PstnPremiumIngressAdmissionLease,
+} from "./pstn-premium-ingress-admission";
+
 export type PstnPremiumCallActorState =
   | "initializing"
   | "ready"
@@ -17,14 +22,32 @@ export interface PstnPremiumCallActorProvider {
 interface StartupMedia {
   message: Record<string, unknown>;
   durationMs: number;
-  byteLength: number;
+  residentByteLength: number;
+  admissionLease: PstnPremiumIngressAdmissionLease;
+}
+
+interface InboundMedia {
+  message: Record<string, unknown>;
+  durationMs: number;
+  residentByteLength: number;
+}
+
+export interface PstnPremiumIngressPolicy {
+  maxDurationMs: number;
+  maxResidentBytes: number;
 }
 
 const defaultReadinessTimeoutMs = 5_000;
 const defaultDrainTimeoutMs = 1_000;
 const defaultProviderBufferedByteLimit = 256 * 1_024;
-const maxStartupDurationMs = 1_000;
-const maxStartupBytes = 16 * 1_024;
+const defaultStartupIngressPolicy: PstnPremiumIngressPolicy = {
+  maxDurationMs: 5_250,
+  maxResidentBytes: 256 * 1_024,
+};
+const defaultHandoffIngressPolicy: PstnPremiumIngressPolicy = {
+  maxDurationMs: 5_250,
+  maxResidentBytes: 256 * 1_024,
+};
 
 export class PstnPremiumCallActor {
   private state: PstnPremiumCallActorState = "initializing";
@@ -39,6 +62,7 @@ export class PstnPremiumCallActor {
   private stopPromise: Promise<void> | undefined;
   private started = false;
   private terminalNotified = false;
+  private readonly ingressAdmission: PstnPremiumIngressAdmission;
 
   constructor(private readonly input: {
     callSessionId: string;
@@ -52,8 +76,12 @@ export class PstnPremiumCallActor {
     drainTimeoutMs?: number | undefined;
     readinessTimeoutMs?: number | undefined;
     providerBufferedByteLimit?: number | undefined;
+    ingressAdmission?: PstnPremiumIngressAdmission | undefined;
+    startupIngressPolicy?: PstnPremiumIngressPolicy | undefined;
+    handoffIngressPolicy?: PstnPremiumIngressPolicy | undefined;
   }) {
     this.provider = input.provider;
+    this.ingressAdmission = input.ingressAdmission ?? new PstnPremiumIngressAdmission();
   }
 
   start() {
@@ -75,6 +103,7 @@ export class PstnPremiumCallActor {
       ingressDepthMs: this.state === "handing_off" ? this.handoffDurationMs : this.startupDurationMs,
       ingressDepthBytes: this.state === "handing_off" ? this.handoffBytes : this.startupBytes,
       providerBufferedBytes: this.provider.getBufferedAmountBytes(),
+      aggregateIngressBytes: this.ingressAdmission.getResidentBytes(),
     };
   }
 
@@ -102,7 +131,8 @@ export class PstnPremiumCallActor {
         break;
       }
       this.handoffDurationMs -= media.durationMs;
-      this.handoffBytes -= media.byteLength;
+      this.handoffBytes -= media.residentByteLength;
+      media.admissionLease.release();
       this.sendToProvider(media.message);
     }
     if (this.state === "handing_off") {
@@ -112,34 +142,14 @@ export class PstnPremiumCallActor {
     }
   }
 
-  appendInbound(media: StartupMedia) {
+  appendInbound(media: InboundMedia) {
     if (this.state === "initializing" || this.state === "ready") {
-      if (
-        this.startupDurationMs + media.durationMs > maxStartupDurationMs
-        || this.startupBytes + media.byteLength > maxStartupBytes
-      ) {
-        const reason = "premium_startup_overflow";
-        this.fail(reason);
-        throw new Error(reason);
-      }
-      this.startupMedia.push(media);
-      this.startupDurationMs += media.durationMs;
-      this.startupBytes += media.byteLength;
+      this.enqueueIngress("startup", media);
       return;
     }
 
     if (this.state === "handing_off") {
-      if (
-        this.handoffDurationMs + media.durationMs > maxStartupDurationMs
-        || this.handoffBytes + media.byteLength > maxStartupBytes
-      ) {
-        const reason = "premium_handoff_overflow";
-        this.fail(reason);
-        throw new Error(reason);
-      }
-      this.handoffMedia.push(media);
-      this.handoffDurationMs += media.durationMs;
-      this.handoffBytes += media.byteLength;
+      this.enqueueIngress("handoff", media);
       return;
     }
 
@@ -217,7 +227,8 @@ export class PstnPremiumCallActor {
         break;
       }
       this.startupDurationMs -= media.durationMs;
-      this.startupBytes -= media.byteLength;
+      this.startupBytes -= media.residentByteLength;
+      media.admissionLease.release();
       try {
         this.sendToProvider(media.message);
       } catch {
@@ -233,15 +244,56 @@ export class PstnPremiumCallActor {
   }
 
   private clearStartupMedia() {
+    for (const media of this.startupMedia) media.admissionLease.release();
     this.startupMedia.length = 0;
     this.startupDurationMs = 0;
     this.startupBytes = 0;
   }
 
   private clearHandoffMedia() {
+    for (const media of this.handoffMedia) media.admissionLease.release();
     this.handoffMedia.length = 0;
     this.handoffDurationMs = 0;
     this.handoffBytes = 0;
+  }
+
+  private enqueueIngress(kind: "startup" | "handoff", media: InboundMedia) {
+    let admissionLease: PstnPremiumIngressAdmissionLease;
+    try {
+      admissionLease = this.ingressAdmission.acquire(media.residentByteLength);
+    } catch (error) {
+      const reason = error instanceof Error && error.message === "premium_ingress_capacity_exhausted"
+        ? error.message
+        : kind === "startup" ? "premium_startup_overflow" : "premium_handoff_overflow";
+      this.fail(reason);
+      throw new Error(reason);
+    }
+
+    const policy = kind === "startup"
+      ? this.input.startupIngressPolicy ?? defaultStartupIngressPolicy
+      : this.input.handoffIngressPolicy ?? defaultHandoffIngressPolicy;
+    const durationMs = kind === "startup" ? this.startupDurationMs : this.handoffDurationMs;
+    const residentBytes = kind === "startup" ? this.startupBytes : this.handoffBytes;
+    if (
+      durationMs + media.durationMs > policy.maxDurationMs
+      || residentBytes + media.residentByteLength > policy.maxResidentBytes
+    ) {
+      admissionLease.release();
+      const reason = kind === "startup" ? "premium_startup_overflow" : "premium_handoff_overflow";
+      this.fail(reason);
+      throw new Error(reason);
+    }
+
+    const queued = { ...media, admissionLease };
+    if (kind === "startup") {
+      this.startupMedia.push(queued);
+      this.startupDurationMs += media.durationMs;
+      this.startupBytes += media.residentByteLength;
+    } else {
+      this.handoffMedia.push(queued);
+      this.handoffDurationMs += media.durationMs;
+      this.handoffBytes += media.residentByteLength;
+    }
   }
 
   private clearReadinessTimer() {

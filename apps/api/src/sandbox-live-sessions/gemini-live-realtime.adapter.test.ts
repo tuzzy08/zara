@@ -313,6 +313,14 @@ describe("GeminiLiveRealtimeAdapter", () => {
       },
     });
     expect(events).toContainEqual({
+      type: "assistant_response",
+      state: "interrupted",
+    });
+    expect(events).toContainEqual({
+      type: "assistant_response",
+      state: "completed",
+    });
+    expect(events).toContainEqual({
       type: "provider_event",
       event: "turn_complete",
       evidence: {
@@ -343,11 +351,19 @@ describe("GeminiLiveRealtimeAdapter", () => {
 
     expect(events).toEqual([
       {
+        type: "caller_activity",
+        state: "started",
+      },
+      {
         type: "provider_event",
         event: "activity_start",
         evidence: {
           hasActivityStart: true,
         },
+      },
+      {
+        type: "caller_activity",
+        state: "stopped",
       },
       {
         type: "provider_event",

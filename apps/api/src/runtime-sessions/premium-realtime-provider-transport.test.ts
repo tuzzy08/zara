@@ -4,6 +4,25 @@ import type { CompiledRuntimeManifest, PremiumRealtimeSession } from "@zara/core
 import { WsPremiumRealtimeProviderTransport } from "./premium-realtime-provider-transport";
 
 describe("WsPremiumRealtimeProviderTransport", () => {
+  it("rejects a session whose mutable provider fields drift from its frozen provider contract", async () => {
+    const websocketFactory = vi.fn(() => createSocketLike());
+    const transport = new WsPremiumRealtimeProviderTransport(websocketFactory);
+    const session = createSession({
+      runtime: "openai-realtime",
+      model: "gpt-realtime",
+    });
+    session.model = "drifted-model";
+
+    await expect(transport.connect({
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      session,
+      manifest: createManifest(),
+    })).rejects.toThrow("Premium realtime session provider contract does not match the session projection.");
+    expect(websocketFactory).not.toHaveBeenCalled();
+  });
+
   it("waits for OpenAI session.updated before reporting ready", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
@@ -297,7 +316,6 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         organizationId: "tenant-1",
         workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
-        mediaProfile: "pstn",
         session: {
           sessionId: "session-1",
           manifestId: "manifest-1",
@@ -306,6 +324,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",
+          providerConfig: openAiProviderConfig("pstn"),
           voice: "expressive",
           transportUrl: "/runtime/realtime/sessions/session-1/stream",
           expiresAt: "2026-06-14T10:00:00.000Z",
@@ -352,7 +371,8 @@ describe("WsPremiumRealtimeProviderTransport", () => {
                   language: "en",
                 },
               turn_detection: {
-                type: "server_vad",
+                type: "semantic_vad",
+                eagerness: "low",
                 create_response: true,
                 interrupt_response: true,
               },
@@ -398,6 +418,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",
+          providerConfig: openAiProviderConfig("browser"),
           voice: "expressive",
           transportUrl: "/runtime/realtime/sessions/session-1/stream",
           expiresAt: "2026-06-14T10:00:00.000Z",
@@ -857,11 +878,51 @@ function createSession(input: {
     runtime: input.runtime,
     policy: "premium-realtime",
     model: input.model,
+    providerConfig: input.runtime === "gemini-live"
+      ? {
+          provider: "gemini-live",
+          model: input.model,
+          mediaProfile: "browser",
+          conversationPolicyVersion: 1,
+          media: {
+            input: { mimeType: "audio/pcm;rate=16000" },
+            output: { mimeType: "audio/pcm;rate=24000" },
+          },
+          activityHandling: { type: "provider_native" },
+        }
+      : openAiProviderConfig("browser", input.model),
     voice: "expressive",
     transportUrl: "/runtime/realtime/sessions/session-1/stream",
     expiresAt: "2026-06-14T10:00:00.000Z",
     toolDeclarations: [],
     observedEventTypes: [],
+  };
+}
+
+function openAiProviderConfig(
+  mediaProfile: "browser" | "pstn",
+  model = "gpt-realtime",
+): Extract<PremiumRealtimeSession["providerConfig"], { provider: "openai-realtime" }> {
+  return {
+    provider: "openai-realtime",
+    model,
+    mediaProfile,
+    conversationPolicyVersion: 1,
+    media: mediaProfile === "pstn"
+      ? {
+          input: { type: "audio/pcmu" },
+          output: { type: "audio/pcmu" },
+        }
+      : {
+          input: { type: "audio/pcm", rate: 24_000 },
+          output: { type: "audio/pcm", rate: 24_000 },
+        },
+    turnDetection: {
+      type: "semantic_vad",
+      eagerness: mediaProfile === "pstn" ? "low" : "auto",
+      createResponse: true,
+      interruptResponse: true,
+    },
   };
 }
 

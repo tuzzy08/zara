@@ -363,6 +363,48 @@ export interface ResolvedRuntimeProfilePolicy {
   requiresServerSession: boolean;
 }
 
+export type PremiumRealtimeMediaProfile = "browser" | "pstn";
+
+export type OpenAiRealtimeTurnDetectionPolicy =
+  | {
+      type: "semantic_vad";
+      eagerness: "low" | "medium" | "high" | "auto";
+      createResponse: boolean;
+      interruptResponse: boolean;
+    }
+  | {
+      type: "server_vad";
+      threshold: number;
+      prefixPaddingMs: number;
+      silenceDurationMs: number;
+      createResponse: boolean;
+      interruptResponse: boolean;
+    };
+
+export type PremiumRealtimeProviderSessionConfig =
+  | {
+      provider: "openai-realtime";
+      model: string;
+      mediaProfile: PremiumRealtimeMediaProfile;
+      conversationPolicyVersion: number;
+      media: {
+        input: { type: "audio/pcm"; rate: 24_000 } | { type: "audio/pcmu" };
+        output: { type: "audio/pcm"; rate: 24_000 } | { type: "audio/pcmu" };
+      };
+      turnDetection: OpenAiRealtimeTurnDetectionPolicy;
+    }
+  | {
+      provider: "gemini-live";
+      model: string;
+      mediaProfile: PremiumRealtimeMediaProfile;
+      conversationPolicyVersion: number;
+      media: {
+        input: { mimeType: "audio/pcm;rate=16000" };
+        output: { mimeType: "audio/pcm;rate=24000" };
+      };
+      activityHandling: { type: "provider_native" };
+    };
+
 export interface PremiumRealtimeSession {
   sessionId: ID;
   manifestId: ID;
@@ -371,6 +413,7 @@ export interface PremiumRealtimeSession {
   runtime: RealtimeProviderId;
   policy: "premium-realtime";
   model: string;
+  providerConfig: PremiumRealtimeProviderSessionConfig;
   voice: RuntimeTtsVoice;
   transportUrl: string;
   transportToken?: string | undefined;
@@ -1271,12 +1314,11 @@ export function createPremiumRealtimeSession(input: {
   manifest: CompiledRuntimeManifest;
   activeAgentId: ID;
   budgetAllowed: boolean;
-  defaultOpenAiRealtimeModel?: string | undefined;
-  defaultGeminiLiveModel?: string | undefined;
+  resolvedProviderConfig: PremiumRealtimeProviderSessionConfig;
   now?: (() => string) | undefined;
   ttlMinutes?: number | undefined;
 }): PremiumRealtimeSession {
-  const activeAgent = resolveActiveRuntimeAgent(input.manifest, input.activeAgentId);
+  resolveActiveRuntimeAgent(input.manifest, input.activeAgentId);
 
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
@@ -1294,21 +1336,17 @@ export function createPremiumRealtimeSession(input: {
   const now = input.now ?? (() => new Date().toISOString());
   const startedAt = now();
   const ttlMinutes = input.ttlMinutes ?? 30;
-  const realtimeProvider = activeAgent.realtimeProvider ?? "openai-realtime";
-  const model =
-    activeAgent.realtimeModelId ??
-    (realtimeProvider === "gemini-live"
-      ? input.defaultGeminiLiveModel ?? "gemini-3.1-flash-live-preview"
-      : input.defaultOpenAiRealtimeModel ?? "gpt-realtime");
+  const providerConfig = freezePremiumRealtimeProviderConfig(input.resolvedProviderConfig);
 
   return {
     sessionId: `${input.manifest.manifestId}:premium-session`,
     manifestId: input.manifest.manifestId,
     publishedVersionId: input.manifest.publishedVersionId,
     activeAgentId: input.activeAgentId,
-    runtime: realtimeProvider,
+    runtime: providerConfig.provider,
     policy: "premium-realtime",
-    model,
+    model: providerConfig.model,
+    providerConfig,
     voice: runtimeProfile.ttsVoice,
     transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(`${input.manifest.manifestId}:premium-session`)}/stream`,
     expiresAt: new Date(new Date(startedAt).getTime() + ttlMinutes * 60_000).toISOString(),
@@ -1326,6 +1364,21 @@ export function createPremiumRealtimeSession(input: {
       "agent.handoff.completed",
     ],
   };
+}
+
+function freezePremiumRealtimeProviderConfig(
+  config: PremiumRealtimeProviderSessionConfig,
+): PremiumRealtimeProviderSessionConfig {
+  const snapshot = structuredClone(config);
+  Object.freeze(snapshot.media.input);
+  Object.freeze(snapshot.media.output);
+  Object.freeze(snapshot.media);
+  if (snapshot.provider === "openai-realtime") {
+    Object.freeze(snapshot.turnDetection);
+  } else {
+    Object.freeze(snapshot.activityHandling);
+  }
+  return Object.freeze(snapshot);
 }
 
 export function createPremiumRealtimeSessionObservedEvents(input: {

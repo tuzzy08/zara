@@ -16,7 +16,7 @@ Tenant roles such as owner or admin never grant platform-admin access. Staff aut
 ## Auth Posture
 
 - `password` assurance can read staff surfaces allowed by the platform role while the admin session is active.
-- `mfa` or `passkey` assurance is required for tenant status changes, billing controls, runtime prompt policy edits, abuse/compliance decisions, support actions, and impersonation changes.
+- `mfa` or `passkey` assurance is required for tenant status changes, billing controls, runtime prompt policy edits, premium realtime conversation policy edits, abuse/compliance decisions, support actions, and impersonation changes.
 - Staff sessions expire after eight hours for platform-admin APIs.
 - Mutating staff actions require a fresh 15-minute step-up window.
 - `platform_readonly` never mutates, even with MFA/passkey.
@@ -35,6 +35,7 @@ Tenant roles such as owner or admin never grant platform-admin access. Staff aut
 - Runtime and provider health covers STT, TTS, model, realtime, telephony, and queue providers by region with timestamped severity and outage state.
 - AI runtime observability covers intent fallback rate, handoff-tool acceptance/rejection, tool use/failure rate, transfer loop prevention, policy warnings, packet truncation, LangSmith export health, eval regression status, and the separate runtime eval gate for platform staff.
 - Runtime prompt policy controls let platform admins edit global guardrails, platform-owned agent class prompt templates, and class-level text/realtime model defaults used by live sandbox text providers. The template catalog is open-ended and is seeded by `/agents` specialist-class creation rather than tenant hard-coded class lists.
+- Premium realtime conversation policy controls let platform admins select the default premium provider, OpenAI and Gemini model defaults, and OpenAI PSTN turn policy. OpenAI defaults to `gpt-realtime-2.1` with low-eagerness semantic VAD for PSTN; Gemini activity handling remains provider-native. Saves use expected-version checks, a required audit reason, fixed server-owned media contracts, and redacted audit metadata.
 - Runtime route policy controls let platform admins inspect, configure, and save agent-attached handoff defaults, including internal handoff-tool naming, source-announcement posture, fallback behavior, and validation/audit posture. Saves use guarded platform-admin APIs with expected-version checks, mutation posture, audit reason, durable route-policy persistence, and staff-only audit metadata that does not expose raw handoff-tool prompts, provider credentials, or tenant transcript data.
 - Usage, billing, budgets, premium realtime usage, and plan limits are visible across tenants, and billing-control mutations are audited.
 - System audit log can be filtered by actor, tenant, and action.
@@ -52,6 +53,7 @@ Impersonation is a high-risk support workflow. It must be restricted by platform
 - No tenant-facing exposure of internal LangSmith experiment links, local trace IDs, eval regression state, or redaction metadata.
 - Prompt-policy audit metadata should not store full prompt text; store version, reason, guardrail count, changed role keys, and hash-style metadata instead.
 - Route-policy audit metadata should not store raw handoff-tool prompts, unredacted transcripts, provider credentials, graph target IDs exposed by the model, or model-proposed targets; store version, reason, and changed keys only.
+- Premium realtime conversation-policy audit metadata stores version, reason, and changed keys only; it does not store provider credentials, prompts, transcripts, or raw provider payloads.
 - Every platform-admin mutation writes an audit log.
 - Cross-tenant actions must name the target tenant explicitly.
 - Platform admin access is enforced server-side by NestJS guards.

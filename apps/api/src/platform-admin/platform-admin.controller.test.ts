@@ -865,6 +865,126 @@ describe("PlatformAdminController", () => {
     await close();
   }, 15_000);
 
+  it("lets platform admins read and update premium realtime conversation policy", async () => {
+    const { app, close } = await createPlatformAdminApp();
+    const server = app.getHttpServer();
+
+    const currentPolicy = await request(server)
+      .get("/platform-admin/runtime/premium-realtime-policy")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
+
+    expect(currentPolicy.status).toBe(200);
+    expect(currentPolicy.body.conversationPolicy).toMatchObject({
+      version: 1,
+      defaultProvider: "openai-realtime",
+      providers: {
+        openaiRealtime: {
+          defaultModel: "gpt-realtime-2.1",
+          channels: {
+            pstn: {
+              turnDetection: {
+                type: "semantic_vad",
+                eagerness: "low",
+                createResponse: true,
+                interruptResponse: true,
+              },
+            },
+          },
+        },
+        geminiLive: {
+          channels: {
+            pstn: { activityHandling: { type: "provider_native" } },
+          },
+        },
+      },
+    });
+
+    const readonlyUpdate = await request(server)
+      .patch("/platform-admin/runtime/premium-realtime-policy")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Readonly users cannot change premium provider policy.",
+        defaultProvider: "gemini-live",
+      });
+
+    expect(readonlyUpdate.status).toBe(403);
+
+    const update = await request(server)
+      .patch("/platform-admin/runtime/premium-realtime-policy")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Validate the next premium provider policy before rollout.",
+        defaultProvider: "gemini-live",
+        providers: {
+          openaiRealtime: {
+            defaultModel: "gpt-realtime-2.1-canary",
+            channels: {
+              pstn: {
+                turnDetection: {
+                  type: "semantic_vad",
+                  eagerness: "medium",
+                  createResponse: true,
+                  interruptResponse: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+    expect(update.status).toBe(200);
+    expect(update.body.conversationPolicy).toMatchObject({
+      version: 2,
+      updatedBy: "user-platform-admin",
+      defaultProvider: "gemini-live",
+      providers: {
+        openaiRealtime: {
+          defaultModel: "gpt-realtime-2.1-canary",
+          channels: {
+            pstn: { turnDetection: { type: "semantic_vad", eagerness: "medium" } },
+          },
+        },
+      },
+    });
+    expect(update.body.audit).toMatchObject({
+      action: "platform.premium_realtime_conversation_policy.updated",
+      targetType: "premium_realtime_conversation_policy",
+      targetId: "global",
+    });
+    expect(JSON.stringify(update.body.audit.metadata)).not.toContain("gpt-realtime-2.1-canary");
+
+    const staleUpdate = await request(server)
+      .patch("/platform-admin/runtime/premium-realtime-policy")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "A stale policy must not overwrite the saved version.",
+        defaultProvider: "openai-realtime",
+      });
+
+    expect(staleUpdate.status).toBe(409);
+
+    await close();
+  }, 15_000);
+
   it("exposes staff-only AI runtime observability and eval gate status without tenant secrets", async () => {
     const { app, close } = await createPlatformAdminApp();
     const server = app.getHttpServer();

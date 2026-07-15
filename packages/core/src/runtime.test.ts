@@ -73,15 +73,16 @@ describe("premium realtime sessions", () => {
         manifest,
         activeAgentId: "agent-front-desk",
         budgetAllowed: true,
+        resolvedProviderConfig: openAiBrowserProviderConfig(),
       }),
     ).toThrowError("Agent 'agent-front-desk' is not present");
   });
 
-  it("uses concrete active agent realtime provider config", () => {
+  it("snapshots the platform-resolved provider contract instead of reading tenant agent metadata", () => {
     const publishedVersion = withAgentRoleConfig(createPublishedWorkflowVersion(), "agent-front-desk", {
       runtimeProfileOverride: "premium-realtime",
       realtimeProvider: "gemini-live",
-      realtimeModelId: "gemini-agent-live",
+      realtimeModelId: "tenant-selected-model",
     });
     const manifest = compileManifest({ publishedVersion });
 
@@ -89,11 +90,48 @@ describe("premium realtime sessions", () => {
       manifest,
       activeAgentId: "agent-front-desk",
       budgetAllowed: true,
-      now: () => "2026-06-14T08:00:00.000Z",
+      resolvedProviderConfig: {
+        provider: "openai-realtime",
+        model: "gpt-realtime-2.1",
+        mediaProfile: "pstn",
+        conversationPolicyVersion: 7,
+        media: {
+          input: { type: "audio/pcmu" },
+          output: { type: "audio/pcmu" },
+        },
+        turnDetection: {
+          type: "semantic_vad",
+          eagerness: "low",
+          createResponse: true,
+          interruptResponse: true,
+        },
+      },
+      now: () => "2026-07-15T08:00:00.000Z",
     });
 
-    expect(session.runtime).toBe("gemini-live");
-    expect(session.model).toBe("gemini-agent-live");
+    expect(session).toMatchObject({
+      runtime: "openai-realtime",
+      model: "gpt-realtime-2.1",
+      providerConfig: {
+        provider: "openai-realtime",
+        model: "gpt-realtime-2.1",
+        mediaProfile: "pstn",
+        conversationPolicyVersion: 7,
+        turnDetection: {
+          type: "semantic_vad",
+          eagerness: "low",
+          createResponse: true,
+          interruptResponse: true,
+        },
+      },
+    });
+    const providerConfig = session.providerConfig;
+    expect(Object.isFrozen(providerConfig)).toBe(true);
+    expect(providerConfig.provider).toBe("openai-realtime");
+    if (providerConfig.provider !== "openai-realtime") {
+      throw new Error("Expected an OpenAI provider contract.");
+    }
+    expect(Object.isFrozen(providerConfig.turnDetection)).toBe(true);
   });
 
   it("exposes only active-role Zara tool declarations through the server session contract", () => {
@@ -119,6 +157,22 @@ describe("premium realtime sessions", () => {
       manifest,
       activeAgentId: "agent-front-desk",
       budgetAllowed: true,
+      resolvedProviderConfig: {
+        provider: "openai-realtime",
+        model: "gpt-realtime-2.1",
+        mediaProfile: "browser",
+        conversationPolicyVersion: 1,
+        media: {
+          input: { type: "audio/pcm", rate: 24_000 },
+          output: { type: "audio/pcm", rate: 24_000 },
+        },
+        turnDetection: {
+          type: "semantic_vad",
+          eagerness: "auto",
+          createResponse: true,
+          interruptResponse: true,
+        },
+      },
       now: () => "2026-06-14T08:00:00.000Z",
     });
 
@@ -133,6 +187,25 @@ describe("premium realtime sessions", () => {
     expect(session.observedEventTypes).toContain("tool.approval_required");
   });
 });
+
+function openAiBrowserProviderConfig() {
+  return {
+    provider: "openai-realtime" as const,
+    model: "gpt-realtime-2.1",
+    mediaProfile: "browser" as const,
+    conversationPolicyVersion: 1,
+    media: {
+      input: { type: "audio/pcm" as const, rate: 24_000 as const },
+      output: { type: "audio/pcm" as const, rate: 24_000 as const },
+    },
+    turnDetection: {
+      type: "semantic_vad" as const,
+      eagerness: "auto" as const,
+      createResponse: true,
+      interruptResponse: true,
+    },
+  };
+}
 
 const billingAgent = createAgentRoleNode({
   id: "agent-billing",

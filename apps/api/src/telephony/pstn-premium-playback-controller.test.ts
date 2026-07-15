@@ -9,11 +9,60 @@ describe("PstnPremiumPlaybackController", () => {
       sendFrame() {}, sendMark() {}, clear,
     });
 
-    expect(controller.interrupt()).toBe(false);
+    expect(controller.interrupt()).toEqual({ playbackCleared: false, truncations: [] });
     controller.startResponse("response-owned");
-    expect(controller.interrupt()).toBe(true);
-    expect(controller.interrupt()).toBe(false);
+    expect(controller.interrupt()).toEqual({ playbackCleared: true, truncations: [] });
+    expect(controller.interrupt()).toEqual({ playbackCleared: false, truncations: [] });
     expect(clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("truncates exact assistant content at the latest acknowledged 20 ms frame mark", () => {
+    const marks: string[] = [];
+    const controller = new PstnPremiumPlaybackController({
+      sendFrame() {},
+      sendMark(name) {
+        marks.push(name);
+      },
+      clear: vi.fn(),
+    });
+
+    controller.startResponse("response-1");
+    controller.appendDelta(
+      "response-1",
+      Buffer.alloc(4 * 160, 7).toString("base64"),
+      { itemId: "assistant-item-1", contentIndex: 2 },
+    );
+    controller.acknowledgeMark(marks[2] ?? "missing");
+
+    expect(controller.interrupt()).toEqual({
+      playbackCleared: true,
+      truncations: [{
+        responseId: "response-1",
+        itemId: "assistant-item-1",
+        contentIndex: 2,
+        audioEndMs: 60,
+      }],
+    });
+  });
+
+  it("does not truncate assistant content before Twilio acknowledges any played audio", () => {
+    const controller = new PstnPremiumPlaybackController({
+      sendFrame() {},
+      sendMark() {},
+      clear: vi.fn(),
+    });
+
+    controller.startResponse("response-unplayed");
+    controller.appendDelta(
+      "response-unplayed",
+      Buffer.alloc(160, 7).toString("base64"),
+      { itemId: "assistant-item-unplayed", contentIndex: 0 },
+    );
+
+    expect(controller.interrupt()).toEqual({
+      playbackCleared: true,
+      truncations: [],
+    });
   });
 
   it("normalizes arbitrary delta boundaries into ordered 160-byte frames followed by unique marks", () => {

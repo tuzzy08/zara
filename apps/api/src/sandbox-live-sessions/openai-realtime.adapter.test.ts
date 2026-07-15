@@ -188,6 +188,83 @@ describe("OpenAiRealtimeAdapter", () => {
     expect(adapter.createSessionUpdateMessage().session.audio.input.format).not.toHaveProperty("rate");
   });
 
+  it("projects the resolved semantic turn policy and normalizes lifecycle events", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime-2.1",
+      systemPrompt: "Configured prompt",
+      inputAudioFormat: "pcmu",
+      outputAudioFormat: "pcmu",
+      turnDetection: {
+        type: "semantic_vad",
+        eagerness: "low",
+        createResponse: true,
+        interruptResponse: true,
+      },
+    });
+
+    expect(adapter.createSessionUpdateMessage()).toMatchObject({
+      session: {
+        audio: {
+          input: {
+            turn_detection: {
+              type: "semantic_vad",
+              eagerness: "low",
+              create_response: true,
+              interrupt_response: true,
+            },
+          },
+        },
+      },
+    });
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "input_audio_buffer.speech_started",
+      item_id: "caller-item-1",
+    }))).toContainEqual({
+      type: "caller_activity",
+      state: "started",
+      itemId: "caller-item-1",
+    });
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "response.created",
+      response: { id: "response-1", status: "in_progress" },
+    }))).toContainEqual({
+      type: "assistant_response",
+      state: "started",
+      responseId: "response-1",
+    });
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "response.output_audio.delta",
+      response_id: "response-1",
+      item_id: "assistant-item-1",
+      content_index: 2,
+      delta: "AQID",
+    }))).toContainEqual({
+      type: "audio",
+      audioBase64: "AQID",
+      responseId: "response-1",
+      itemId: "assistant-item-1",
+      contentIndex: 2,
+    });
+  });
+
+  it("builds the provider truncate message for exactly the acknowledged assistant audio", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime-2.1",
+      systemPrompt: "Configured prompt",
+    });
+
+    expect(adapter.createConversationItemTruncateMessage({
+      itemId: "assistant-item-1",
+      contentIndex: 0,
+      audioEndMs: 80,
+    })).toEqual({
+      type: "conversation.item.truncate",
+      item_id: "assistant-item-1",
+      content_index: 0,
+      audio_end_ms: 80,
+    });
+  });
+
   it("treats incremental function-call argument events as diagnostics and builds identified continuation messages", () => {
     const adapter = new OpenAiRealtimeAdapter({
       model: "gpt-realtime",
@@ -454,6 +531,11 @@ describe("OpenAiRealtimeAdapter", () => {
       item_id: "item-user-1",
     }))).toEqual([
       {
+        type: "caller_activity",
+        state: "stopped",
+        itemId: "item-user-1",
+      },
+      {
         type: "provider_event",
         eventType: "input_audio_buffer.speech_stopped",
         evidence: {
@@ -469,6 +551,11 @@ describe("OpenAiRealtimeAdapter", () => {
       previous_item_id: "item-prev",
       item_id: "item-user-2",
     }))).toEqual([
+      {
+        type: "caller_turn",
+        state: "committed",
+        itemId: "item-user-2",
+      },
       {
         type: "input_audio_committed",
         itemId: "item-user-2",
@@ -488,6 +575,11 @@ describe("OpenAiRealtimeAdapter", () => {
       audio_start_ms: 1200,
       item_id: "item-user-3",
     }))).toEqual([
+      {
+        type: "caller_activity",
+        state: "started",
+        itemId: "item-user-3",
+      },
       {
         type: "provider_event",
         eventType: "input_audio_buffer.speech_started",
@@ -529,6 +621,11 @@ describe("OpenAiRealtimeAdapter", () => {
       },
     }))).toEqual([
       {
+        type: "assistant_response",
+        state: "started",
+        responseId: "resp-1",
+      },
+      {
         type: "provider_event",
         eventType: "response.created",
         evidence: {
@@ -545,6 +642,11 @@ describe("OpenAiRealtimeAdapter", () => {
         status: "cancelled",
       },
     }))).toEqual([
+      {
+        type: "assistant_response",
+        state: "cancelled",
+        responseId: "resp-cancelled",
+      },
       {
         type: "provider_event",
         eventType: "response.cancelled",
@@ -615,6 +717,11 @@ describe("OpenAiRealtimeAdapter", () => {
           outputTextLength: 52,
         },
       },
+      {
+        type: "assistant_response",
+        state: "completed",
+        responseId: "resp-1",
+      },
     ]);
 
     expect(adapter.parseServerMessage(JSON.stringify({
@@ -635,6 +742,11 @@ describe("OpenAiRealtimeAdapter", () => {
         ],
       },
     }))).toEqual([
+      {
+        type: "assistant_response",
+        state: "cancelled",
+        responseId: "resp-cancelled",
+      },
       {
         type: "provider_event",
         eventType: "response.done",
@@ -747,6 +859,11 @@ describe("OpenAiRealtimeAdapter", () => {
           outputTextLength: 22,
         },
       },
+      {
+        type: "assistant_response",
+        state: "completed",
+        responseId: "resp-1",
+      },
     ]);
   });
 
@@ -775,6 +892,12 @@ describe("OpenAiRealtimeAdapter", () => {
       response_id: "resp-audio-1",
       item_id: "item-audio-1",
     }))).toEqual([
+      {
+        type: "assistant_response",
+        state: "audio_completed",
+        responseId: "resp-audio-1",
+        itemId: "item-audio-1",
+      },
       {
         type: "provider_event",
         eventType: "response.output_audio.done",
@@ -811,6 +934,10 @@ describe("OpenAiRealtimeAdapter", () => {
         providerCallId: "openai-call-2",
         name: "zara_zendesk_search_tickets_1234abcd",
         argumentsJson: "{\"query\":\"billing\"}",
+      },
+      {
+        type: "assistant_response",
+        state: "completed",
       },
     ]);
   });

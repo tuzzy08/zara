@@ -5,6 +5,7 @@ import type { ZaraAuthClient, ZaraAuthContext, ZaraAuthSession, ZaraSessionSnaps
 import {
   PlatformAdminApp,
   buildPlatformAgentClassCreatePayload,
+  buildPremiumRealtimeConversationPolicyUpdatePayload,
   buildRuntimePromptPolicyUpdatePayload,
   buildRuntimeRoutePolicyUpdatePayload,
   normalizeRuntimePromptPolicyPreview,
@@ -116,6 +117,60 @@ describe("platform admin auth gate", () => {
     expect(runtime).not.toContain("role template");
     expect(runtime).toContain("name=\"reason\"");
     expect(runtime).toContain("Save prompt policy");
+  });
+
+  it("renders platform-owned premium realtime provider and turn policy controls", () => {
+    const runtime = renderToStaticMarkup(
+      <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />,
+    );
+
+    expect(runtime).toContain("Premium realtime conversation policy");
+    expect(runtime).toContain("name=\"defaultProvider\"");
+    expect(runtime).toContain("name=\"openAiDefaultModel\"");
+    expect(runtime).toContain("value=\"gpt-realtime-2.1\"");
+    expect(runtime).toContain("name=\"geminiDefaultModel\"");
+    expect(runtime).toContain("name=\"pstnTurnDetectionType\"");
+    expect(runtime).toContain("name=\"pstnSemanticEagerness\"");
+    expect(runtime).toContain("name=\"pstnCreateResponse\"");
+    expect(runtime).toContain("name=\"pstnInterruptResponse\"");
+    expect(runtime).toContain("Save premium realtime policy");
+  });
+
+  it("builds a versioned premium realtime conversation policy payload", () => {
+    const form = new FormData();
+    form.set("expectedVersion", "4");
+    form.set("defaultProvider", "openai-realtime");
+    form.set("openAiDefaultModel", "gpt-realtime-2.1");
+    form.set("geminiDefaultModel", "gemini-3.1-flash-live-preview");
+    form.set("pstnTurnDetectionType", "semantic_vad");
+    form.set("pstnSemanticEagerness", "low");
+    form.set("pstnCreateResponse", "on");
+    form.set("pstnInterruptResponse", "on");
+    form.set("reason", "Keep PSTN turn handling provider-native and interruption-safe.");
+
+    expect(buildPremiumRealtimeConversationPolicyUpdatePayload(form)).toEqual({
+      expectedVersion: 4,
+      defaultProvider: "openai-realtime",
+      providers: {
+        openaiRealtime: {
+          defaultModel: "gpt-realtime-2.1",
+          channels: {
+            pstn: {
+              turnDetection: {
+                type: "semantic_vad",
+                eagerness: "low",
+                createResponse: true,
+                interruptResponse: true,
+              },
+            },
+          },
+        },
+        geminiLive: {
+          defaultModel: "gemini-3.1-flash-live-preview",
+        },
+      },
+      reason: "Keep PSTN turn handling provider-native and interruption-safe.",
+    });
   });
 
   it("builds the platform-admin prompt policy save payload from form controls", () => {

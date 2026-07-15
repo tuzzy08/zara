@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PstnPremiumCallActor } from "./pstn-premium-call-actor";
+import { PstnPremiumIngressAdmission } from "./pstn-premium-ingress-admission";
 
 describe("PstnPremiumCallActor", () => {
   afterEach(() => {
@@ -26,8 +27,8 @@ describe("PstnPremiumCallActor", () => {
     });
 
     await actor.start();
-    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
-    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, residentByteLength: 160 });
+    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, residentByteLength: 160 });
 
     expect(actor.getState()).toBe("initializing");
     expect(sent).toEqual([]);
@@ -36,6 +37,44 @@ describe("PstnPremiumCallActor", () => {
     await waitFor(() => actor.getState() === "active");
 
     expect(sent).toEqual([1, 2]);
+  });
+
+  it("aligns startup ingress with the readiness deadline and enforces process-wide resident bytes", async () => {
+    const ready = deferred<void>();
+    const admission = new PstnPremiumIngressAdmission(500);
+    const actor = new PstnPremiumCallActor({
+      callSessionId: "call-policy-aligned",
+      provider: {
+        waitUntilReady: () => ready.promise,
+        getBufferedAmountBytes: () => 0,
+        send() { return 0; },
+        close() {},
+      },
+      ingressAdmission: admission,
+      terminateRuntime() {},
+      closeCaller() {},
+    });
+    await actor.start();
+
+    for (let sequence = 1; sequence <= 250; sequence += 1) {
+      actor.appendInbound({
+        message: { sequence },
+        durationMs: 20,
+        residentByteLength: 2,
+      });
+    }
+    expect(actor.getDiagnostics()).toMatchObject({
+      ingressDepthMs: 5_000,
+      ingressDepthBytes: 500,
+      aggregateIngressBytes: 500,
+    });
+    expect(() => actor.appendInbound({
+      message: { sequence: 251 },
+      durationMs: 20,
+      residentByteLength: 1,
+    })).toThrow("premium_ingress_capacity_exhausted");
+
+    expect(admission.getResidentBytes()).toBe(0);
   });
 
   it("preserves startup order when new media arrives reentrantly during flush", async () => {
@@ -52,7 +91,7 @@ describe("PstnPremiumCallActor", () => {
           const sequence = message.sequence as number;
           sent.push(sequence);
           if (sequence === 1) {
-            actor.appendInbound({ message: { sequence: 3 }, durationMs: 20, byteLength: 160 });
+            actor.appendInbound({ message: { sequence: 3 }, durationMs: 20, residentByteLength: 160 });
           }
           return 0;
         },
@@ -62,8 +101,8 @@ describe("PstnPremiumCallActor", () => {
       closeCaller() {},
     });
     await actor.start();
-    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
-    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, residentByteLength: 160 });
+    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, residentByteLength: 160 });
 
     ready.resolve();
     await waitFor(() => actor.getState() === "active");
@@ -146,19 +185,20 @@ describe("PstnPremiumCallActor", () => {
         },
         terminateRuntime() {},
         closeCaller(_code, reason) { callerCloses.push(reason); },
+        startupIngressPolicy: { maxDurationMs: 1_000, maxResidentBytes: 16_384 },
       });
       return { actor, callerCloses };
     };
     const duration = createActor("call-duration-overflow");
     await duration.actor.start();
     for (let sequence = 1; sequence <= 50; sequence += 1) {
-      duration.actor.appendInbound({ message: { sequence }, durationMs: 20, byteLength: 160 });
+      duration.actor.appendInbound({ message: { sequence }, durationMs: 20, residentByteLength: 160 });
     }
 
     expect(() => duration.actor.appendInbound({
       message: { sequence: 51 },
       durationMs: 20,
-      byteLength: 160,
+      residentByteLength: 160,
     })).toThrow("premium_startup_overflow");
     expect(duration.callerCloses).toEqual(["premium_startup_overflow"]);
 
@@ -167,7 +207,7 @@ describe("PstnPremiumCallActor", () => {
     expect(() => bytes.actor.appendInbound({
       message: { sequence: 1 },
       durationMs: 20,
-      byteLength: 16_385,
+      residentByteLength: 16_385,
     })).toThrow("premium_startup_overflow");
     expect(bytes.actor.getState()).toBe("failed");
   });
@@ -204,7 +244,7 @@ describe("PstnPremiumCallActor", () => {
     await waitFor(() => preSend.actor.getState() === "active");
     preSend.setBufferedAmount(101);
     expect(() => preSend.actor.appendInbound({
-      message: { sequence: 1 }, durationMs: 20, byteLength: 160,
+      message: { sequence: 1 }, durationMs: 20, residentByteLength: 160,
     })).toThrow("premium_provider_congested");
     expect(preSend.getSends()).toBe(0);
 
@@ -212,7 +252,7 @@ describe("PstnPremiumCallActor", () => {
     await postSend.actor.start();
     await waitFor(() => postSend.actor.getState() === "active");
     expect(() => postSend.actor.appendInbound({
-      message: { sequence: 1 }, durationMs: 20, byteLength: 160,
+      message: { sequence: 1 }, durationMs: 20, residentByteLength: 160,
     })).toThrow("premium_provider_congested");
     expect(postSend.getSends()).toBe(1);
     expect(postSend.callerCloses).toEqual(["premium_provider_congested"]);
@@ -236,8 +276,8 @@ describe("PstnPremiumCallActor", () => {
     await waitFor(() => actor.getState() === "active");
 
     actor.beginHandoff();
-    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
-    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, residentByteLength: 160 });
+    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, residentByteLength: 160 });
 
     expect(actor.getState()).toBe("handing_off");
     expect(originalSent).toEqual([]);
@@ -267,16 +307,17 @@ describe("PstnPremiumCallActor", () => {
       },
       terminateRuntime() { runtimeTerminations.push("runtime"); },
       closeCaller(_code, reason) { callerCloses.push(reason); },
+      handoffIngressPolicy: { maxDurationMs: 1_000, maxResidentBytes: 16_384 },
     });
     await actor.start();
     await waitFor(() => actor.getState() === "active");
     actor.beginHandoff();
     for (let sequence = 1; sequence <= 50; sequence += 1) {
-      actor.appendInbound({ message: { sequence }, durationMs: 20, byteLength: 160 });
+      actor.appendInbound({ message: { sequence }, durationMs: 20, residentByteLength: 160 });
     }
 
     expect(() => actor.appendInbound({
-      message: { sequence: 51 }, durationMs: 20, byteLength: 160,
+      message: { sequence: 51 }, durationMs: 20, residentByteLength: 160,
     })).toThrow("premium_handoff_overflow");
 
     expect(actor.getState()).toBe("failed");
@@ -296,13 +337,14 @@ describe("PstnPremiumCallActor", () => {
       },
       terminateRuntime() {},
       closeCaller() {},
+      handoffIngressPolicy: { maxDurationMs: 1_000, maxResidentBytes: 16_384 },
     });
     await actor.start();
     await waitFor(() => actor.getState() === "active");
     actor.beginHandoff();
 
     expect(() => actor.appendInbound({
-      message: { sequence: 1 }, durationMs: 20, byteLength: 16_385,
+      message: { sequence: 1 }, durationMs: 20, residentByteLength: 16_385,
     })).toThrow("premium_handoff_overflow");
     expect(actor.getState()).toBe("failed");
   });
@@ -327,7 +369,7 @@ describe("PstnPremiumCallActor", () => {
         const sequence = message.sequence as number;
         sent.push(sequence);
         if (sequence === 1) {
-          actor.appendInbound({ message: { sequence: 3 }, durationMs: 20, byteLength: 160 });
+          actor.appendInbound({ message: { sequence: 3 }, durationMs: 20, residentByteLength: 160 });
         }
         return 0;
       },
@@ -336,8 +378,8 @@ describe("PstnPremiumCallActor", () => {
     await actor.start();
     await waitFor(() => actor.getState() === "active");
     actor.beginHandoff();
-    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
-    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, residentByteLength: 160 });
+    actor.appendInbound({ message: { sequence: 2 }, durationMs: 20, residentByteLength: 160 });
 
     actor.completeHandoff(replacement);
     actor.completeHandoff(replacement);
@@ -383,7 +425,7 @@ describe("PstnPremiumCallActor", () => {
     await actor.start();
     await waitFor(() => actor.getState() === "active");
     actor.beginHandoff();
-    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, residentByteLength: 160 });
 
     await actor.stop("twilio_stop");
 
@@ -413,7 +455,7 @@ describe("PstnPremiumCallActor", () => {
     await actor.start();
     await waitFor(() => actor.getState() === "active");
     actor.beginHandoff();
-    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, byteLength: 160 });
+    actor.appendInbound({ message: { sequence: 1 }, durationMs: 20, residentByteLength: 160 });
 
     actor.fail("premium_provider_closed");
 

@@ -1,5 +1,7 @@
 import { projectRealtimeProviderToolInputSchema, type RealtimeProviderToolDeclaration } from "@zara/core";
 
+import type { PremiumRealtimeLifecycleEvent } from "./premium-realtime-events";
+
 const defaultGeminiLiveWebsocketUrl =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 const defaultAudioInputMimeType = "audio/pcm;rate=16000";
@@ -18,6 +20,7 @@ export interface GeminiLiveRealtimeSessionContract {
 }
 
 export type GeminiLiveRealtimeEvent =
+  | PremiumRealtimeLifecycleEvent
   | {
       type: "session_ready";
     }
@@ -291,6 +294,10 @@ export class GeminiLiveRealtimeAdapter {
 
     if (serverContent.generationComplete === true) {
       events.push({
+        type: "assistant_response",
+        state: "audio_completed",
+      });
+      events.push({
         type: "provider_event",
         event: "generation_complete",
         evidence: {
@@ -300,6 +307,10 @@ export class GeminiLiveRealtimeAdapter {
     }
 
     if (serverContent.interrupted === true) {
+      events.push({
+        type: "assistant_response",
+        state: "interrupted",
+      });
       events.push({
         type: "provider_event",
         event: "interrupted",
@@ -311,6 +322,10 @@ export class GeminiLiveRealtimeAdapter {
 
     if (serverContent.activityStart !== undefined) {
       events.push({
+        type: "caller_activity",
+        state: "started",
+      });
+      events.push({
         type: "provider_event",
         event: "activity_start",
         evidence: {
@@ -321,6 +336,10 @@ export class GeminiLiveRealtimeAdapter {
 
     if (serverContent.activityEnd !== undefined) {
       events.push({
+        type: "caller_activity",
+        state: "stopped",
+      });
+      events.push({
         type: "provider_event",
         event: "activity_end",
         evidence: {
@@ -330,6 +349,10 @@ export class GeminiLiveRealtimeAdapter {
     }
 
     if (serverContent.turnComplete === true) {
+      events.push({
+        type: "assistant_response",
+        state: "completed",
+      });
       events.push({
         type: "turn_complete",
       });

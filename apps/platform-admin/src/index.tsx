@@ -75,6 +75,78 @@ interface RuntimePromptPolicyUpdatePayload {
   reason: string;
 }
 
+interface PremiumRealtimeConversationPolicyUpdatePayload {
+  expectedVersion: number;
+  reason: string;
+  defaultProvider: "openai-realtime" | "gemini-live";
+  providers: {
+    openaiRealtime: {
+      defaultModel: string;
+      channels: {
+        pstn: {
+          turnDetection:
+            | {
+                type: "semantic_vad";
+                eagerness: "low" | "medium" | "high" | "auto";
+                createResponse: boolean;
+                interruptResponse: boolean;
+              }
+            | {
+                type: "server_vad";
+                threshold: number;
+                prefixPaddingMs: number;
+                silenceDurationMs: number;
+                createResponse: boolean;
+                interruptResponse: boolean;
+              };
+        };
+      };
+    };
+    geminiLive: {
+      defaultModel: string;
+    };
+  };
+}
+
+interface PremiumRealtimeConversationPolicyPreview {
+  version: number;
+  updatedBy: string;
+  updatedAt: string;
+  defaultProvider: "openai-realtime" | "gemini-live";
+  openAiDefaultModel: string;
+  geminiDefaultModel: string;
+  pstnTurnDetection:
+    | {
+        type: "semantic_vad";
+        eagerness: "low" | "medium" | "high" | "auto";
+        createResponse: boolean;
+        interruptResponse: boolean;
+      }
+    | {
+        type: "server_vad";
+        threshold: number;
+        prefixPaddingMs: number;
+        silenceDurationMs: number;
+        createResponse: boolean;
+        interruptResponse: boolean;
+      };
+}
+
+const premiumRealtimeConversationPolicyPreview: PremiumRealtimeConversationPolicyPreview = {
+  version: 1,
+  updatedBy: "system",
+  updatedAt: "2026-07-15T00:00:00.000Z",
+  defaultProvider: "openai-realtime",
+  openAiDefaultModel: "gpt-realtime-2.1",
+  geminiDefaultModel: "gemini-3.1-flash-live-preview",
+  pstnTurnDetection: {
+    type: "semantic_vad",
+    eagerness: "low",
+    createResponse: true,
+    interruptResponse: true,
+  },
+};
+
 interface PlatformAgentClassCreatePayload {
   expectedVersion: number;
   reason: string;
@@ -616,6 +688,7 @@ export function PlatformAdminApp({
           <>
             <RuntimeAiObservabilityPanel />
             <RuntimeRoutePolicyControlsPanel canMutate={platformAuth.mutationAllowed} />
+            <PremiumRealtimeConversationPolicyPanel canMutate={platformAuth.mutationAllowed} />
             <RuntimePromptPolicyPanel canMutate={platformAuth.mutationAllowed} />
           </>
         ) : null}
@@ -817,6 +890,280 @@ export function buildRuntimeRoutePolicyUpdatePayload(form: FormData): RuntimeRou
     fallbackTarget: String(form.get("fallbackTarget") ?? ""),
     reason: String(form.get("reason") ?? "").trim(),
   };
+}
+
+export function buildPremiumRealtimeConversationPolicyUpdatePayload(
+  form: FormData,
+): PremiumRealtimeConversationPolicyUpdatePayload {
+  const createResponse = form.has("pstnCreateResponse");
+  const interruptResponse = form.has("pstnInterruptResponse");
+  const turnDetectionType = readFormString(form, "pstnTurnDetectionType");
+  const turnDetection = turnDetectionType === "server_vad"
+    ? {
+        type: "server_vad" as const,
+        threshold: Number(form.get("pstnServerVadThreshold")),
+        prefixPaddingMs: Number(form.get("pstnServerVadPrefixPaddingMs")),
+        silenceDurationMs: Number(form.get("pstnServerVadSilenceDurationMs")),
+        createResponse,
+        interruptResponse,
+      }
+    : {
+        type: "semantic_vad" as const,
+        eagerness: normalizeSemanticVadEagerness(readFormString(form, "pstnSemanticEagerness")),
+        createResponse,
+        interruptResponse,
+      };
+
+  return {
+    expectedVersion: Number(form.get("expectedVersion")),
+    defaultProvider: readFormString(form, "defaultProvider") === "gemini-live"
+      ? "gemini-live"
+      : "openai-realtime",
+    providers: {
+      openaiRealtime: {
+        defaultModel: readFormString(form, "openAiDefaultModel"),
+        channels: { pstn: { turnDetection } },
+      },
+      geminiLive: {
+        defaultModel: readFormString(form, "geminiDefaultModel"),
+      },
+    },
+    reason: readFormString(form, "reason"),
+  };
+}
+
+function normalizeSemanticVadEagerness(
+  value: string,
+): "low" | "medium" | "high" | "auto" {
+  return value === "medium" || value === "high" || value === "auto" ? value : "low";
+}
+
+function normalizePremiumRealtimeConversationPolicyPreview(
+  value: unknown,
+): PremiumRealtimeConversationPolicyPreview {
+  const policy = isRecord(value) ? value : {};
+  const providers = isRecord(policy.providers) ? policy.providers : {};
+  const openAi = isRecord(providers.openaiRealtime) ? providers.openaiRealtime : {};
+  const gemini = isRecord(providers.geminiLive) ? providers.geminiLive : {};
+  const channels = isRecord(openAi.channels) ? openAi.channels : {};
+  const pstn = isRecord(channels.pstn) ? channels.pstn : {};
+  const rawTurnDetection = isRecord(pstn.turnDetection) ? pstn.turnDetection : {};
+  const fallbackTurnDetection = premiumRealtimeConversationPolicyPreview.pstnTurnDetection;
+  const createResponse = typeof rawTurnDetection.createResponse === "boolean"
+    ? rawTurnDetection.createResponse
+    : fallbackTurnDetection.createResponse;
+  const interruptResponse = typeof rawTurnDetection.interruptResponse === "boolean"
+    ? rawTurnDetection.interruptResponse
+    : fallbackTurnDetection.interruptResponse;
+  const pstnTurnDetection = rawTurnDetection.type === "server_vad"
+    ? {
+        type: "server_vad" as const,
+        threshold: readNumberValue(rawTurnDetection.threshold, 0.5),
+        prefixPaddingMs: readNumberValue(rawTurnDetection.prefixPaddingMs, 300),
+        silenceDurationMs: readNumberValue(rawTurnDetection.silenceDurationMs, 500),
+        createResponse,
+        interruptResponse,
+      }
+    : {
+        type: "semantic_vad" as const,
+        eagerness: normalizeSemanticVadEagerness(
+          readNonEmptyStringValue(rawTurnDetection.eagerness, "low"),
+        ),
+        createResponse,
+        interruptResponse,
+      };
+
+  return {
+    version: readNumberValue(policy.version, premiumRealtimeConversationPolicyPreview.version),
+    updatedBy: readNonEmptyStringValue(policy.updatedBy, premiumRealtimeConversationPolicyPreview.updatedBy),
+    updatedAt: readNonEmptyStringValue(policy.updatedAt, premiumRealtimeConversationPolicyPreview.updatedAt),
+    defaultProvider: policy.defaultProvider === "gemini-live" ? "gemini-live" : "openai-realtime",
+    openAiDefaultModel: readNonEmptyStringValue(
+      openAi.defaultModel,
+      premiumRealtimeConversationPolicyPreview.openAiDefaultModel,
+    ),
+    geminiDefaultModel: readNonEmptyStringValue(
+      gemini.defaultModel,
+      premiumRealtimeConversationPolicyPreview.geminiDefaultModel,
+    ),
+    pstnTurnDetection,
+  };
+}
+
+function PremiumRealtimeConversationPolicyPanel({ canMutate }: { canMutate: boolean }) {
+  const [policy, setPolicy] = useState<PremiumRealtimeConversationPolicyPreview>(
+    premiumRealtimeConversationPolicyPreview,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    let cancelled = false;
+
+    void fetch(resolvePlatformAdminApiUrl("/platform-admin/runtime/premium-realtime-policy"), {
+      credentials: "include",
+    })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = await response.json() as unknown;
+        const value = isRecord(body) ? body.conversationPolicy : undefined;
+        if (!cancelled) setPolicy(normalizePremiumRealtimeConversationPolicyPreview(value));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const turnDetection = policy.pstnTurnDetection;
+
+  return (
+    <section className="data-panel prompt-policy-panel" aria-label="Premium realtime conversation policy">
+      <DataTable
+        rowKeyPrefix="premium-realtime-policy"
+        rows={[{
+          policy: "Premium realtime conversation policy",
+          version: String(policy.version),
+          updatedBy: policy.updatedBy,
+        }]}
+      />
+      <form
+        action="/platform-admin/runtime/premium-realtime-policy"
+        key={`${policy.version}-${policy.updatedAt}`}
+        method="post"
+        onSubmit={savePremiumRealtimeConversationPolicy}
+      >
+        <Input name="_method" type="hidden" value="PATCH" readOnly />
+        <Input name="expectedVersion" type="hidden" value={policy.version} readOnly />
+        <FieldGroup>
+          <Field>
+            <FieldLabel>
+              <span>Default premium provider</span>
+              <Select name="defaultProvider" defaultValue={policy.defaultProvider}>
+                <option value="openai-realtime">OpenAI Realtime</option>
+                <option value="gemini-live">Gemini Live</option>
+              </Select>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>OpenAI realtime model</span>
+              <Input name="openAiDefaultModel" defaultValue={policy.openAiDefaultModel} />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Gemini Live model</span>
+              <Input name="geminiDefaultModel" defaultValue={policy.geminiDefaultModel} />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>PSTN turn detection</span>
+              <Select name="pstnTurnDetectionType" defaultValue={turnDetection.type}>
+                <option value="semantic_vad">Semantic VAD</option>
+                <option value="server_vad">Server VAD</option>
+              </Select>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>PSTN semantic eagerness</span>
+              <Select
+                name="pstnSemanticEagerness"
+                defaultValue={turnDetection.type === "semantic_vad" ? turnDetection.eagerness : "low"}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="auto">Auto</option>
+              </Select>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>PSTN server VAD threshold</span>
+              <Input
+                name="pstnServerVadThreshold"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                defaultValue={turnDetection.type === "server_vad" ? turnDetection.threshold : 0.5}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>PSTN prefix padding (ms)</span>
+              <Input
+                name="pstnServerVadPrefixPaddingMs"
+                type="number"
+                min="0"
+                step="10"
+                defaultValue={turnDetection.type === "server_vad" ? turnDetection.prefixPaddingMs : 300}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>PSTN silence duration (ms)</span>
+              <Input
+                name="pstnServerVadSilenceDurationMs"
+                type="number"
+                min="1"
+                step="10"
+                defaultValue={turnDetection.type === "server_vad" ? turnDetection.silenceDurationMs : 500}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <Input
+                name="pstnCreateResponse"
+                type="checkbox"
+                defaultChecked={turnDetection.createResponse}
+              />
+              <span>Create responses automatically</span>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <Input
+                name="pstnInterruptResponse"
+                type="checkbox"
+                defaultChecked={turnDetection.interruptResponse}
+              />
+              <span>Interrupt active responses</span>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Change reason</span>
+              <Input name="reason" placeholder="Required for audit" />
+            </FieldLabel>
+          </Field>
+        </FieldGroup>
+        <Button className="workflow-button" type="submit" disabled={!canMutate}>
+          Save premium realtime policy
+        </Button>
+      </form>
+    </section>
+  );
+}
+
+async function savePremiumRealtimeConversationPolicy(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const response = await fetch(resolvePlatformAdminApiUrl("/platform-admin/runtime/premium-realtime-policy"), {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildPremiumRealtimeConversationPolicyUpdatePayload(new FormData(form))),
+  });
+
+  form.dataset.saveState = response.ok ? "saved" : "failed";
+  if (response.ok) window.location.reload();
 }
 
 async function saveRuntimeRoutePolicy(event: FormEvent<HTMLFormElement>) {

@@ -13,7 +13,7 @@ export type PstnPremiumPlaybackInputResult =
   | { accepted: false; reason: "response_invalidated" | "response_unregistered" };
 
 type QueuedCommand =
-  | { type: "frame"; responseId: string; generation: number; bytes: Buffer }
+  | { type: "frame"; responseId: string; generation: number; frameIndex: number; bytes: Buffer }
   | { type: "boundary"; responseId: string; generation: number };
 
 interface ResponsePlaybackState {
@@ -21,6 +21,10 @@ interface ResponsePlaybackState {
   outstandingFrameCount: number;
   finished: boolean;
   boundaryAcknowledged: boolean;
+  acceptedFrameCount: number;
+  acknowledgedFrameCount: number;
+  itemId?: string | undefined;
+  contentIndex?: number | undefined;
 }
 
 export interface PstnPremiumPlaybackFrame {
@@ -36,6 +40,7 @@ export class PstnPremiumPlaybackController {
     responseId: string;
     generation: number;
     type: "frame" | "boundary";
+    frameIndex?: number | undefined;
     sentAtMs: number;
   }>();
   private readonly responses = new Map<string, ResponsePlaybackState>();
@@ -68,17 +73,34 @@ export class PstnPremiumPlaybackController {
       outstandingFrameCount: 0,
       finished: false,
       boundaryAcknowledged: false,
+      acceptedFrameCount: 0,
+      acknowledgedFrameCount: 0,
     });
     return { accepted: true };
   }
 
-  appendDelta(responseId: string, payloadBase64: string) {
+  appendDelta(
+    responseId: string,
+    payloadBase64: string,
+    identity?: { itemId: string; contentIndex: number } | undefined,
+  ) {
     if (this.invalidatedResponseIds.has(responseId)) {
       this.droppedFrameCount += Math.max(1, Math.floor((payloadBase64.length * 3 / 4) / frameByteLength));
       return { accepted: false, reason: "response_invalidated" } as const;
     }
-    if (!this.responses.has(responseId)) {
+    const response = this.responses.get(responseId);
+    if (response === undefined) {
       return { accepted: false, reason: "response_unregistered" } as const;
+    }
+    if (identity !== undefined) {
+      if (
+        (response.itemId !== undefined && response.itemId !== identity.itemId)
+        || (response.contentIndex !== undefined && response.contentIndex !== identity.contentIndex)
+      ) {
+        throw new Error("premium_playback_response_identity_mismatch");
+      }
+      response.itemId = identity.itemId;
+      response.contentIndex = identity.contentIndex;
     }
     if (payloadBase64.length > maxDeltaBase64Length) {
       throw new Error("premium_playback_delta_too_large");
@@ -138,6 +160,10 @@ export class PstnPremiumPlaybackController {
     if (response?.generation === ownership.generation) {
       if (ownership.type === "frame") {
         response.outstandingFrameCount -= 1;
+        response.acknowledgedFrameCount = Math.max(
+          response.acknowledgedFrameCount,
+          ownership.frameIndex ?? 0,
+        );
       } else {
         response.boundaryAcknowledged = true;
         this.acknowledgedBoundaryCount += 1;
@@ -153,8 +179,20 @@ export class PstnPremiumPlaybackController {
       || this.queuedCommands.length > 0
       || this.remainders.size > 0;
     if (!hasPlaybackOwnership) {
-      return false;
+      return { playbackCleared: false, truncations: [] };
     }
+    const truncations = [...this.responses.entries()].flatMap(([responseId, response]) =>
+      response.itemId === undefined
+        || response.contentIndex === undefined
+        || response.acknowledgedFrameCount === 0
+        ? []
+        : [{
+            responseId,
+            itemId: response.itemId,
+            contentIndex: response.contentIndex,
+            audioEndMs: response.acknowledgedFrameCount * 20,
+          }],
+    );
     for (const responseId of this.responses.keys()) {
       this.rememberInvalidatedResponse(responseId);
     }
@@ -165,7 +203,7 @@ export class PstnPremiumPlaybackController {
     this.inFlightMarks.clear();
     this.responses.clear();
     this.output.clear();
-    return true;
+    return { playbackCleared: true, truncations };
   }
 
   getState() {
@@ -194,10 +232,12 @@ export class PstnPremiumPlaybackController {
       throw new Error("premium_playback_response_unregistered");
     }
     response.outstandingFrameCount += 1;
+    response.acceptedFrameCount += 1;
     const frame = {
       type: "frame" as const,
       responseId,
       generation: this.generation,
+      frameIndex: response.acceptedFrameCount,
       bytes: Buffer.from(bytes),
     };
     if (this.inFlightMarks.size >= inFlightMarkLimit || this.queuedCommands.length > 0) {
@@ -262,6 +302,7 @@ export class PstnPremiumPlaybackController {
       responseId: command.responseId,
       generation: command.generation,
       type: command.type,
+      ...(command.type === "frame" ? { frameIndex: command.frameIndex } : {}),
       sentAtMs: Date.now(),
     });
     if (command.type === "frame") {

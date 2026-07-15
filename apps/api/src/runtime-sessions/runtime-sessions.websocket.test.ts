@@ -1937,6 +1937,8 @@ function createRuntimeSessionsService(
 }
 
 function createRegisteredSession(sessionOverrides: Partial<PremiumRealtimeSession> = {}) {
+  const runtime = sessionOverrides.runtime ?? "openai-realtime";
+  const model = sessionOverrides.model ?? "gpt-realtime-2";
   return {
     organizationId: "tenant-1",
     workspaceId: "workspace-customer-success",
@@ -1948,15 +1950,16 @@ function createRegisteredSession(sessionOverrides: Partial<PremiumRealtimeSessio
       manifestId: "manifest-1",
       publishedVersionId: "published-1",
       activeAgentId: "agent-support",
-      runtime: "openai-realtime",
+      runtime,
       policy: "premium-realtime",
-      model: "gpt-realtime-2",
+      model,
       voice: "expressive",
       transportUrl: "/runtime/realtime/sessions/session-1/stream?token=token-1",
       expiresAt: "2026-06-14T10:00:00.000Z",
       toolDeclarations: [],
       observedEventTypes: [],
       ...sessionOverrides,
+      providerConfig: sessionOverrides.providerConfig ?? websocketTestProviderConfig(runtime, model),
     } satisfies PremiumRealtimeSession,
     manifest: {
       tenantId: "tenant-1",
@@ -2003,6 +2006,37 @@ function createRegisteredSession(sessionOverrides: Partial<PremiumRealtimeSessio
       toolCalls: [],
     } as unknown as TurnRuntimePacket,
   };
+}
+
+function websocketTestProviderConfig(runtime: PremiumRealtimeSession["runtime"], model: string) {
+  return runtime === "gemini-live"
+    ? {
+        provider: "gemini-live" as const,
+        model,
+        mediaProfile: "browser" as const,
+        conversationPolicyVersion: 1,
+        media: {
+          input: { mimeType: "audio/pcm;rate=16000" as const },
+          output: { mimeType: "audio/pcm;rate=24000" as const },
+        },
+        activityHandling: { type: "provider_native" as const },
+      }
+    : {
+        provider: "openai-realtime" as const,
+        model,
+        mediaProfile: "browser" as const,
+        conversationPolicyVersion: 1,
+        media: {
+          input: { type: "audio/pcm" as const, rate: 24_000 as const },
+          output: { type: "audio/pcm" as const, rate: 24_000 as const },
+        },
+        turnDetection: {
+          type: "semantic_vad" as const,
+          eagerness: "auto" as const,
+          createResponse: true,
+          interruptResponse: true,
+        },
+      };
 }
 
 function packetWithToolLifecycleEvents(): TurnRuntimePacket {

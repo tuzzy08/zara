@@ -35,6 +35,9 @@ import type {
   UpdateRuntimeRoutePolicyInput,
 } from "../runtime-route-policy/runtime-route-policy.models";
 import type {
+  UpdatePremiumRealtimeConversationPolicyInput,
+} from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
+import type {
   PlatformBillingControls,
   PlatformOrganizationStatus,
 } from "./platform-admin.models";
@@ -180,6 +183,13 @@ export class PlatformAdminController {
     };
   }
 
+  @Get("runtime/premium-realtime-policy")
+  async getPremiumRealtimeConversationPolicy() {
+    return {
+      conversationPolicy: await this.platformAdminService.getPremiumRealtimeConversationPolicy(),
+    };
+  }
+
   @Patch("runtime/prompt-policy")
   async updateRuntimePromptPolicy(
     @Req() request: Record<string | symbol, unknown>,
@@ -200,6 +210,17 @@ export class PlatformAdminController {
     assertCanMutate(context);
 
     return this.platformAdminService.updateRuntimeRoutePolicy(context, body);
+  }
+
+  @Patch("runtime/premium-realtime-policy")
+  async updatePremiumRealtimeConversationPolicy(
+    @Req() request: Record<string | symbol, unknown>,
+    @Body() body: UpdatePremiumRealtimeConversationPolicyInput,
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context);
+
+    return this.platformAdminService.updatePremiumRealtimeConversationPolicy(context, body);
   }
 
   @Patch("organizations/:organizationId/billing-controls")

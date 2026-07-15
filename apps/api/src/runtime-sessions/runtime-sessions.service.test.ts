@@ -10,6 +10,7 @@ import type {
 import type { PremiumRealtimeToolLoopService } from "./premium-realtime-tool-loop.service";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
 import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
 
 describe("RuntimeSessionsService", () => {
   const declaration: RealtimeToolDeclaration = {
@@ -153,6 +154,102 @@ describe("RuntimeSessionsService", () => {
         modelId: "gemini-billing-default",
         defaultModelTier: "standard",
       });
+  });
+
+  it("snapshots the resolved PSTN conversation policy on the registered session", async () => {
+    const policy = {
+      ...defaultPremiumRealtimeConversationPolicy,
+      version: 12,
+      providers: {
+        ...defaultPremiumRealtimeConversationPolicy.providers,
+        openaiRealtime: {
+          ...defaultPremiumRealtimeConversationPolicy.providers.openaiRealtime,
+          defaultModel: "gpt-realtime-2.1-policy",
+        },
+      },
+    };
+    const service = new RuntimeSessionsService(
+      createLoop(),
+      undefined,
+      { getPolicy: async () => structuredClone(policy) },
+    );
+    const manifest = buildRoutePolicyManifest();
+    const session = await service.createRealtimeSession({
+      manifest: removeRealtimeProviderFields(manifest),
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      mediaProfile: "pstn",
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2099-06-14T09:30:00.000Z",
+    });
+
+    expect(session.providerConfig).toMatchObject({
+      provider: "openai-realtime",
+      model: "gpt-realtime-2.1-policy",
+      mediaProfile: "pstn",
+      conversationPolicyVersion: 12,
+      turnDetection: {
+        type: "semantic_vad",
+        eagerness: "low",
+      },
+    });
+    expect(service.getRegisteredSession(session.sessionId)?.conversationPolicy.version).toBe(12);
+  });
+
+  it("keeps the call-start conversation policy snapshot across a cross-provider handoff", async () => {
+    const policy = structuredClone(defaultPremiumRealtimeConversationPolicy);
+    policy.version = 12;
+    policy.providers.geminiLive.defaultModel = "gemini-live-call-start";
+    const service = new RuntimeSessionsService(
+      createLoop(),
+      undefined,
+      { getPolicy: async () => structuredClone(policy) },
+    );
+    const manifest = withTargetRealtimeConfig(buildRoutePolicyManifest(), {
+      realtimeProvider: "gemini-live",
+    });
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      mediaProfile: "pstn",
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2099-06-14T09:30:00.000Z",
+    });
+
+    policy.version = 13;
+    policy.providers.geminiLive.defaultModel = "gemini-live-updated-later";
+    const handoffInput = {
+      ...baseProviderMessageInput(),
+      sessionId: session.sessionId,
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: openAiHandoffMessage({
+        providerCallId: "provider-handoff-policy-snapshot",
+        announcementAlreadySpoken: true,
+      }),
+    };
+
+    const result = await service.processProviderMessage({
+      ...handoffInput,
+      sessionId: "mismatched-session-id",
+    });
+
+    expect(result.session?.providerConfig).toMatchObject({
+      provider: "gemini-live",
+      model: "gemini-live-call-start",
+      mediaProfile: "pstn",
+      conversationPolicyVersion: 12,
+      activityHandling: { type: "provider_native" },
+    });
+    expect(result.providerSessionTransition?.target.model).toBe("gemini-live-call-start");
   });
 
   it("ignores route policies attached to stale role snapshots", async () => {
@@ -654,7 +751,7 @@ describe("RuntimeSessionsService", () => {
       source: {
         agentId: "agent-front",
         runtime: "openai-realtime",
-        model: "gpt-realtime",
+        model: "gpt-realtime-2.1",
       },
       target: {
         agentId: "agent-billing",
@@ -720,7 +817,7 @@ describe("RuntimeSessionsService", () => {
       source: {
         agentId: "agent-front",
         runtime: "openai-realtime",
-        model: "gpt-realtime",
+        model: "gpt-realtime-2.1",
       },
       target: {
         agentId: "agent-billing",
@@ -1781,21 +1878,55 @@ function baseProviderMessageInput() {
 }
 
 function createSession(overrides: Partial<PremiumRealtimeSession> = {}): PremiumRealtimeSession {
+  const runtime = overrides.runtime ?? "openai-realtime";
+  const model = overrides.model ?? "gpt-realtime";
   return {
     sessionId: "session-1",
     manifestId: "manifest-1",
     publishedVersionId: "published-1",
     activeAgentId: "agent-support",
-    runtime: "openai-realtime",
+    runtime,
     policy: "premium-realtime",
-    model: "gpt-realtime",
+    model,
     voice: "expressive",
     transportUrl: "/runtime/realtime/sessions/manifest-1",
     expiresAt: "2026-06-14T10:00:00.000Z",
     toolDeclarations: [],
     observedEventTypes: [],
     ...overrides,
+    providerConfig: overrides.providerConfig ?? testProviderConfig(runtime, model),
   };
+}
+
+function testProviderConfig(runtime: PremiumRealtimeSession["runtime"], model: string) {
+  return runtime === "gemini-live"
+    ? {
+        provider: "gemini-live" as const,
+        model,
+        mediaProfile: "browser" as const,
+        conversationPolicyVersion: 1,
+        media: {
+          input: { mimeType: "audio/pcm;rate=16000" as const },
+          output: { mimeType: "audio/pcm;rate=24000" as const },
+        },
+        activityHandling: { type: "provider_native" as const },
+      }
+    : {
+        provider: "openai-realtime" as const,
+        model,
+        mediaProfile: "browser" as const,
+        conversationPolicyVersion: 1,
+        media: {
+          input: { type: "audio/pcm" as const, rate: 24_000 as const },
+          output: { type: "audio/pcm" as const, rate: 24_000 as const },
+        },
+        turnDetection: {
+          type: "semantic_vad" as const,
+          eagerness: "auto" as const,
+          createResponse: true,
+          interruptResponse: true,
+        },
+      };
 }
 
 function basePacket(): TurnRuntimePacket {
@@ -2021,6 +2152,31 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     serializedGraph: "{\"nodes\":[],\"edges\":[]}",
     compiledDefinitionHash: "hash-route-policy",
   } as CompiledRuntimeManifest;
+}
+
+function removeRealtimeProviderFields(manifest: CompiledRuntimeManifest): CompiledRuntimeManifest {
+  return {
+    ...manifest,
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((node) => {
+        const role = node.config["role"];
+        if (node.kind !== "agent" || role === null || typeof role !== "object") {
+          return node;
+        }
+        const nextRole = { ...(role as Record<string, unknown>) };
+        delete nextRole["realtimeProvider"];
+        delete nextRole["realtimeModelId"];
+        return {
+          ...node,
+          config: {
+            ...node.config,
+            role: nextRole,
+          },
+        };
+      }),
+    },
+  };
 }
 
 function buildRoutePolicyManifestWithCatalogZendeskSchema(): CompiledRuntimeManifest {

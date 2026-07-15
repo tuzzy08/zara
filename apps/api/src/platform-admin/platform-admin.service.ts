@@ -8,6 +8,10 @@ import type {
   UpdateRuntimePromptPolicyInput,
 } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
+import type {
+  UpdatePremiumRealtimeConversationPolicyInput,
+} from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
+import { PremiumRealtimeConversationPolicyService } from "../premium-realtime-policy/premium-realtime-conversation-policy.service";
 import type { UpdateRuntimeRoutePolicyInput } from "../runtime-route-policy/runtime-route-policy.models";
 import { RuntimeRoutePolicyService } from "../runtime-route-policy/runtime-route-policy.service";
 import { TelephonyService } from "../telephony/telephony.service";
@@ -42,6 +46,7 @@ export class PlatformAdminService {
 
   constructor(
     private readonly auditLogService: AuditLogService,
+    private readonly premiumRealtimeConversationPolicyService: PremiumRealtimeConversationPolicyService,
     private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
     private readonly runtimeRoutePolicyService: RuntimeRoutePolicyService,
     private readonly telephonyService: TelephonyService,
@@ -248,6 +253,10 @@ export class PlatformAdminService {
     return this.runtimeRoutePolicyService.getRoutePolicy();
   }
 
+  async getPremiumRealtimeConversationPolicy() {
+    return this.premiumRealtimeConversationPolicyService.getPolicy();
+  }
+
   async updateRuntimePromptPolicy(
     context: PlatformAdminRequestContext,
     input: UpdateRuntimePromptPolicyInput,
@@ -293,6 +302,30 @@ export class PlatformAdminService {
         metadata: {
           reason: result.reason,
           version: result.routePolicy.version,
+          changedKeys: result.changedKeys.join(","),
+        },
+      }),
+    };
+  }
+
+  async updatePremiumRealtimeConversationPolicy(
+    context: PlatformAdminRequestContext,
+    input: UpdatePremiumRealtimeConversationPolicyInput,
+  ) {
+    const result = await this.premiumRealtimeConversationPolicyService.updatePolicy({
+      ...input,
+      actorUserId: context.actorUserId,
+    });
+
+    return {
+      conversationPolicy: result.policy,
+      audit: this.recordAudit(context, {
+        targetType: "premium_realtime_conversation_policy",
+        targetId: "global",
+        action: "platform.premium_realtime_conversation_policy.updated",
+        metadata: {
+          reason: result.reason,
+          version: result.policy.version,
           changedKeys: result.changedKeys.join(","),
         },
       }),

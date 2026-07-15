@@ -443,12 +443,17 @@ async function observePremiumScenario(
     case "startup-buffering": {
       const probe = createActorProbe({ ready: "deferred" });
       await probe.actor.start();
-      probe.actor.appendInbound(mediaMessage());
+      const media = mediaMessage();
+      probe.actor.appendInbound(media);
       const buffered = probe.actor.getDiagnostics();
       probe.resolveReady();
       await waitForActorState(probe.actor, "active");
-      checklist.startupMediaBuffered = buffered.ingressDepthBytes === 160;
-      checklist.startupMediaFlushedInOrder = probe.sent.length === 1;
+      const flushed = probe.actor.getDiagnostics();
+      checklist.startupMediaBuffered = buffered.ingressDepthBytes === media.residentByteLength
+        && buffered.aggregateIngressBytes === media.residentByteLength;
+      checklist.startupMediaFlushedInOrder = probe.sent.length === 1
+        && flushed.ingressDepthBytes === 0
+        && flushed.aggregateIngressBytes === 0;
       emittedSignals.add("premium.pressure");
       emittedSignals.add("premium.readiness");
       emittedSignals.add("media.first_inbound_frame");
@@ -671,7 +676,12 @@ function createActorProbe(input: {
 }
 
 function mediaMessage() {
-  return { message: { type: "input_audio_buffer.append" }, durationMs: 20, byteLength: 160 };
+  const message = { type: "input_audio_buffer.append" };
+  return {
+    message,
+    durationMs: 20,
+    residentByteLength: Buffer.byteLength(JSON.stringify(message), "utf8"),
+  };
 }
 
 async function waitForActorState(

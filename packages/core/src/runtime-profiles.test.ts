@@ -149,6 +149,7 @@ describe("runtime profiles", () => {
       manifest: premiumManifest,
       activeAgentId: "agent-billing",
       budgetAllowed: true,
+      resolvedProviderConfig: openAiBrowserProviderConfig(),
       now: () => "2026-05-14T10:20:00.000Z",
     });
     const toolEvents = createPremiumRealtimeSessionObservedEvents({
@@ -211,6 +212,7 @@ describe("runtime profiles", () => {
         }),
         activeAgentId: "agent-front-desk",
         budgetAllowed: true,
+        resolvedProviderConfig: openAiBrowserProviderConfig(),
       }),
     ).toThrowError("Premium realtime is not enabled for agent 'agent-front-desk'.");
 
@@ -219,11 +221,12 @@ describe("runtime profiles", () => {
         manifest: premiumManifest,
         activeAgentId: "agent-billing",
         budgetAllowed: false,
+        resolvedProviderConfig: openAiBrowserProviderConfig(),
       }),
     ).toThrowError("Premium realtime is blocked by the current budget policy.");
   });
 
-  it("creates server-owned Gemini Live premium realtime sessions when a role selects Google realtime", () => {
+  it("creates server-owned Gemini Live premium realtime sessions from the resolved platform contract", () => {
     const premiumManifest = compileRuntimeManifest({
       publishedVersion: createPublishedWorkflowVersion({
         runtime: "openai-realtime",
@@ -244,6 +247,7 @@ describe("runtime profiles", () => {
       manifest: premiumManifest,
       activeAgentId: "agent-billing",
       budgetAllowed: true,
+      resolvedProviderConfig: geminiBrowserProviderConfig(),
       now: () => "2026-05-14T10:20:00.000Z",
     });
 
@@ -255,6 +259,39 @@ describe("runtime profiles", () => {
     expect(session.transportUrl).not.toContain("generativelanguage.googleapis.com");
   });
 });
+
+function openAiBrowserProviderConfig() {
+  return {
+    provider: "openai-realtime" as const,
+    model: "gpt-realtime-2.1",
+    mediaProfile: "browser" as const,
+    conversationPolicyVersion: 1,
+    media: {
+      input: { type: "audio/pcm" as const, rate: 24_000 as const },
+      output: { type: "audio/pcm" as const, rate: 24_000 as const },
+    },
+    turnDetection: {
+      type: "semantic_vad" as const,
+      eagerness: "auto" as const,
+      createResponse: true,
+      interruptResponse: true,
+    },
+  };
+}
+
+function geminiBrowserProviderConfig() {
+  return {
+    provider: "gemini-live" as const,
+    model: "gemini-3.1-flash-live-preview",
+    mediaProfile: "browser" as const,
+    conversationPolicyVersion: 1,
+    media: {
+      input: { mimeType: "audio/pcm;rate=16000" as const },
+      output: { mimeType: "audio/pcm;rate=24000" as const },
+    },
+    activityHandling: { type: "provider_native" as const },
+  };
+}
 
 function createPublishedWorkflowVersion(input?: {
   runtime?: "sandwich-pipeline" | "openai-realtime";
