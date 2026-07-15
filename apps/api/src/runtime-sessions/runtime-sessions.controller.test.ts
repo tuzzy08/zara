@@ -81,10 +81,7 @@ describe("RuntimeSessionsController", () => {
     await app.close();
   }, 15_000);
 
-  it("creates Gemini Live realtime sessions with the server-configured model", async () => {
-    const previousGeminiLiveModel = process.env.GEMINI_LIVE_MODEL;
-    process.env.GEMINI_LIVE_MODEL = "gemini-live-low-latency-preview";
-
+  it("creates Gemini Live realtime sessions with the platform-owned default model", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [RuntimeSessionsModule],
     }).compile();
@@ -92,38 +89,30 @@ describe("RuntimeSessionsController", () => {
     const app: INestApplication = moduleRef.createNestApplication();
     await app.init();
 
-    try {
-      const response = await request(app.getHttpServer())
-        .post("/runtime/realtime/sessions")
-        .send({
-          manifest: createCompiledManifest({
-            runtime: "openai-realtime",
-            runtimeProfile: "premium-realtime",
-            billingRuntimeProfileOverride: "premium-realtime",
-            billingRealtimeProvider: "gemini-live",
-          }),
-          activeAgentId: "agent-billing",
-          budgetAllowed: true,
-          now: "2026-05-14T11:00:00.000Z",
-        });
-
-      expect(response.status).toBe(201);
-      expect(response.body.session).toMatchObject({
-        runtime: "gemini-live",
-        model: "gemini-live-low-latency-preview",
+    const response = await request(app.getHttpServer())
+      .post("/runtime/realtime/sessions")
+      .send({
+        manifest: createCompiledManifest({
+          runtime: "openai-realtime",
+          runtimeProfile: "premium-realtime",
+          billingRuntimeProfileOverride: "premium-realtime",
+          billingRealtimeProvider: "gemini-live",
+        }),
         activeAgentId: "agent-billing",
+        budgetAllowed: true,
+        now: "2026-05-14T11:00:00.000Z",
       });
-      expect(response.body.session.transportUrl).toMatch(/^\/runtime\/realtime\/sessions\//);
-      expect(response.body.session.transportUrl).not.toContain("generativelanguage.googleapis.com");
-    } finally {
-      if (previousGeminiLiveModel === undefined) {
-        delete process.env.GEMINI_LIVE_MODEL;
-      } else {
-        process.env.GEMINI_LIVE_MODEL = previousGeminiLiveModel;
-      }
 
-      await app.close();
-    }
+    expect(response.status).toBe(201);
+    expect(response.body.session).toMatchObject({
+      runtime: "gemini-live",
+      model: "gemini-3.1-flash-live-preview",
+      activeAgentId: "agent-billing",
+    });
+    expect(response.body.session.transportUrl).toMatch(/^\/runtime\/realtime\/sessions\//);
+    expect(response.body.session.transportUrl).not.toContain("generativelanguage.googleapis.com");
+
+    await app.close();
   }, 15_000);
 });
 

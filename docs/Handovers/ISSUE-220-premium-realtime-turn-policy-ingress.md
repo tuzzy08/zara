@@ -22,6 +22,7 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Added separate 5,250 ms/256 KiB startup and handoff ingress policies using serialized resident provider-message bytes, plus a shared process-wide 32 MiB admission budget with idempotent leases.
 - Added stable terminal-media handling, provider/session contract drift rejection, and redacted provider/model/policy/media diagnostics for readiness, pressure, failures, interruption, and truncation.
 - Updated deterministic PSTN evals and runtime/admin documentation to the new policy, ingress, and interruption contracts.
+- Corrected the runtime-session controller contract after the first remote CI run exposed one stale Gemini environment-model assertion; the test now verifies the platform-owned `gemini-3.1-flash-live-preview` policy default and no longer implies that tenant runtime creation reads `GEMINI_LIVE_MODEL`.
 
 ## Tests Run
 
@@ -34,6 +35,7 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - `npm.cmd run typecheck --workspace @zara/platform-admin` passed.
 - Focused ESLint pass across all ISSUE-220 production/test files passed after removing the two dead refactor remnants it identified.
 - `npm.cmd run eval:pstn` passed: 25 deterministic PSTN scenarios.
+- Initial GitHub CI on commit `7532839` passed lint, typecheck, and migration checks but found the stale Gemini controller expectation. The corrected controller and production ESM regression set passed locally: 2 files and 4 tests.
 
 ## Pending Work
 
