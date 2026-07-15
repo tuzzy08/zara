@@ -8,7 +8,9 @@ export interface OpenAiRealtimeAdapterConfig {
   speed?: number | undefined;
   tools?: RealtimeProviderToolDeclaration[] | undefined;
   autoCreateResponse?: boolean | undefined;
+  inputAudioFormat?: "pcm" | "pcmu" | undefined;
   outputAudioFormat?: "pcm" | "pcmu" | undefined;
+  turnDetectionMode?: "semantic_vad" | "server_vad" | undefined;
 }
 
 export type OpenAiRealtimeEvent =
@@ -151,15 +153,15 @@ export class OpenAiRealtimeAdapter {
         audio: {
           input: {
             format: {
-              type: "audio/pcm",
-              rate: 24000,
+              type: this.config.inputAudioFormat === "pcmu" ? "audio/pcmu" : "audio/pcm",
+              ...(this.config.inputAudioFormat === "pcmu" ? {} : { rate: 24000 }),
             },
             transcription: {
               model: "gpt-realtime-whisper",
               ...(this.config.language !== undefined ? { language: this.config.language } : {}),
             },
             turn_detection: {
-              type: "semantic_vad",
+              type: this.config.turnDetectionMode ?? "semantic_vad",
               create_response: this.config.autoCreateResponse ?? true,
               interrupt_response: this.config.autoCreateResponse ?? true,
             },

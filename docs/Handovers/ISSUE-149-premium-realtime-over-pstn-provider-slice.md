@@ -20,6 +20,7 @@ External: [Linear ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-p
 - Follow-up on 2026-07-11: made OpenAI Realtime the platform-policy default, requested native `audio/pcmu` output for PSTN, kept provider/model mutation platform-admin-only, exposed only the effective provider to tenant voice UI, and prevented stale tenant provider/model values from overriding policy.
 - Follow-up on 2026-07-11: moved phone-test persistence off the 20 ms audio path, records media checkpoints once, closes Twilio on unexpected provider termination, and explicitly removes completed PSTN runtime sessions.
 - Follow-up on 2026-07-14: traced a routed call that authorized its Twilio Media Stream, delivered inbound media, and closed normally without agent audio to the missing initial provider response request. Premium PSTN execution now requests one opening greeting after initial OpenAI or Gemini provider readiness, using the active concrete agent name and business name from the immutable manifest before asking how it may help. Generic role-name fallbacks are forbidden, missing identity fails closed with `premium_initial_agent_identity_unavailable`, and provider handoff keeps its separate continuation contract. A failed greeting write closes both call legs and the runtime session with the safe `premium_provider_send_failed` code.
+- Follow-up on 2026-07-15: traced a call where the OpenAI greeting played but no reply followed the caller turn. The PSTN OpenAI path now preserves Twilio's native 8 kHz PCMU payload end to end instead of decoding and upsampling it to browser PCM, advertises native `audio/pcmu` input and output, and uses provider-owned `server_vad` with automatic response/interruption creation. Browser OpenAI sessions retain 24 kHz PCM plus semantic VAD, and Gemini PSTN retains its required 16 kHz PCM conversion. Privacy-safe lifecycle logs now correlate speech start/stop, input commit/transcription, response start/audio completion, and provider error event names without recording audio, transcripts, or provider-controlled error text.
 
 ## Tests Run
 
@@ -36,6 +37,7 @@ External: [Linear ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-p
 - Follow-up on 2026-07-11: `npm.cmd run typecheck --workspace @zara/api` passed.
 - Follow-up on 2026-07-14: `npx.cmd vitest run apps/api/src/telephony/pstn-premium-call-execution.test.ts --pool=threads --maxWorkers=1 --testTimeout=30000 --reporter=dot` passed 22 tests.
 - Follow-up on 2026-07-14: focused ESLint passed, `npm.cmd run typecheck --workspace @zara/api` passed, and `npm.cmd run eval:pstn` passed all 25 scenarios.
+- Follow-up on 2026-07-15: RED confirmed the old PCM/semantic-VAD contract and transformed media payload; GREEN passed 53 focused adapter, provider-transport, and premium PSTN execution tests. Focused ESLint, `npm.cmd run typecheck --workspace @zara/api`, and all 25 `npm.cmd run eval:pstn` scenarios passed.
 
 ## Pending Work
 
@@ -46,6 +48,7 @@ External: [Linear ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-p
 - Existing published workflows must be republished after the manifest-storage migration before they can start a premium PSTN execution; there is intentionally no draft or legacy-role fallback.
 - Gemini PSTN readiness ordering and provider/voice-changing PSTN handoff reconnection remain follow-up hardening; OpenAI is the production-default path implemented in this pass.
 - Provider-native interruption semantics differ across providers; each new provider needs contract coverage before enablement.
+- The native PCMU caller-turn fix requires one deployed real-phone verification; the new `premium_provider_turn_event` sequence will identify any remaining provider-side stall without exposing caller content.
 
 ## Decisions
 
@@ -53,7 +56,8 @@ External: [Linear ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-p
 - No silent downgrade from premium realtime PSTN to sandwich without explicit policy.
 - `pstn-premium-realtime` is allowed only after provider capability, provider availability, tenant entitlement, budget, and explicit fallback-policy checks pass.
 - Premium realtime PSTN stays in the unified Phone test sandbox, with separate labeling instead of a second sandbox.
+- OpenAI PSTN media stays in Twilio-native PCMU and uses OpenAI `server_vad`; browser media remains PCM with semantic VAD, and Gemini keeps its provider-specific PCM contract.
 
 ## Next Recommended Step
 
-- Deploy the initial-greeting fix and run one real OpenAI premium Phone test. Confirm the call progresses from media authorization and provider readiness through the initial response, outbound audio, caller turn, and clean stop.
+- Deploy the native-PCMU/server-VAD fix and run one real OpenAI premium Phone test. Confirm logs progress through `input_audio_buffer.speech_started`, `input_audio_buffer.speech_stopped`, `input_audio_buffer.committed`, `response.created`, and `response.output_audio.done`, and confirm the caller hears the follow-up response.

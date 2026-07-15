@@ -155,6 +155,39 @@ describe("OpenAiRealtimeAdapter", () => {
     });
   });
 
+  it("configures native PCMU input and server VAD for PSTN sessions", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime",
+      systemPrompt: "Configured prompt",
+      inputAudioFormat: "pcmu",
+      outputAudioFormat: "pcmu",
+      turnDetectionMode: "server_vad",
+    });
+
+    expect(adapter.createSessionUpdateMessage()).toMatchObject({
+      session: {
+        audio: {
+          input: {
+            format: {
+              type: "audio/pcmu",
+            },
+            turn_detection: {
+              type: "server_vad",
+              create_response: true,
+              interrupt_response: true,
+            },
+          },
+          output: {
+            format: {
+              type: "audio/pcmu",
+            },
+          },
+        },
+      },
+    });
+    expect(adapter.createSessionUpdateMessage().session.audio.input.format).not.toHaveProperty("rate");
+  });
+
   it("treats incremental function-call argument events as diagnostics and builds identified continuation messages", () => {
     const adapter = new OpenAiRealtimeAdapter({
       model: "gpt-realtime",

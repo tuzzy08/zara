@@ -167,7 +167,7 @@ describe("PstnPremiumCallExecution", () => {
     providerReady.resolve();
     await waitFor(() => sentProviderMessages.length === 2);
     expect(sentProviderMessages[0]).toMatchObject({ type: "input_audio_buffer.append" });
-    expect(Buffer.from(String(sentProviderMessages[0]?.audio), "base64")).toHaveLength(960);
+    expect(sentProviderMessages[0]?.audio).toBe(Buffer.alloc(160, 0xff).toString("base64"));
     expect(sentProviderMessages[1]).toMatchObject({
       type: "response.create",
       response: {
@@ -556,6 +556,38 @@ describe("PstnPremiumCallExecution", () => {
 
     expect(log.mock.calls.flat().join(" ")).not.toContain(sensitive);
     expect(log.mock.calls.flat().join(" ")).toContain("premium_provider_start_failed");
+    log.mockRestore();
+  });
+
+  it("logs privacy-safe OpenAI turn lifecycle events without provider-controlled content", async () => {
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const sensitive = "raw caller transcript and provider secret";
+    const harness = createMinimalExecutionHarness("openai-realtime");
+
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    harness.emitProviderMessage(JSON.stringify({
+      type: "input_audio_buffer.speech_stopped",
+      transcript: sensitive,
+    }));
+    harness.emitProviderMessage(JSON.stringify({
+      type: "error",
+      error: { message: sensitive },
+    }));
+
+    await waitFor(() => log.mock.calls.flat().join(" ").includes("premium_provider_turn_event"));
+    const output = log.mock.calls.flat().join(" ");
+    expect(output).toContain("input_audio_buffer.speech_stopped");
+    expect(output).toContain('"eventType":"error"');
+    expect(output).toContain('"callSessionId":"CA-premium:telephony"');
+    expect(output).not.toContain(sensitive);
+
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
     log.mockRestore();
   });
 

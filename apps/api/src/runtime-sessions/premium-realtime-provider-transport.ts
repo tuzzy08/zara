@@ -95,7 +95,13 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       language: agent?.languagePolicy.defaultLanguage,
       ...resolveOpenAiRealtimeSpeed(agent),
       tools: input.session.toolDeclarations,
-      ...(input.mediaProfile === "pstn" ? { outputAudioFormat: "pcmu" as const } : {}),
+      ...(input.mediaProfile === "pstn"
+        ? {
+            inputAudioFormat: "pcmu" as const,
+            outputAudioFormat: "pcmu" as const,
+            turnDetectionMode: "server_vad" as const,
+          }
+        : {}),
     });
     const socket = this.websocketFactory(url.toString(), {
       headers: {

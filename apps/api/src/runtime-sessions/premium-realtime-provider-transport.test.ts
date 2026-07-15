@@ -345,15 +345,14 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           audio: {
             input: {
               format: {
-                type: "audio/pcm",
-                rate: 24000,
+                type: "audio/pcmu",
                 },
                 transcription: {
                   model: "gpt-realtime-whisper",
                   language: "en",
                 },
               turn_detection: {
-                type: "semantic_vad",
+                type: "server_vad",
                 create_response: true,
                 interrupt_response: true,
               },

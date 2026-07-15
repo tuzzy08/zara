@@ -3846,6 +3846,7 @@ Implementation summary:
 - Added regression coverage for blocked-by-default premium calls, approved premium route selection, provider unavailable, interruption normalization, provider failure blocking, redacted trace export, and the premium PSTN eval fixture.
 - Connected authorized Twilio premium Media Streams to exact persisted published manifests and server-owned premium sessions, with OpenAI Realtime as the platform-admin-owned default, native PCMU output, provider tool-loop reuse, interruption clearing, and deterministic two-leg cleanup.
 - Requests one provider-native opening turn after the initial premium provider becomes ready so an answered PSTN call introduces the active concrete agent by name and business name before asking how it may help instead of waiting silently for caller VAD; no role-label fallback is allowed, and provider handoffs continue through their separate continuation contract.
+- Preserves Twilio's native PCMU caller audio through the OpenAI PSTN path, configures PSTN-only server VAD for automatic caller-turn responses, leaves browser/Gemini media contracts unchanged, and logs only privacy-safe provider turn lifecycle event names for deployed diagnosis.
 
 ### ISSUE-150: Server-owned auth context contract
 

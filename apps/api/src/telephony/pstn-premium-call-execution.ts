@@ -106,6 +106,18 @@ interface PendingProviderTransition {
   deadline?: ReturnType<typeof setTimeout> | undefined;
 }
 
+const loggedOpenAiTurnEvents = new Set([
+  "input_audio_buffer.speech_started",
+  "input_audio_buffer.speech_stopped",
+  "input_audio_buffer.committed",
+  "conversation.item.input_audio_transcription.completed",
+  "conversation.item.input_audio_transcription.failed",
+  "response.created",
+  "response.output_audio.done",
+  "response.audio.done",
+  "error",
+]);
+
 const completedPlaybackResponseLimit = 64;
 const providerHandoffTimeoutMs = 5_000;
 interface StartPremiumCallExecutionInput {
@@ -448,25 +460,28 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       throw new Error("Premium PSTN execution accepts only inbound G.711 mu-law 8 kHz mono frames for its active stream.");
     }
 
-    const targetSampleRateHz = execution.inboundRuntime === "gemini-live" ? 16_000 : 24_000;
-    const pcm16 = resamplePcm16(
-      decodeMuLawBase64(input.frame.payloadBase64),
-      8_000,
-      targetSampleRateHz,
-    );
-    const providerMessage = execution.inboundRuntime === "gemini-live"
-        ? {
-            realtimeInput: {
-              audio: {
-                data: encodePcm16Base64(pcm16),
-                mimeType: `audio/pcm;rate=${targetSampleRateHz}`,
-              },
-            },
-          }
-        : {
-            type: "input_audio_buffer.append",
-            audio: encodePcm16Base64(pcm16),
-          };
+    let providerMessage: Record<string, unknown>;
+    if (execution.inboundRuntime === "gemini-live") {
+      const targetSampleRateHz = 16_000;
+      const pcm16 = resamplePcm16(
+        decodeMuLawBase64(input.frame.payloadBase64),
+        8_000,
+        targetSampleRateHz,
+      );
+      providerMessage = {
+        realtimeInput: {
+          audio: {
+            data: encodePcm16Base64(pcm16),
+            mimeType: `audio/pcm;rate=${targetSampleRateHz}`,
+          },
+        },
+      };
+    } else {
+      providerMessage = {
+        type: "input_audio_buffer.append",
+        audio: input.frame.payloadBase64,
+      };
+    }
     execution.actor.appendInbound({
       message: providerMessage,
       durationMs: (Buffer.from(input.frame.payloadBase64, "base64").length / 8_000) * 1_000,
@@ -778,6 +793,21 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     execution: ActivePremiumCallExecution,
     event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent,
   ) {
+    if (
+      event.type === "provider_event"
+      && "eventType" in event
+      && execution.registered.session.runtime === "openai-realtime"
+      && loggedOpenAiTurnEvents.has(event.eventType)
+    ) {
+      this.logger.log(`[twilio-pstn] premium_provider_turn_event ${JSON.stringify({
+        organizationId: execution.organizationId,
+        dispatchId: execution.dispatchId,
+        callSessionId: execution.callSessionId,
+        runtime: execution.registered.session.runtime,
+        eventType: event.eventType,
+      })}`);
+    }
+
     if (event.type === "audio") {
       if (execution.registered.session.runtime === "openai-realtime") {
         if (!("responseId" in event) || event.responseId === undefined) {
