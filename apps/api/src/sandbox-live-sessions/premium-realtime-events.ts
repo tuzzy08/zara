@@ -11,8 +11,21 @@ export type PremiumRealtimeLifecycleEvent =
     }
   | {
       type: "assistant_response";
-      state: "started" | "audio_completed" | "completed" | "cancelled" | "interrupted";
+      state: "started" | "audio_completed" | "completed" | "cancelled" | "failed" | "incomplete" | "interrupted";
       responseId?: string | undefined;
       itemId?: string | undefined;
       contentIndex?: number | undefined;
+      failureCode?: string | undefined;
+      failureType?: string | undefined;
+      failureReason?: string | undefined;
+    }
+  | {
+      type: "provider_failure";
+      code?: string | undefined;
+      providerErrorType?: string | undefined;
+      param?: string | undefined;
+      eventId?: string | undefined;
+      responseId?: string | undefined;
+      itemId?: string | undefined;
+      callId?: string | undefined;
     };

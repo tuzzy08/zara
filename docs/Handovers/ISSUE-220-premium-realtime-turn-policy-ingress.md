@@ -26,6 +26,13 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Diagnosed the deployed OpenAI call `CA2f874fbe09d06d76e5ce5ed21c8de56a`: webhook routing, media authorization, provider startup, inbound media, and interruption clear all succeeded, then Zara closed the Twilio socket with `premium_playback_overflow`; Twilio `31921` was the consequence of that Zara close, not the initiating failure.
 - Replaced the five-second/40,000-byte local playback queue with a 30-second/240,000-byte per-call reservoir behind the unchanged 50-mark Twilio window. Added a shared 32 MiB queued-playback admission ledger across active calls and idempotent release on mark drain, interruption, failure, stop, and shutdown.
 - Kept overload protection explicit: oversized provider deltas, per-call playback overflow, aggregate playback exhaustion, provider-message pressure, and Twilio playback-window ownership remain separate bounded failure modes.
+- Reconstructed production call `CA2e19cb0c5b3fdeb7c458a3e69fa18eae`: Twilio webhook validation, route authorization, Media Streams startup, PCMU negotiation, and inbound media all succeeded; the trace then had no provider-response or outbound-playback evidence before the caller ended the call normally.
+- Verified the exact production OpenAI contract independently with `gpt-realtime-2.1`, PCMU input/output, low-eagerness semantic VAD, an initial greeting, and a synthetic caller turn. Both responses completed with audio, isolating the incident boundary to Zara's provider-lifecycle and PSTN playback orchestration rather than the OpenAI session schema or codec contract.
+- Promoted OpenAI protocol errors and failed/incomplete `response.done` states into privacy-safe provider-neutral lifecycle failures. Premium PSTN now closes both provider and caller legs deterministically instead of leaving a silent active call, while preserving structured error type, code, parameter, event ID, response identity, and incomplete reason without raw provider messages.
+- Split real-time caller, assistant, and audio lifecycle projection from serialized connector/tool execution. The ordered media lane preserves arrival order, prevents connector latency from delaying barge-in, and prevents an interruption from overtaking older audio that could otherwise replay after Twilio clear.
+- Added an eight-second first-audio deadline for greetings, caller turns, and handoff continuations. A `response.created` event alone does not clear it; accepted playback audio does. The deadline fails closed without issuing an uncorrelated retry that could duplicate speech.
+- Added once-per-call redacted production milestones for provider readiness, response start, first provider audio, first Twilio media frame, and first Twilio mark acknowledgement. Observability-export failure is now visible once per call instead of being silently swallowed.
+- Moved provider-output admission ahead of JSON parsing and preserved normalized incomplete-response reasons in failure telemetry.
 
 ## Tests Run
 
@@ -44,15 +51,23 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - `npm.cmd run typecheck --workspace @zara/api` passed.
 - Focused ESLint passed for the playback admission/controller, call execution, and PSTN eval files.
 - `npm.cmd run eval:pstn` passed all 25 deterministic scenarios after moving the explicit playback-overflow fixture to the new production boundary.
+- RED incident tests reproduced four silent-call failures: protocol errors remained active, failed responses retained call ownership, caller interruption waited behind connector work, and the successful media path emitted no production milestones.
+- RED review tests reproduced delayed-media replay across the independent queues, duplicate response creation by the uncorrelated watchdog, and loss of the OpenAI incomplete-response reason.
+- GREEN/REFACTOR focused adapter and execution tests passed: 48 tests.
+- Focused runtime, provider transport, tool loop, adapter, actor, playback, execution, and Twilio WebSocket regression suites passed: 152 tests.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the incident hardening changes.
+- Focused ESLint passed for the five changed production/test files.
+- `npm.cmd run eval:pstn` passed all 25 deterministic scenarios after the final race-condition corrections.
 
 ## Pending Work
 
-- No repository acceptance work remains. Deploy this follow-up and repeat the normal caller turn plus barge-in smoke test; the call must remain open through ordinary multi-second responses and must not emit `premium_playback_overflow`.
+- No repository acceptance work remains. Deploy this follow-up and repeat the normal caller turn plus barge-in smoke test. The production trace must show provider readiness, response start, first provider audio, first Twilio media frame, and first Twilio mark acknowledgement; otherwise it must terminate with one structured provider/runtime failure instead of remaining silently active.
 
 ## Risks
 
 - Incorrect truncation identity or duration can corrupt OpenAI conversation state after barge-in.
 - Missing Twilio mark acknowledgements can still consume the full per-call reservoir; that remains an intentional hard failure and should be diagnosed from playback lag, mark count, and queue depth rather than hidden with another limit increase.
+- A provider that accepts a response request but emits no `response.created` now fails the call after eight seconds. This intentionally prefers one diagnosable termination over an uncorrelated retry that could produce duplicate speech.
 - A provider-neutral abstraction that hides provider-specific turn semantics can create false equivalence between OpenAI and Gemini.
 - Existing unrelated working-tree changes must not be staged, reverted, or folded into this issue.
 
@@ -67,7 +82,9 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Provider transport rejects mutable session/provider/model projections that disagree with the frozen provider contract.
 - Persisted media contracts are fixed and validated; platform admins configure supported provider/model defaults and OpenAI turn settings, not arbitrary media payload shapes.
 - The 50-mark Twilio pacing window remains the playback authority. The local queue absorbs up to 30 seconds of normal provider generation skew, while shared 32 MiB admission bounds process-wide resident queued audio.
+- Provider-owned lifecycle events use one ordered real-time lane; connector/tool work remains on a separate serialized control lane and cannot delay barge-in or playback projection.
+- Provider response stalls fail closed after eight seconds. Zara does not retry a response request unless it can correlate that command idempotently.
 
 ## Next Recommended Step
 
-Deploy the completed slice and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `gpt-realtime-2.1`, policy version, low-eagerness semantic VAD, one playback clear, acknowledged truncation duration, draining Twilio marks, and no playback overflow without raw audio or transcript data.
+Deploy the completed slice and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `provider_ready`, `response_started`, `provider_audio_received`, `twilio_media_sent`, and `twilio_mark_acknowledged`, then records the second caller turn and response. Confirm `gpt-realtime-2.1`, policy version, low-eagerness semantic VAD, one playback clear, acknowledged truncation duration, draining Twilio marks, and no raw audio or transcript data.

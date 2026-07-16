@@ -56,6 +56,7 @@ export type OpenAiRealtimeEvent =
 
 interface OpenAiServerMessage {
   type?: string | undefined;
+  event_id?: string | undefined;
   item_id?: string | undefined;
   previous_item_id?: string | undefined;
   call_id?: string | undefined;
@@ -86,6 +87,15 @@ interface OpenAiServerMessage {
   response?: {
     id?: string | undefined;
     status?: string | undefined;
+    status_details?: {
+      type?: string | undefined;
+      reason?: string | undefined;
+      error?: {
+        code?: string | undefined;
+        type?: string | undefined;
+        message?: string | undefined;
+      } | undefined;
+    } | null | undefined;
     output?: Array<{
       type?: string | undefined;
       id?: string | undefined;
@@ -294,10 +304,33 @@ export class OpenAiRealtimeAdapter {
       ];
     }
 
+    if (payload.type === "error") {
+      return [
+        {
+          type: "provider_failure",
+          ...(payload.error?.code !== undefined ? { code: payload.error.code } : {}),
+          ...(payload.error?.type !== undefined ? { providerErrorType: payload.error.type } : {}),
+          ...(payload.error?.param !== undefined ? { param: payload.error.param } : {}),
+          ...(payload.error?.event_id !== undefined
+            ? { eventId: payload.error.event_id }
+            : payload.event_id !== undefined ? { eventId: payload.event_id } : {}),
+          ...(payload.response_id !== undefined
+            ? { responseId: payload.response_id }
+            : payload.response?.id !== undefined ? { responseId: payload.response.id } : {}),
+          ...(payload.item_id !== undefined
+            ? { itemId: payload.item_id }
+            : payload.item?.id !== undefined ? { itemId: payload.item.id } : {}),
+          ...(payload.call_id !== undefined
+            ? { callId: payload.call_id }
+            : payload.item?.call_id !== undefined ? { callId: payload.item.call_id } : {}),
+        },
+        providerEvidence(payload.type, buildProviderEvidence(payload)),
+      ];
+    }
+
     if (
       payload.type === "conversation.item.input_audio_transcription.failed"
       || payload.type === "conversation.item.truncated"
-      || payload.type === "error"
     ) {
       return [providerEvidence(payload.type, buildProviderEvidence(payload))];
     }
@@ -377,11 +410,29 @@ export class OpenAiRealtimeAdapter {
     }
 
     if (payload.response?.status !== undefined && payload.response.status !== "completed") {
+      const responseState = payload.response.status === "cancelled"
+        ? "cancelled"
+        : payload.response.status === "failed"
+          ? "failed"
+          : payload.response.status === "incomplete"
+            ? "incomplete"
+            : "interrupted";
+      const statusDetails = payload.response.status_details ?? undefined;
+      const statusError = statusDetails?.error;
+      const failureType = statusError?.type ?? statusDetails?.type;
+
       return [
         {
           type: "assistant_response",
-          state: payload.response.status === "cancelled" ? "cancelled" : "interrupted",
+          state: responseState,
           ...(payload.response.id !== undefined ? { responseId: payload.response.id } : {}),
+          ...(responseState === "failed" || responseState === "incomplete"
+            ? {
+                ...(statusError?.code !== undefined ? { failureCode: statusError.code } : {}),
+                ...(failureType !== undefined ? { failureType } : {}),
+                ...(statusDetails?.reason !== undefined ? { failureReason: statusDetails.reason } : {}),
+              }
+            : {}),
         },
         providerEvidence(payload.type, buildProviderEvidence(payload)),
       ];

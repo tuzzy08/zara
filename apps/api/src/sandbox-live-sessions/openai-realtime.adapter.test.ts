@@ -668,6 +668,13 @@ describe("OpenAiRealtimeAdapter", () => {
       },
     }))).toEqual([
       {
+        type: "provider_failure",
+        code: "invalid_value",
+        providerErrorType: "invalid_request_error",
+        param: "session.audio.output.speed",
+        eventId: "setup-session-update",
+      },
+      {
         type: "provider_event",
         eventType: "error",
         evidence: {
@@ -756,6 +763,124 @@ describe("OpenAiRealtimeAdapter", () => {
           outputItemTypes: ["message"],
           outputContentTypes: ["output_audio"],
           audioOutputContentPresent: true,
+        },
+      },
+    ]);
+  });
+
+  it("emits a privacy-safe provider failure while preserving diagnostic evidence", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime-2",
+      systemPrompt: "Configured prompt",
+    });
+
+    const events = adapter.parseServerMessage(JSON.stringify({
+      type: "error",
+      response_id: "resp-failed",
+      item_id: "item-failed",
+      call_id: "call-failed",
+      error: {
+        type: "invalid_request_error",
+        code: "invalid_value",
+        message: "Provider-controlled detail must stay out of lifecycle events.",
+        param: "session.audio.output.speed",
+        event_id: "setup-session-update",
+      },
+    }));
+
+    expect(events).toEqual([
+      {
+        type: "provider_failure",
+        code: "invalid_value",
+        providerErrorType: "invalid_request_error",
+        param: "session.audio.output.speed",
+        eventId: "setup-session-update",
+        responseId: "resp-failed",
+        itemId: "item-failed",
+        callId: "call-failed",
+      },
+      {
+        type: "provider_event",
+        eventType: "error",
+        evidence: {
+          itemId: "item-failed",
+          responseId: "resp-failed",
+          callId: "call-failed",
+          error: {
+            type: "invalid_request_error",
+            code: "invalid_value",
+            message: "Provider-controlled detail must stay out of lifecycle events.",
+            param: "session.audio.output.speed",
+            eventId: "setup-session-update",
+          },
+        },
+      },
+    ]);
+    expect(events[0]).not.toHaveProperty("message");
+  });
+
+  it("keeps failed and incomplete responses distinct with safe status detail", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime-2",
+      systemPrompt: "Configured prompt",
+    });
+
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "resp-failed",
+        status: "failed",
+        status_details: {
+          type: "failed",
+          error: {
+            code: "server_error",
+            type: "server_error",
+            message: "Provider-controlled failure detail.",
+          },
+        },
+      },
+    }))).toEqual([
+      {
+        type: "assistant_response",
+        state: "failed",
+        responseId: "resp-failed",
+        failureCode: "server_error",
+        failureType: "server_error",
+      },
+      {
+        type: "provider_event",
+        eventType: "response.done",
+        evidence: {
+          responseId: "resp-failed",
+          status: "failed",
+        },
+      },
+    ]);
+
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "resp-incomplete",
+        status: "incomplete",
+        status_details: {
+          type: "incomplete",
+          reason: "max_output_tokens",
+        },
+      },
+    }))).toEqual([
+      {
+        type: "assistant_response",
+        state: "incomplete",
+        responseId: "resp-incomplete",
+        failureType: "incomplete",
+        failureReason: "max_output_tokens",
+      },
+      {
+        type: "provider_event",
+        eventType: "response.done",
+        evidence: {
+          responseId: "resp-incomplete",
+          status: "incomplete",
         },
       },
     ]);
