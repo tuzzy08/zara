@@ -196,6 +196,7 @@ export interface PstnCallQualityMetrics {
   maxProviderOutputDepthBytes: number;
   maxProviderOutputDepthCount: number;
   maxOutboundQueuedBytes: number;
+  maxAggregateOutboundQueuedBytes: number;
   maxOutboundQueuedFrames: number;
   maxOutstandingPlaybackMarks: number;
   maxPlaybackLagMs: number;
@@ -1073,6 +1074,7 @@ function sanitizePstnSpanPayload(payload: Record<string, unknown>): RuntimeTrace
     "providerOutputDepthBytes",
     "providerOutputDepthCount",
     "outboundQueuedBytes",
+    "aggregateOutboundQueuedBytes",
     "outboundQueuedFrames",
     "outstandingPlaybackMarks",
     "playbackLagMs",
@@ -1161,6 +1163,7 @@ export function buildPstnCallQualityMetrics(events: PstnCallObservabilityEvent[]
     maxProviderOutputDepthBytes: maxPstnPayloadNumber(events, "providerOutputDepthBytes") ?? 0,
     maxProviderOutputDepthCount: maxPstnPayloadNumber(events, "providerOutputDepthCount") ?? 0,
     maxOutboundQueuedBytes: maxPstnPayloadNumber(events, "outboundQueuedBytes") ?? 0,
+    maxAggregateOutboundQueuedBytes: maxPstnPayloadNumber(events, "aggregateOutboundQueuedBytes") ?? 0,
     maxOutboundQueuedFrames: maxPstnPayloadNumber(events, "outboundQueuedFrames") ?? 0,
     maxOutstandingPlaybackMarks: maxPstnPayloadNumber(events, "outstandingPlaybackMarks") ?? 0,
     maxPlaybackLagMs: maxPstnPayloadNumber(events, "playbackLagMs") ?? 0,

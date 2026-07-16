@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { PstnPremiumPlaybackAdmission } from "./pstn-premium-playback-admission";
 import { PstnPremiumPlaybackController } from "./pstn-premium-playback-controller";
 
 describe("PstnPremiumPlaybackController", () => {
@@ -147,7 +148,31 @@ describe("PstnPremiumPlaybackController", () => {
     });
   });
 
-  it("throws instead of exceeding the 40,000-byte local audio queue", () => {
+  it("absorbs a normal multi-second provider burst while Twilio playback acknowledgements lag", () => {
+    const controller = new PstnPremiumPlaybackController({
+      sendFrame() {},
+      sendMark() {},
+      clear: vi.fn(),
+    });
+
+    controller.startResponse("response-production-burst");
+
+    expect(() => {
+      for (let second = 0; second < 15; second += 1) {
+        controller.appendDelta(
+          "response-production-burst",
+          Buffer.alloc(50 * 160, second).toString("base64"),
+        );
+      }
+    }).not.toThrow();
+    expect(controller.getState()).toMatchObject({
+      inFlightMarkCount: 50,
+      queuedFrameCount: 700,
+      queuedAudioBytes: 112_000,
+    });
+  });
+
+  it("throws instead of exceeding the 30-second local audio queue", () => {
     const controller = new PstnPremiumPlaybackController({
       sendFrame() {},
       sendMark() {},
@@ -155,18 +180,62 @@ describe("PstnPremiumPlaybackController", () => {
     });
 
     controller.startResponse("response-overflow");
-    controller.appendDelta("response-overflow", Buffer.alloc(300 * 160, 1).toString("base64"));
+    for (let second = 0; second < 31; second += 1) {
+      controller.appendDelta(
+        "response-overflow",
+        Buffer.alloc(50 * 160, second).toString("base64"),
+      );
+    }
 
     expect(controller.getState()).toMatchObject({
       inFlightMarkCount: 50,
-      queuedFrameCount: 250,
-      queuedAudioBytes: 40_000,
+      queuedFrameCount: 1_500,
+      queuedAudioBytes: 240_000,
     });
     expect(() => controller.appendDelta(
       "response-overflow",
       Buffer.alloc(160, 2).toString("base64"),
     )).toThrow("premium_playback_overflow");
-    expect(controller.getState().queuedAudioBytes).toBe(40_000);
+    expect(controller.getState().queuedAudioBytes).toBe(240_000);
+  });
+
+  it("releases aggregate queued playback admission as frames drain and on interruption", () => {
+    const marks: string[] = [];
+    const admission = new PstnPremiumPlaybackAdmission(320);
+    const controller = new PstnPremiumPlaybackController({
+      sendFrame() {},
+      sendMark(name) {
+        marks.push(name);
+      },
+      clear: vi.fn(),
+    }, { admission });
+
+    controller.startResponse("response-admitted");
+    controller.appendDelta("response-admitted", Buffer.alloc(52 * 160, 1).toString("base64"));
+    expect(admission.getResidentBytes()).toBe(320);
+
+    controller.acknowledgeMark(marks[0] ?? "missing");
+    expect(admission.getResidentBytes()).toBe(160);
+
+    controller.interrupt();
+    expect(admission.getResidentBytes()).toBe(0);
+  });
+
+  it("releases queued playback admission on terminal disposal without clearing Twilio", () => {
+    const clear = vi.fn();
+    const admission = new PstnPremiumPlaybackAdmission(320);
+    const controller = new PstnPremiumPlaybackController({
+      sendFrame() {},
+      sendMark() {},
+      clear,
+    }, { admission });
+
+    controller.startResponse("response-disposed");
+    controller.appendDelta("response-disposed", Buffer.alloc(52 * 160, 1).toString("base64"));
+    controller.dispose();
+
+    expect(admission.getResidentBytes()).toBe(0);
+    expect(clear).not.toHaveBeenCalled();
   });
 
   it("rejects an oversized provider delta before decoding it", () => {
@@ -179,7 +248,7 @@ describe("PstnPremiumPlaybackController", () => {
 
     expect(() => controller.appendDelta(
       "response-oversized-delta",
-      "A".repeat(64_216),
+      "A".repeat(100_000),
     )).toThrow("premium_playback_delta_too_large");
   });
 

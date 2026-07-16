@@ -1,7 +1,7 @@
 # ISSUE-220: Premium realtime turn policy, interruption truncation, and ingress contract
 
 Status: Implemented
-Date: 2026-07-15
+Date: 2026-07-16
 External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220-premium-realtime-turn-policy-interruption-truncation-and)
 
 ## Work Completed
@@ -23,6 +23,9 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Added stable terminal-media handling, provider/session contract drift rejection, and redacted provider/model/policy/media diagnostics for readiness, pressure, failures, interruption, and truncation.
 - Updated deterministic PSTN evals and runtime/admin documentation to the new policy, ingress, and interruption contracts.
 - Corrected the runtime-session controller contract after the first remote CI run exposed one stale Gemini environment-model assertion; the test now verifies the platform-owned `gemini-3.1-flash-live-preview` policy default and no longer implies that tenant runtime creation reads `GEMINI_LIVE_MODEL`.
+- Diagnosed the deployed OpenAI call `CA2f874fbe09d06d76e5ce5ed21c8de56a`: webhook routing, media authorization, provider startup, inbound media, and interruption clear all succeeded, then Zara closed the Twilio socket with `premium_playback_overflow`; Twilio `31921` was the consequence of that Zara close, not the initiating failure.
+- Replaced the five-second/40,000-byte local playback queue with a 30-second/240,000-byte per-call reservoir behind the unchanged 50-mark Twilio window. Added a shared 32 MiB queued-playback admission ledger across active calls and idempotent release on mark drain, interruption, failure, stop, and shutdown.
+- Kept overload protection explicit: oversized provider deltas, per-call playback overflow, aggregate playback exhaustion, provider-message pressure, and Twilio playback-window ownership remain separate bounded failure modes.
 
 ## Tests Run
 
@@ -36,15 +39,20 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Focused ESLint pass across all ISSUE-220 production/test files passed after removing the two dead refactor remnants it identified.
 - `npm.cmd run eval:pstn` passed: 25 deterministic PSTN scenarios.
 - Initial GitHub CI on commit `7532839` passed lint, typecheck, and migration checks but found the stale Gemini controller expectation. The corrected controller and production ESM regression set passed locally: 2 files and 4 tests.
+- RED reproduced the deployed failure: the controller rejected a 15-second response burst with `premium_playback_overflow`, and the aggregate admission module did not exist.
+- GREEN/REFACTOR focused playback and execution suites passed: 42 tests across playback admission, playback control, and premium call execution.
+- `npm.cmd run typecheck --workspace @zara/api` passed.
+- Focused ESLint passed for the playback admission/controller, call execution, and PSTN eval files.
+- `npm.cmd run eval:pstn` passed all 25 deterministic scenarios after moving the explicit playback-overflow fixture to the new production boundary.
 
 ## Pending Work
 
-- No repository acceptance work remains. A deployed Twilio call should be used as the release smoke test to confirm real provider turn timing and barge-in truncation against production network conditions.
+- No repository acceptance work remains. Deploy this follow-up and repeat the normal caller turn plus barge-in smoke test; the call must remain open through ordinary multi-second responses and must not emit `premium_playback_overflow`.
 
 ## Risks
 
 - Incorrect truncation identity or duration can corrupt OpenAI conversation state after barge-in.
-- Raising per-call limits without aggregate admission can trade premature call failures for process memory pressure.
+- Missing Twilio mark acknowledgements can still consume the full per-call reservoir; that remains an intentional hard failure and should be diagnosed from playback lag, mark count, and queue depth rather than hidden with another limit increase.
 - A provider-neutral abstraction that hides provider-specific turn semantics can create false equivalence between OpenAI and Gemini.
 - Existing unrelated working-tree changes must not be staged, reverted, or folded into this issue.
 
@@ -58,7 +66,8 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Startup and handoff have separate ingress policies and no silent frame dropping or sandwich fallback.
 - Provider transport rejects mutable session/provider/model projections that disagree with the frozen provider contract.
 - Persisted media contracts are fixed and validated; platform admins configure supported provider/model defaults and OpenAI turn settings, not arbitrary media payload shapes.
+- The 50-mark Twilio pacing window remains the playback authority. The local queue absorbs up to 30 seconds of normal provider generation skew, while shared 32 MiB admission bounds process-wide resident queued audio.
 
 ## Next Recommended Step
 
-Deploy the completed slice and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `gpt-realtime-2.1`, policy version, low-eagerness semantic VAD, one playback clear, and an acknowledged truncation duration without raw audio or transcript data.
+Deploy the completed slice and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `gpt-realtime-2.1`, policy version, low-eagerness semantic VAD, one playback clear, acknowledged truncation duration, draining Twilio marks, and no playback overflow without raw audio or transcript data.

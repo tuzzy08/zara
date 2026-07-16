@@ -529,7 +529,7 @@ describe("runtime observability", () => {
           providerOutputDepthBytes: 2_048, providerOutputDepthCount: 3,
         }),
         pstnEvent("premium.playback", "2026-07-12T10:00:00.700Z", {
-          outboundQueuedBytes: 4_800, outboundQueuedFrames: 30,
+          outboundQueuedBytes: 4_800, aggregateOutboundQueuedBytes: 12_800, outboundQueuedFrames: 30,
           outstandingPlaybackMarks: 30, playbackLagMs: 45,
           playbackGeneration: 2, acknowledgedBoundaries: 1, droppedFrames: 2,
           rawAudio: "AUDIO_MUST_NOT_ESCAPE",
@@ -559,6 +559,7 @@ describe("runtime observability", () => {
       maxProviderOutputDepthBytes: 2_048,
       maxProviderOutputDepthCount: 3,
       maxOutboundQueuedBytes: 4_800,
+      maxAggregateOutboundQueuedBytes: 12_800,
       maxOutboundQueuedFrames: 30,
       maxOutstandingPlaybackMarks: 30,
       maxPlaybackLagMs: 45,

@@ -1,11 +1,14 @@
+import {
+  PstnPremiumPlaybackAdmission,
+  type PstnPremiumPlaybackAdmissionLease,
+} from "./pstn-premium-playback-admission";
+
 const frameByteLength = 160;
 const inFlightMarkLimit = 50;
-const queuedAudioByteLimit = 40_000;
+const queuedAudioByteLimit = 30_000 / 20 * frameByteLength;
 const invalidatedResponseLimit = 64;
 const trackedResponseLimit = 64;
-const maxDeltaAudioBytes = queuedAudioByteLimit
-  + (inFlightMarkLimit * frameByteLength)
-  + (frameByteLength - 1);
+const maxDeltaAudioBytes = 64 * 1_024;
 const maxDeltaBase64Length = 4 * Math.ceil(maxDeltaAudioBytes / 3);
 
 export type PstnPremiumPlaybackInputResult =
@@ -13,7 +16,14 @@ export type PstnPremiumPlaybackInputResult =
   | { accepted: false; reason: "response_invalidated" | "response_unregistered" };
 
 type QueuedCommand =
-  | { type: "frame"; responseId: string; generation: number; frameIndex: number; bytes: Buffer }
+  | {
+      type: "frame";
+      responseId: string;
+      generation: number;
+      frameIndex: number;
+      bytes: Buffer;
+      admissionLease?: PstnPremiumPlaybackAdmissionLease | undefined;
+    }
   | { type: "boundary"; responseId: string; generation: number };
 
 interface ResponsePlaybackState {
@@ -50,13 +60,18 @@ export class PstnPremiumPlaybackController {
   private nextMarkSequence = 1;
   private acknowledgedBoundaryCount = 0;
   private droppedFrameCount = 0;
+  private readonly admission: PstnPremiumPlaybackAdmission;
 
   constructor(private readonly output: {
     sendFrame(frame: PstnPremiumPlaybackFrame): void;
     sendMark(name: string): void;
     clear(): void;
     onResponseCompleted?(completion: { responseId: string; generation: number }): void;
-  }) {}
+  }, options: {
+    admission?: PstnPremiumPlaybackAdmission | undefined;
+  } = {}) {
+    this.admission = options.admission ?? new PstnPremiumPlaybackAdmission();
+  }
 
   startResponse(responseId: string): PstnPremiumPlaybackInputResult {
     if (this.invalidatedResponseIds.has(responseId)) {
@@ -197,13 +212,19 @@ export class PstnPremiumPlaybackController {
       this.rememberInvalidatedResponse(responseId);
     }
     this.generation += 1;
-    this.queuedCommands.length = 0;
-    this.queuedAudioBytes = 0;
+    this.releaseQueuedCommands();
     this.remainders.clear();
     this.inFlightMarks.clear();
     this.responses.clear();
     this.output.clear();
     return { playbackCleared: true, truncations };
+  }
+
+  dispose() {
+    this.releaseQueuedCommands();
+    this.remainders.clear();
+    this.inFlightMarks.clear();
+    this.responses.clear();
   }
 
   getState() {
@@ -220,6 +241,7 @@ export class PstnPremiumPlaybackController {
       ),
       acknowledgedBoundaryCount: this.acknowledgedBoundaryCount,
       droppedFrameCount: this.droppedFrameCount,
+      aggregateQueuedAudioBytes: this.admission.getResidentBytes(),
       playbackLagMs: this.inFlightMarks.size === 0
         ? 0
         : Math.max(0, Date.now() - Math.min(...[...this.inFlightMarks.values()].map((mark) => mark.sentAtMs))),
@@ -241,7 +263,8 @@ export class PstnPremiumPlaybackController {
       bytes: Buffer.from(bytes),
     };
     if (this.inFlightMarks.size >= inFlightMarkLimit || this.queuedCommands.length > 0) {
-      this.queuedCommands.push(frame);
+      const admissionLease = this.admission.acquire(frame.bytes.length);
+      this.queuedCommands.push({ ...frame, admissionLease });
       this.queuedAudioBytes += frame.bytes.length;
       return;
     }
@@ -305,14 +328,23 @@ export class PstnPremiumPlaybackController {
       ...(command.type === "frame" ? { frameIndex: command.frameIndex } : {}),
       sentAtMs: Date.now(),
     });
-    if (command.type === "frame") {
-      this.output.sendFrame({
-        responseId: command.responseId,
-        generation: command.generation,
-        payloadBase64: command.bytes.toString("base64"),
-      });
+    try {
+      if (command.type === "frame") {
+        this.output.sendFrame({
+          responseId: command.responseId,
+          generation: command.generation,
+          payloadBase64: command.bytes.toString("base64"),
+        });
+      }
+      this.output.sendMark(markName);
+    } catch (error) {
+      this.inFlightMarks.delete(markName);
+      throw error;
+    } finally {
+      if (command.type === "frame") {
+        command.admissionLease?.release();
+      }
     }
-    this.output.sendMark(markName);
   }
 
   private drainQueuedFrames() {
@@ -326,5 +358,15 @@ export class PstnPremiumPlaybackController {
       }
       this.sendCommand(command);
     }
+  }
+
+  private releaseQueuedCommands() {
+    for (const command of this.queuedCommands) {
+      if (command.type === "frame") {
+        command.admissionLease?.release();
+      }
+    }
+    this.queuedCommands.length = 0;
+    this.queuedAudioBytes = 0;
   }
 }

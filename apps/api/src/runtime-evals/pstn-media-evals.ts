@@ -516,7 +516,12 @@ async function observePremiumScenario(
     case "playback-overflow": {
       const controller = createPlaybackProbe().controller;
       controller.startResponse("response-overflow");
-      controller.appendDelta("response-overflow", Buffer.alloc(300 * 160, 1).toString("base64"));
+      for (let second = 0; second < 31; second += 1) {
+        controller.appendDelta(
+          "response-overflow",
+          Buffer.alloc(50 * 160, second).toString("base64"),
+        );
+      }
       let overflowed = false;
       try {
         controller.appendDelta("response-overflow", Buffer.alloc(160, 2).toString("base64"));

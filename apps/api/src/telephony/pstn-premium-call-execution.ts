@@ -33,6 +33,7 @@ import {
   type PstnPremiumCallActorProvider,
 } from "./pstn-premium-call-actor";
 import { PstnPremiumIngressAdmission } from "./pstn-premium-ingress-admission";
+import { PstnPremiumPlaybackAdmission } from "./pstn-premium-playback-admission";
 import { PstnPremiumPlaybackController } from "./pstn-premium-playback-controller";
 
 export interface PstnPremiumCallOutput {
@@ -125,6 +126,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
   private readonly cancelledCallSessions = new Map<string, string>();
   private readonly terminalCallSessionIds = new Set<string>();
   private readonly ingressAdmission = new PstnPremiumIngressAdmission();
+  private readonly playbackAdmission = new PstnPremiumPlaybackAdmission();
   private shuttingDown = false;
   private readonly logger = new Logger(PstnPremiumCallExecution.name);
 
@@ -344,6 +346,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       onTerminal: () => {
         const installed = this.executions.get(input.callSessionId);
         if (installed?.actor === actor) {
+          installed.playback.dispose();
           this.recordCleanup(installed, actor.getState());
           this.clearProviderTransition(installed, "provider_handoff_cancelled");
           this.executions.delete(input.callSessionId);
@@ -377,7 +380,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         onResponseCompleted: ({ responseId }) => {
           this.recordCompletedPlaybackResponse(execution, responseId);
         },
-      }),
+      }, { admission: this.playbackAdmission }),
       providerMessages: Promise.resolve(),
       providerMessagePressure: new PremiumProviderMessagePressure(),
       outboundSequence: 0,
@@ -962,6 +965,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       payload: {
         outboundQueuedBytes: state.queuedAudioBytes,
         outboundQueuedFrames: state.queuedFrameCount,
+        aggregateOutboundQueuedBytes: state.aggregateQueuedAudioBytes,
         outstandingPlaybackMarks: state.inFlightMarkCount,
         playbackLagMs: state.playbackLagMs,
         playbackGeneration: state.generation,

@@ -15,6 +15,7 @@ External: [Linear ZAR-215](https://linear.app/zara-voice/issue/ZAR-215/issue-185
 - Routed inbound Twilio marks to premium execution, validated mark stream identity, and treated marks returned after `clear` as stale rather than played.
 - Deduplicated speech-start plus response-cancel interruption signals into one generation advance and one Twilio clear.
 - Rechecked execution ownership after awaited provider/tool processing so terminated calls cannot accept stale state updates.
+- ISSUE-220 production conformance later superseded the original 40,000-byte local queue with a 30-second/240,000-byte per-call queue plus shared 32 MiB playback admission after a normal provider burst reproduced a false `premium_playback_overflow`; the 50-mark Twilio window remains unchanged.
 ## Tests Run
 - `npx vitest run apps/api/src/sandbox-live-sessions/openai-realtime.adapter.test.ts apps/api/src/telephony/pstn-premium-playback-controller.test.ts apps/api/src/telephony/pstn-premium-call-execution.test.ts apps/api/src/telephony/twilio-media-streams.bridge.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=forks --maxWorkers=1 --testTimeout=30000` - 53 passed.
 - `npx vitest run apps/api/src/telephony/twilio-media-streams.websocket.test.ts --pool=forks --maxWorkers=1 --testTimeout=30000` - 5 passed.
