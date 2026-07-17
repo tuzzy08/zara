@@ -102,6 +102,7 @@ interface ActivePremiumCallExecution {
   recordedMilestones: Set<string>;
   observabilityFailureLogged: boolean;
   cleanupRecorded: boolean;
+  recordedPhoneTestCheckpoints: Set<"transcriptCreated" | "agentResponseGenerated" | "outboundAudioSent">;
 }
 
 interface PremiumProviderFailureContext {
@@ -427,6 +428,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       recordedMilestones: new Set(),
       observabilityFailureLogged: false,
       cleanupRecorded: false,
+      recordedPhoneTestCheckpoints: new Set(),
     };
     this.executions.set(input.callSessionId, execution);
     this.bindProviderConnection(execution, providerConnection, execution.providerEpoch);
@@ -1304,15 +1306,31 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     return responseId;
   }
 
-  private recordCheckpoint(
+  private async recordCheckpoint(
     execution: ActivePremiumCallExecution,
     checkpoint: "transcriptCreated" | "agentResponseGenerated" | "outboundAudioSent",
   ) {
-    return this.telephonyService.recordPstnPhoneTestCheckpoint({
-      organizationId: execution.organizationId,
-      callSessionId: execution.callSessionId,
-      checkpoint,
-    });
+    if (execution.recordedPhoneTestCheckpoints.has(checkpoint)) {
+      return;
+    }
+    execution.recordedPhoneTestCheckpoints.add(checkpoint);
+
+    try {
+      await this.telephonyService.recordPstnPhoneTestCheckpoint({
+        organizationId: execution.organizationId,
+        callSessionId: execution.callSessionId,
+        checkpoint,
+      });
+    } catch {
+      this.logger.warn(`[twilio-pstn] phone_test_checkpoint_failed ${JSON.stringify({
+        organizationId: execution.organizationId,
+        dispatchId: execution.dispatchId,
+        callSessionId: execution.callSessionId,
+        runtime: execution.registered.session.runtime,
+        checkpoint,
+        failureCode: "phone_test_checkpoint_persistence_failed",
+      })}`);
+    }
   }
 
   private rememberTerminalCallSession(callSessionId: string) {

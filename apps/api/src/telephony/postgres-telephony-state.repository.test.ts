@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
-import { afterEach, describe, expect, it } from "vitest";
-import { newDb } from "pg-mem";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DataType, newDb } from "pg-mem";
 import { defaultRecordingPolicy, importTwilioPhoneNumbers, type TelephonyConnection } from "@zara/core";
 
 import type { PersistedTelephonyStateRecord } from "./telephony-state.repository";
@@ -343,11 +343,60 @@ describe("PostgresTelephonyStateRepository", () => {
       ],
     });
   });
+
+  it("takes a tenant transaction lock before replacing normalized state", async () => {
+    const queries: Array<{ sql: string; parameters?: unknown[] | undefined }> = [];
+    const client = {
+      query: vi.fn(async (sql: string, parameters?: unknown[]) => {
+        queries.push({ sql, parameters });
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    const repository = new PostgresTelephonyStateRepository({
+      async connect() { return client; },
+      async query() { return { rows: [] }; },
+    } as never);
+
+    await repository.save({
+      schemaVersion: 1,
+      organizationId: "tenant-west-africa",
+      connections: [],
+      phoneNumbers: [],
+      healthChecks: [],
+      providerHeartbeats: [],
+      dispatches: [],
+      executionSessions: [],
+      executionCommands: [],
+      webhookEvents: [],
+      callControlEvents: [],
+      credentials: [],
+      processedWebhookEventIds: [],
+    });
+
+    const lockIndex = queries.findIndex(({ sql }) => sql.includes("pg_advisory_xact_lock"));
+    const firstDeleteIndex = queries.findIndex(({ sql }) => sql.trimStart().startsWith("delete from"));
+    expect(lockIndex).toBeGreaterThan(queries.findIndex(({ sql }) => sql === "begin"));
+    expect(lockIndex).toBeLessThan(firstDeleteIndex);
+    expect(queries[lockIndex]?.parameters).toEqual(["tenant-west-africa"]);
+  });
 });
 
 async function createHarness() {
   const database = newDb({
     autoCreateForeignKeyIndices: true,
+  });
+  database.public.registerFunction({
+    name: "hashtext",
+    args: [DataType.text],
+    returns: DataType.integer,
+    implementation: () => 1,
+  });
+  database.public.registerFunction({
+    name: "pg_advisory_xact_lock",
+    args: [DataType.integer],
+    returns: DataType.integer,
+    implementation: () => 1,
   });
   const pg = database.adapters.createPg();
   const pool = new pg.Pool();

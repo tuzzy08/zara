@@ -1349,6 +1349,65 @@ describe("PstnPremiumCallExecution", () => {
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
   });
 
+  it("does not terminate premium media when a phone-test checkpoint cannot be persisted", async () => {
+    const terminations: string[] = [];
+    const providerCloses: string[] = [];
+    const checkpointAttempts: string[] = [];
+    let sentMediaFrames = 0;
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onTerminate: (sessionId) => terminations.push(sessionId),
+      onProviderClose: (reason) => providerCloses.push(reason),
+      async recordCheckpoint(checkpoint) {
+        checkpointAttempts.push(checkpoint);
+        throw new Error("duplicate key value violates unique constraint");
+      },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() { sentMediaFrames += 1; },
+        clearAudio() {},
+        sendMark() {},
+        close() {},
+      },
+    });
+
+    harness.emitProviderMessage(JSON.stringify({
+      type: "response.created",
+      response: { id: "response-checkpoint", status: "in_progress" },
+    }));
+    harness.emitProviderMessage(JSON.stringify({
+      type: "response.output_audio.delta",
+      response_id: "response-checkpoint",
+      item_id: "assistant-item-checkpoint",
+      content_index: 0,
+      delta: Buffer.alloc(160, 0xff).toString("base64"),
+    }));
+    harness.emitProviderMessage(JSON.stringify({
+      type: "response.output_audio_transcript.done",
+      response_id: "response-checkpoint",
+      transcript: "Hello from the configured assistant.",
+    }));
+    harness.emitProviderMessage(JSON.stringify({
+      type: "response.output_audio_transcript.done",
+      response_id: "response-checkpoint",
+      transcript: "Hello from the configured assistant.",
+    }));
+
+    await waitFor(() => checkpointAttempts.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(sentMediaFrames).toBe(1);
+    expect(checkpointAttempts).toEqual(["agentResponseGenerated"]);
+    expect(terminations).toEqual([]);
+    expect(providerCloses).toEqual([]);
+
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+  });
+
   it("includes the terminal failure code in premium cleanup logs", async () => {
     const cleanupLog = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
     const terminations: string[] = [];
@@ -1759,6 +1818,7 @@ function createMinimalExecutionHarness(
     manifest?: CompiledRuntimeManifest | undefined;
     onUpdate?: (() => void) | undefined;
     onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
+    recordCheckpoint?: ((checkpoint: string) => Promise<void>) | undefined;
   } = {},
 ) {
   const manifest = options.manifest ?? createPremiumManifest();
@@ -1815,7 +1875,9 @@ function createMinimalExecutionHarness(
           executionSessions: [], executionCommands: [], webhookEvents: [], callControlEvents: [],
         };
       },
-      async recordPstnPhoneTestCheckpoint() {},
+      async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
+        await options.recordCheckpoint?.(input.checkpoint);
+      },
     } as never,
     { async getPublishedManifest() { return manifest; } } as never,
     {

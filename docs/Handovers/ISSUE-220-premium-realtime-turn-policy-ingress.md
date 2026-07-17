@@ -2,6 +2,7 @@
 
 Status: Implemented
 Date: 2026-07-16
+Last updated: 2026-07-17
 External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220-premium-realtime-turn-policy-interruption-truncation-and)
 
 ## Work Completed
@@ -36,6 +37,10 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Reconstructed production call `CA498f8ff8ba8d1e9bf07c0eb7553d019e`: Twilio routing and media authorization succeeded, OpenAI became ready, provider audio reached Zara, Zara sent a PCMU frame, and Twilio acknowledged its playback mark before Zara failed the execution.
 - Removed ordinary provider audio and lifecycle-only messages from the bounded tool/handoff control queue. Only normalized tool calls plus OpenAI `response.created` and `response.done` handoff-correlation events now enter `RuntimeSessionsService`; transcript checkpoints remain ordered without retaining raw audio messages.
 - Preserved provider-message size rejection and bounded aggregate pressure for actual control traffic, and added the stable terminal failure code to redacted `premium_cleanup` logs.
+- Reconstructed production call `CA3f958d338862112a6c6ce083e2d737cb`: the one-shot phone-test route authorized, OpenAI became ready, provider audio reached Zara, a Twilio media frame was sent and acknowledged, then concurrent phone-test checkpoint persistence failed the premium execution and closed the media socket with code 1011.
+- Confirmed subsequent call `CA25ba5b5246455bf81c38464787846c94` was a separate route-state outcome: the consumed test route no longer applied and the saved live route was not active, so the webhook correctly returned the unavailable response. Twilio transport did not initiate either failure.
+- Serialized telephony snapshot persistence per organization in-process and added a transaction-scoped Postgres advisory lock per organization before normalized tenant state replacement, preventing concurrent checkpoint writes from racing across service instances.
+- Isolated phone-test checkpoint persistence from the realtime media lifecycle. Checkpoint writes are attempted once per call/checkpoint, persistence failures emit a redacted stable warning, and a database/observability failure can no longer terminate healthy provider or Twilio media.
 
 ## Tests Run
 
@@ -68,10 +73,16 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Focused ESLint passed for all changed premium execution, pressure, and auth files.
 - `npm.cmd run eval:pstn` passed all 25 deterministic PSTN scenarios after the control-queue correction.
 - `npm.cmd run db:check` passed with no schema drift.
+- RED reproduced the production call-drop boundary: a phone-test checkpoint persistence error propagated through the provider event loop and terminated premium media, while two concurrent checkpoint writes entered repository save simultaneously.
+- GREEN/REFACTOR focused persistence, Postgres repository, and premium execution suites passed: 3 files and 50 tests.
+- Neighboring Twilio WebSocket, bridge, and premium call actor suites passed: 3 files and 25 tests. The telephony controller suite passed independently: 22 tests.
+- `npm.cmd run typecheck --workspace @zara/api` passed.
+- Focused ESLint passed for all six changed production/test files.
+- `npm.cmd run eval:pstn` passed all 25 deterministic PSTN scenarios.
 
 ## Pending Work
 
-- No repository acceptance work remains. Deploy this follow-up and repeat the normal caller turn plus barge-in smoke test. Audio bursts must remain active while tool/handoff work is queued, and any terminal cleanup must include one stable `failureCode`.
+- No repository acceptance work remains. Deploy this follow-up, start a fresh phone-test waiting window, and complete one normal caller turn. The previous one-shot test route was consumed; repeated live calls require a successfully tested and explicitly activated live route.
 
 ## Risks
 
@@ -81,6 +92,7 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - A provider-neutral abstraction that hides provider-specific turn semantics can create false equivalence between OpenAI and Gemini.
 - Existing unrelated working-tree changes must not be staged, reverted, or folded into this issue.
 - The attachment proves the call crossed provider generation and Twilio playback acknowledgement before Zara terminated it, but the old cleanup log omitted the initiating failure code. The deterministic regression reproduced `premium_provider_output_overflow`; the new cleanup field will make future production attribution exact.
+- Telephony persistence still replaces one tenant's normalized telephony snapshot transactionally. The in-process queue and database advisory lock make that existing model correct under concurrent writes; a future incremental-write redesign is optional and is not required for this incident.
 
 ## Decisions
 
@@ -96,7 +108,9 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Provider-owned lifecycle events use one ordered real-time lane; connector/tool work remains on a separate serialized control lane and cannot delay barge-in or playback projection.
 - Provider response stalls fail closed after eight seconds. Zara does not retry a response request unless it can correlate that command idempotently.
 - Provider audio, caller activity, and assistant lifecycle events do not consume the connector/tool/handoff control ledger. Control admission remains bounded for tool calls and OpenAI handoff-correlation events, while oversized individual provider messages still fail closed.
+- Phone-test checkpoint persistence is operational bookkeeping, not a media-plane dependency. It may report a redacted warning on failure but must never close an otherwise healthy call.
+- Same-tenant snapshot saves are serialized both in-process and at the Postgres transaction boundary; different tenants remain independent.
 
 ## Next Recommended Step
 
-Deploy the completed slice and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `provider_ready`, `response_started`, `provider_audio_received`, `twilio_media_sent`, and `twilio_mark_acknowledged`, then records the second caller turn and response without `premium_provider_output_overflow`. Confirm `gpt-realtime-2.1`, policy version, low-eagerness semantic VAD, one playback clear, acknowledged truncation duration, draining Twilio marks, and no raw audio or transcript data. If the call terminates, capture the new `premium_cleanup.failureCode`.
+Deploy the completed slice, start a new phone-test waiting window, and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `provider_ready`, `response_started`, `provider_audio_received`, `twilio_media_sent`, and `twilio_mark_acknowledged`, then records later turns without `phone_test_checkpoint_failed` or fatal cleanup. After the test succeeds, activate the live route before validating repeated inbound calls.

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FileTelephonyStateRepository } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
+import type { PersistedTelephonyStateRecord } from "./telephony-state.repository";
 import type { TwilioNumberInventoryProvider } from "./twilio-number-inventory.provider";
 import type { TwilioNumberRoutingProvider } from "./twilio-number-routing.provider";
 
@@ -351,6 +352,85 @@ describe("telephony persistence and secret storage", () => {
     });
   });
 
+  it("serializes concurrent tenant checkpoint saves without losing either checkpoint", async () => {
+    tempDirectory = mkdtempSync(join(tmpdir(), "zara-telephony-"));
+    const repository = new DelayedFileTelephonyStateRepository(join(tempDirectory, "telephony-store"));
+    const service = new TelephonyService(
+      repository,
+      new TelephonySecretVault({
+        masterSecret: "12345678901234567890123456789012",
+        keyVersion: 1,
+      }),
+      createGeneratedTwilioInventoryProvider(),
+      createNoopTwilioRoutingProvider(),
+    );
+    const organizationId = "tenant-west-africa";
+    const connection = await service.createConnection({
+      organizationId,
+      actorUserId: "user-ops-lead",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      blockRoutingOnHealthFailure: true,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token-1234567890",
+    });
+    await service.importTwilioNumbers({
+      organizationId,
+      connectionId: connection.connection.id,
+    });
+    const numberId = (await service.getState(organizationId)).phoneNumbers[0]!.id;
+    await service.assignNumberRoute({
+      organizationId,
+      numberId,
+      publishedVersionId: "workflow-support-v1",
+      workflowLabel: "Support triage",
+      workspaceId: "workspace-customer-success",
+      runtimeProfile: "cost-optimized",
+    });
+    await service.createPstnTestRoute({
+      organizationId,
+      numberId,
+      publishedVersionId: "workflow-support-v1",
+      workflowLabel: "Support triage",
+      workspaceId: "workspace-customer-success",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      now: "2026-07-17T20:00:00.000Z",
+      expiresAt: "2026-07-17T20:30:00.000Z",
+    });
+    const routed = await service.dispatchInboundCall({
+      organizationId,
+      toPhoneNumber: "+14155557890",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-concurrent-checkpoints",
+      now: "2026-07-17T20:01:00.000Z",
+    });
+    expect(routed.dispatch.routeMode).toBe("test_route");
+    repository.delaySaves = true;
+
+    await Promise.all([
+      service.recordPstnPhoneTestCheckpoint({
+        organizationId,
+        callSessionId: routed.dispatch.callSessionId!,
+        checkpoint: "outboundAudioSent",
+      }),
+      service.recordPstnPhoneTestCheckpoint({
+        organizationId,
+        callSessionId: routed.dispatch.callSessionId!,
+        checkpoint: "agentResponseGenerated",
+      }),
+    ]);
+
+    expect(repository.maximumConcurrentSaves).toBe(1);
+    expect((await service.getState(organizationId)).phoneNumbers[0]?.testRoute?.waitingSession.checklist)
+      .toMatchObject({
+        outboundAudioSent: true,
+        agentResponseGenerated: true,
+      });
+  });
+
   it("imports real Twilio inventory from the connected account instead of generated fixtures", async () => {
     const twilioInventory = createTwilioInventoryProvider([
       {
@@ -555,5 +635,27 @@ describe("telephony persistence and secret storage", () => {
         return [];
       },
     };
+  }
+
+  class DelayedFileTelephonyStateRepository extends FileTelephonyStateRepository {
+    delaySaves = false;
+    maximumConcurrentSaves = 0;
+    private activeSaves = 0;
+
+    override async save(record: PersistedTelephonyStateRecord) {
+      if (!this.delaySaves) {
+        await super.save(record);
+        return;
+      }
+
+      this.activeSaves += 1;
+      this.maximumConcurrentSaves = Math.max(this.maximumConcurrentSaves, this.activeSaves);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        await super.save(record);
+      } finally {
+        this.activeSaves -= 1;
+      }
+    }
   }
 });

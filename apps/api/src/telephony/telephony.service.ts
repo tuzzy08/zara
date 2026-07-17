@@ -119,6 +119,7 @@ const safeCallbackMessage =
 @Injectable()
 export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   private readonly stateByOrganizationId = new Map<string, TelephonyStateStore>();
+  private readonly persistenceByOrganizationId = new Map<string, Promise<void>>();
   private readonly mediaStreamTokenSecret = resolveOneTimeStreamTokenSecret();
   private readonly logger = new Logger(TelephonyService.name);
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -2301,7 +2302,19 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async persistState(state: TelephonyStateStore) {
-    await this.stateRepository.save(dehydrateState(state, this.secretVault));
+    const previous = this.persistenceByOrganizationId.get(state.organizationId) ?? Promise.resolve();
+    const current = previous
+      .catch(() => undefined)
+      .then(() => this.stateRepository.save(dehydrateState(state, this.secretVault)));
+    this.persistenceByOrganizationId.set(state.organizationId, current);
+
+    try {
+      await current;
+    } finally {
+      if (this.persistenceByOrganizationId.get(state.organizationId) === current) {
+        this.persistenceByOrganizationId.delete(state.organizationId);
+      }
+    }
   }
 }
 

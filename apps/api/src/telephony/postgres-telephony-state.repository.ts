@@ -103,6 +103,7 @@ export class PostgresTelephonyStateRepository {
 
     try {
       await client.query("begin");
+      await client.query("select pg_advisory_xact_lock(hashtext($1))", [record.organizationId]);
       await ensureTenantShell(client, record.organizationId);
 
       await clearTenantState(client, record.organizationId);
