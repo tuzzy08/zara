@@ -5055,3 +5055,27 @@ Implementation summary:
 - Added normalized provider lifecycle events, acknowledged Twilio-mark playback accounting, exact OpenAI item/content truncation, separate startup/handoff resident-byte limits, process-wide aggregate ingress admission, stable terminal media handling, and redacted provider/policy diagnostics.
 - Production conformance replaced the false-failing five-second playback queue with a 30-second per-call reservoir and shared 32 MiB queued-playback admission while preserving the 50-mark Twilio pacing window and explicit runaway-output failure.
 - Updated deterministic PSTN evals to enforce serialized resident-byte buffering and release; focused runtime, bridge, admin, typecheck, lint, and 25-case PSTN eval gates pass.
+
+### ISSUE-221: Better Auth rate-limit concurrency
+
+- Priority: P0
+- Area: Auth / Security / API
+- Milestone: Production Readiness
+- Labels: auth, backend, security, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-221-better-auth-rate-limit-concurrency.md](../docs/Handovers/ISSUE-221-better-auth-rate-limit-concurrency.md)
+- External: [Linear ZAR-221](https://linear.app/zara-voice/issue/ZAR-221/issue-221-make-better-auth-database-rate-limiting-concurrency-safe)
+
+Acceptance criteria:
+- Concurrent first requests create one rate-limit row without Postgres unique-key errors.
+- Active-window increments derive from the stored count rather than stale reads.
+- Concurrent expired-window writers reset one generation once and count the remaining requests.
+- Delayed older writes cannot move `lastRequest` backward.
+- The unique key remains enforced, memory-backed auth behavior is unchanged, and no migration is required.
+- Focused tests, API typecheck, lint, and migration drift checks pass.
+
+Implementation summary:
+- Added Better Auth custom Postgres storage with atomic upsert/increment behavior.
+- Reused the rate-limit row ID as an expired-window generation token and kept timestamps monotonic.
+- Installed custom storage only for database-backed production rate limiting.

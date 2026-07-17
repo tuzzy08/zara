@@ -10,6 +10,12 @@ export class PremiumProviderMessagePressure {
     maxCount: defaultMaxCount,
   }) {}
 
+  assertMessageWithinLimit(messageBytes: number) {
+    if (messageBytes > this.limits.maxBytes) {
+      throw new Error("premium_provider_output_overflow");
+    }
+  }
+
   acquire(messageBytes: number) {
     if (this.bytes + messageBytes > this.limits.maxBytes || this.count + 1 > this.limits.maxCount) {
       throw new Error("premium_provider_output_overflow");

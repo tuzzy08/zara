@@ -33,6 +33,9 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Added an eight-second first-audio deadline for greetings, caller turns, and handoff continuations. A `response.created` event alone does not clear it; accepted playback audio does. The deadline fails closed without issuing an uncorrelated retry that could duplicate speech.
 - Added once-per-call redacted production milestones for provider readiness, response start, first provider audio, first Twilio media frame, and first Twilio mark acknowledgement. Observability-export failure is now visible once per call instead of being silently swallowed.
 - Moved provider-output admission ahead of JSON parsing and preserved normalized incomplete-response reasons in failure telemetry.
+- Reconstructed production call `CA498f8ff8ba8d1e9bf07c0eb7553d019e`: Twilio routing and media authorization succeeded, OpenAI became ready, provider audio reached Zara, Zara sent a PCMU frame, and Twilio acknowledged its playback mark before Zara failed the execution.
+- Removed ordinary provider audio and lifecycle-only messages from the bounded tool/handoff control queue. Only normalized tool calls plus OpenAI `response.created` and `response.done` handoff-correlation events now enter `RuntimeSessionsService`; transcript checkpoints remain ordered without retaining raw audio messages.
+- Preserved provider-message size rejection and bounded aggregate pressure for actual control traffic, and added the stable terminal failure code to redacted `premium_cleanup` logs.
 
 ## Tests Run
 
@@ -59,9 +62,16 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - Focused ESLint passed for the five changed production/test files.
 - `npm.cmd run eval:pstn` passed all 25 deterministic scenarios after the final race-condition corrections.
 
+- RED reproduced the latest production failure boundary: a valid OpenAI response burst exceeded the 64 KiB control ledger while `response.created` processing was delayed, even though audio belonged to the realtime lifecycle path.
+- GREEN/REFACTOR focused auth/runtime regression passed: 6 files and 76 tests covering pressure, premium execution, runtime sessions, provider-native tools, Better Auth policy, and Postgres rate-limit storage.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the media/control queue split.
+- Focused ESLint passed for all changed premium execution, pressure, and auth files.
+- `npm.cmd run eval:pstn` passed all 25 deterministic PSTN scenarios after the control-queue correction.
+- `npm.cmd run db:check` passed with no schema drift.
+
 ## Pending Work
 
-- No repository acceptance work remains. Deploy this follow-up and repeat the normal caller turn plus barge-in smoke test. The production trace must show provider readiness, response start, first provider audio, first Twilio media frame, and first Twilio mark acknowledgement; otherwise it must terminate with one structured provider/runtime failure instead of remaining silently active.
+- No repository acceptance work remains. Deploy this follow-up and repeat the normal caller turn plus barge-in smoke test. Audio bursts must remain active while tool/handoff work is queued, and any terminal cleanup must include one stable `failureCode`.
 
 ## Risks
 
@@ -70,6 +80,7 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - A provider that accepts a response request but emits no `response.created` now fails the call after eight seconds. This intentionally prefers one diagnosable termination over an uncorrelated retry that could produce duplicate speech.
 - A provider-neutral abstraction that hides provider-specific turn semantics can create false equivalence between OpenAI and Gemini.
 - Existing unrelated working-tree changes must not be staged, reverted, or folded into this issue.
+- The attachment proves the call crossed provider generation and Twilio playback acknowledgement before Zara terminated it, but the old cleanup log omitted the initiating failure code. The deterministic regression reproduced `premium_provider_output_overflow`; the new cleanup field will make future production attribution exact.
 
 ## Decisions
 
@@ -84,7 +95,8 @@ External: [Linear ZAR-220](https://linear.app/zara-voice/issue/ZAR-220/issue-220
 - The 50-mark Twilio pacing window remains the playback authority. The local queue absorbs up to 30 seconds of normal provider generation skew, while shared 32 MiB admission bounds process-wide resident queued audio.
 - Provider-owned lifecycle events use one ordered real-time lane; connector/tool work remains on a separate serialized control lane and cannot delay barge-in or playback projection.
 - Provider response stalls fail closed after eight seconds. Zara does not retry a response request unless it can correlate that command idempotently.
+- Provider audio, caller activity, and assistant lifecycle events do not consume the connector/tool/handoff control ledger. Control admission remains bounded for tool calls and OpenAI handoff-correlation events, while oversized individual provider messages still fail closed.
 
 ## Next Recommended Step
 
-Deploy the completed slice and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `provider_ready`, `response_started`, `provider_audio_received`, `twilio_media_sent`, and `twilio_mark_acknowledged`, then records the second caller turn and response. Confirm `gpt-realtime-2.1`, policy version, low-eagerness semantic VAD, one playback clear, acknowledged truncation duration, draining Twilio marks, and no raw audio or transcript data.
+Deploy the completed slice and run one OpenAI premium PSTN call with a normal caller turn plus one barge-in. Confirm the trace records `provider_ready`, `response_started`, `provider_audio_received`, `twilio_media_sent`, and `twilio_mark_acknowledged`, then records the second caller turn and response without `premium_provider_output_overflow`. Confirm `gpt-realtime-2.1`, policy version, low-eagerness semantic VAD, one playback clear, acknowledged truncation duration, draining Twilio marks, and no raw audio or transcript data. If the call terminates, capture the new `premium_cleanup.failureCode`.

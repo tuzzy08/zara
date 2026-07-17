@@ -97,6 +97,7 @@ interface ActivePremiumCallExecution {
   geminiResponseSequence: number;
   activeGeminiResponseId?: string | undefined;
   providerFailure?: PremiumProviderFailureContext | undefined;
+  terminalFailureCode?: string | undefined;
   expectedProviderResponse?: ExpectedProviderResponse | undefined;
   recordedMilestones: Set<string>;
   observabilityFailureLogged: boolean;
@@ -353,6 +354,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         }
       },
       onFailure: (reason) => {
+        execution.terminalFailureCode = reason;
         if (!readinessRecorded && reason.startsWith("premium_provider_readiness_")) {
           readinessRecorded = true;
           this.recordPremiumEvent(execution, {
@@ -445,10 +447,10 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         return;
       }
       const messageBytes = Buffer.byteLength(message, "utf8");
-      const pending = execution.providerMessagePressure.getSnapshot();
       try {
-        execution.providerMessagePressure.acquire(messageBytes);
+        execution.providerMessagePressure.assertMessageWithinLimit(messageBytes);
       } catch (error) {
+        const pending = execution.providerMessagePressure.getSnapshot();
         this.recordPremiumEvent(execution, {
           type: "premium.pressure",
           at: new Date().toISOString(),
@@ -462,18 +464,36 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         this.failExecution(execution, classifyPremiumRuntimeFailure(error));
         return;
       }
-      this.recordProviderOutputPressure(execution);
       let providerEvents: Array<OpenAiRealtimeEvent | GeminiLiveRealtimeEvent>;
       try {
         providerEvents = parseProviderEvents(execution.registered, message);
       } catch (error) {
-        execution.providerMessagePressure.release(messageBytes);
-        this.recordProviderOutputPressure(execution);
         this.failExecution(execution, classifyPremiumRuntimeFailure(error));
         return;
       }
       const urgentEvents = providerEvents.filter(isUrgentProviderEvent);
-      const deferredEvents = providerEvents.filter((event) => !isUrgentProviderEvent(event));
+      const deferredEvents = providerEvents.filter(isDeferredProjectedProviderEvent);
+      const requiresControlProcessing = isRuntimeControlProviderMessage(providerEvents);
+      if (requiresControlProcessing) {
+        const pending = execution.providerMessagePressure.getSnapshot();
+        try {
+          execution.providerMessagePressure.acquire(messageBytes);
+        } catch (error) {
+          this.recordPremiumEvent(execution, {
+            type: "premium.pressure",
+            at: new Date().toISOString(),
+            payload: {
+              providerOutputDepthBytes: pending.bytes + messageBytes,
+              providerOutputDepthCount: pending.count + 1,
+              providerBufferedBytes: execution.providerConnection.getBufferedAmountBytes(),
+              overflow: true,
+            },
+          });
+          this.failExecution(execution, classifyPremiumRuntimeFailure(error));
+          return;
+        }
+        this.recordProviderOutputPressure(execution);
+      }
       execution.providerLifecycleMessages = execution.providerLifecycleMessages
         .then(async () => {
           for (const event of urgentEvents) {
@@ -484,18 +504,29 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         .catch((error: unknown) => {
           this.failExecution(execution, classifyPremiumRuntimeFailure(error));
         });
+      if (!requiresControlProcessing && deferredEvents.length === 0) {
+        return;
+      }
       execution.providerMessages = execution.providerMessages
         .then(async () => {
           if (this.isCurrentProviderLeg(execution, providerEpoch)) {
-            await this.handleProviderMessage(execution, message, providerEpoch, deferredEvents);
+            if (requiresControlProcessing) {
+              await this.handleProviderMessage(execution, message, providerEpoch, deferredEvents);
+            } else {
+              for (const event of deferredEvents) {
+                await this.projectProviderEvent(execution, event);
+              }
+            }
           }
         })
         .catch((error: unknown) => {
           this.failExecution(execution, classifyPremiumRuntimeFailure(error));
         })
         .finally(() => {
-          execution.providerMessagePressure.release(messageBytes);
-          this.recordProviderOutputPressure(execution);
+          if (requiresControlProcessing) {
+            execution.providerMessagePressure.release(messageBytes);
+            this.recordProviderOutputPressure(execution);
+          }
         });
     });
     providerConnection.onClose(() => {
@@ -1104,7 +1135,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     this.recordPremiumEvent(execution, {
       type: "premium.cleanup",
       at: new Date().toISOString(),
-      payload: { reason },
+      payload: {
+        reason,
+        ...(execution.terminalFailureCode !== undefined
+          ? { failureCode: execution.terminalFailureCode }
+          : {}),
+      },
     });
     this.logger.log(`[twilio-pstn] premium_cleanup ${JSON.stringify({
       organizationId: execution.organizationId,
@@ -1112,6 +1148,9 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       callSessionId: execution.callSessionId,
       runtime: execution.registered.session.runtime,
       reason,
+      ...(execution.terminalFailureCode !== undefined
+        ? { failureCode: execution.terminalFailureCode }
+        : {}),
     })}`);
   }
 
@@ -1315,6 +1354,21 @@ function isUrgentProviderEvent(event: OpenAiRealtimeEvent | GeminiLiveRealtimeEv
     || event.type === "caller_turn"
     || event.type === "assistant_response"
     || event.type === "audio";
+}
+
+function isDeferredProjectedProviderEvent(event: OpenAiRealtimeEvent | GeminiLiveRealtimeEvent) {
+  return event.type === "input_transcript" || event.type === "output_transcript";
+}
+
+function isRuntimeControlProviderMessage(
+  events: Array<OpenAiRealtimeEvent | GeminiLiveRealtimeEvent>,
+) {
+  return events.some((event) => event.type === "tool_call")
+    || events.some(
+      (event) => event.type === "provider_event"
+        && "eventType" in event
+        && (event.eventType === "response.created" || event.eventType === "response.done"),
+    );
 }
 
 function parseProviderEvents(

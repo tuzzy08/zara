@@ -1268,7 +1268,11 @@ describe("PstnPremiumCallExecution", () => {
       streamSid: "MZ-premium-1",
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
-    const message = JSON.stringify({ type: "provider.noop", padding: "x".repeat(1_024) });
+    const message = JSON.stringify({
+      type: "response.done",
+      padding: "x".repeat(1_024),
+      response: { id: "response-control-pressure", status: "completed", output: [] },
+    });
 
     harness.emitProviderMessage(message);
     await Promise.resolve();
@@ -1290,13 +1294,90 @@ describe("PstnPremiumCallExecution", () => {
     expect(updates).toBe(0);
   });
 
+  it("keeps realtime audio off the tool and handoff control queue", async () => {
+    const processGate = deferred<void>();
+    const processedMessages: string[] = [];
+    const terminations: string[] = [];
+    const providerCloses: string[] = [];
+    let sentMediaFrames = 0;
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      processProviderGate: async (rawProviderMessage) => {
+        processedMessages.push(rawProviderMessage);
+        await processGate.promise;
+      },
+      onTerminate: (sessionId) => terminations.push(sessionId),
+      onProviderClose: (reason) => providerCloses.push(reason),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: {
+        sendMedia() { sentMediaFrames += 1; },
+        clearAudio() {},
+        sendMark() {},
+        close() {},
+      },
+    });
+
+    const responseCreated = JSON.stringify({
+      type: "response.created",
+      response: { id: "response-audio-burst", status: "in_progress" },
+    });
+    harness.emitProviderMessage(responseCreated);
+    await waitFor(() => processedMessages.length === 1);
+
+    for (let index = 0; index < 70; index += 1) {
+      harness.emitProviderMessage(JSON.stringify({
+        type: "response.output_audio.delta",
+        response_id: "response-audio-burst",
+        item_id: "assistant-item-audio-burst",
+        content_index: 0,
+        delta: Buffer.alloc(1_024, index).toString("base64"),
+      }));
+    }
+
+    await waitFor(() => sentMediaFrames > 0);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    processGate.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(terminations).toEqual([]);
+    expect(providerCloses).toEqual([]);
+    expect(processedMessages).toEqual([responseCreated]);
+
+    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+  });
+
+  it("includes the terminal failure code in premium cleanup logs", async () => {
+    const cleanupLog = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const terminations: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onTerminate: (sessionId) => terminations.push(sessionId),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    harness.providerClosed();
+    await waitFor(() => terminations.length === 1);
+
+    expect(cleanupLog).toHaveBeenCalledWith(expect.stringMatching(
+      /premium_cleanup .*"reason":"failed".*"failureCode":"premium_provider_closed"/,
+    ));
+  });
+
   it("waits for acknowledged source playback before replacing an immutable OpenAI voice session", async () => {
     const handoffLog = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
     const targetReady = deferred<void>();
     const harness = createHandoffExecutionHarness({
       targetReady: targetReady.promise,
       processProviderMessage(rawProviderMessage, registered) {
-        if (rawProviderMessage !== JSON.stringify({ type: "test.handoff" })) {
+        if (rawProviderMessage !== createTestControlMessage("test.handoff")) {
           return { packet: registered.packet, providerMessages: [] };
         }
         const targetSession = {
@@ -1353,7 +1434,7 @@ describe("PstnPremiumCallExecution", () => {
     }));
     await waitFor(() => harness.marks.length === 2);
 
-    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff" }));
+    harness.connections[0]!.emitMessage(createTestControlMessage("test.handoff"));
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(harness.connections).toHaveLength(1);
 
@@ -1386,7 +1467,7 @@ describe("PstnPremiumCallExecution", () => {
       targetReady: targetReady.promise,
       onObservedEvent(event) { observed.push(event); },
       processProviderMessage(rawProviderMessage, registered) {
-        if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.cross-provider" })) {
+        if (rawProviderMessage !== createTestControlMessage("test.handoff.cross-provider")) {
           return { packet: registered.packet, providerMessages: [] };
         }
         const targetSession = {
@@ -1422,7 +1503,7 @@ describe("PstnPremiumCallExecution", () => {
     });
     await harness.start();
     const source = harness.connections[0]!;
-    source.emitMessage(JSON.stringify({ type: "test.handoff.cross-provider" }));
+    source.emitMessage(createTestControlMessage("test.handoff.cross-provider"));
     await waitFor(() => harness.connections.length === 2);
 
     await harness.execution.appendInboundFrame({
@@ -1474,7 +1555,7 @@ describe("PstnPremiumCallExecution", () => {
       targetReady: targetReady.promise,
       onObservedEvent: (event) => observed.push(event),
       processProviderMessage(rawProviderMessage, registered) {
-        if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.failure" })) {
+        if (rawProviderMessage !== createTestControlMessage("test.handoff.failure")) {
           return { packet: registered.packet, providerMessages: [] };
         }
         const targetSession = {
@@ -1506,7 +1587,7 @@ describe("PstnPremiumCallExecution", () => {
       },
     });
     await harness.start();
-    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.failure" }));
+    harness.connections[0]!.emitMessage(createTestControlMessage("test.handoff.failure"));
     await waitFor(() => harness.connections.length === 2);
 
     targetReady.reject(new Error("target setup failed"));
@@ -1532,7 +1613,7 @@ describe("PstnPremiumCallExecution", () => {
       const harness = createHandoffExecutionHarness({
         targetReady: targetReady.promise,
         processProviderMessage(rawProviderMessage, registered) {
-          if (rawProviderMessage !== JSON.stringify({ type: "test.handoff.timeout" })) {
+          if (rawProviderMessage !== createTestControlMessage("test.handoff.timeout")) {
             return { packet: registered.packet, providerMessages: [] };
           }
           return {
@@ -1560,7 +1641,7 @@ describe("PstnPremiumCallExecution", () => {
         },
       });
       await harness.start();
-      harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.timeout" }));
+      harness.connections[0]!.emitMessage(createTestControlMessage("test.handoff.timeout"));
       await Promise.resolve();
       await Promise.resolve();
 
@@ -1578,13 +1659,13 @@ describe("PstnPremiumCallExecution", () => {
     const harness = createHandoffExecutionHarness({
       targetReady: targetReady.promise,
       processProviderMessage(rawProviderMessage, registered) {
-        return rawProviderMessage === JSON.stringify({ type: "test.handoff.actor-overflow" })
+        return rawProviderMessage === createTestControlMessage("test.handoff.actor-overflow")
           ? createOpenAiReplacementResult(registered, "actor-overflow")
           : { packet: registered.packet, providerMessages: [] };
       },
     });
     await harness.start();
-    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.actor-overflow" }));
+    harness.connections[0]!.emitMessage(createTestControlMessage("test.handoff.actor-overflow"));
     await waitFor(() => harness.connections.length === 2);
 
     for (let sequence = 1; sequence <= 262; sequence += 1) {
@@ -1606,13 +1687,13 @@ describe("PstnPremiumCallExecution", () => {
     const harness = createHandoffExecutionHarness({
       targetReady: targetReady.promise,
       processProviderMessage(rawProviderMessage, registered) {
-        return rawProviderMessage === JSON.stringify({ type: "test.handoff.shutdown" })
+        return rawProviderMessage === createTestControlMessage("test.handoff.shutdown")
           ? createOpenAiReplacementResult(registered, "shutdown")
           : { packet: registered.packet, providerMessages: [] };
       },
     });
     await harness.start();
-    harness.connections[0]!.emitMessage(JSON.stringify({ type: "test.handoff.shutdown" }));
+    harness.connections[0]!.emitMessage(createTestControlMessage("test.handoff.shutdown"));
     await waitFor(() => harness.connections.length === 2);
 
     await harness.execution.onApplicationShutdown();
@@ -1796,6 +1877,22 @@ function createMinimalExecutionHarness(
       providerCloseHandler?.({ code: 1006, reason: "provider disconnected" });
     },
   };
+}
+
+function createTestControlMessage(marker: string) {
+  return JSON.stringify({
+    type: "response.done",
+    response: {
+      id: `response-${marker}`,
+      status: "completed",
+      output: [{
+        type: "function_call",
+        call_id: `call-${marker}`,
+        name: marker,
+        arguments: "{}",
+      }],
+    },
+  });
 }
 
 function createHandoffExecutionHarness(input: {

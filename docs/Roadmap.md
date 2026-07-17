@@ -164,3 +164,5 @@ Tenant billing production work now includes the tenant billing page and Polar-ba
 Tenant telephony setup now uses the ISSUE-219 provider-row and connection-table surface. BYO Twilio credentials are validated before persistence, BYO SIP remains tenant-managed, and Zara-owned platform telephony provisioning is restricted to the platform-admin telephony route.
 
 Deployment planning now includes separate production and staging runbooks covering release flow, secrets, migrations, rollback, smoke tests, staging parity, safe seed data, validation, drift controls, observability dashboards, backup/DR restore checks, and final release-gate ownership.
+
+Production auth rate-limit persistence now includes ISSUE-221's atomic Postgres storage. Concurrent first writes, active increments, and expired-window resets retain one unique row, one reset per bucket generation, and monotonic request timestamps without changing memory-backed test/development behavior.

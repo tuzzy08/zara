@@ -6,6 +6,7 @@ import { resolveTrustedOrigins } from "../config/trusted-origins";
 import { resolveAuthEmailDeliveryConfig, sendAuthEmail } from "./auth-email-delivery";
 import { createZaraOrganizationPlugin } from "./organization-model";
 import { createPostgresTenantMirror, type TenantMirror } from "./tenant-mirror";
+import { createPostgresAuthRateLimitStorage } from "./postgres-auth-rate-limit-storage";
 
 const authMemoryDb: MemoryDB = {
   user: [],
@@ -21,6 +22,7 @@ type AuthDatabaseMode = "memory" | "postgres";
 type AuthDatabaseResolution = {
   database: ReturnType<typeof memoryAdapter> | Pool;
   tenantMirror?: TenantMirror;
+  rateLimitStorage?: ReturnType<typeof createPostgresAuthRateLimitStorage>;
 };
 
 const authDatabase = resolveAuthDatabase();
@@ -65,7 +67,13 @@ export const zaraAuth = betterAuth({
       authDatabase.tenantMirror === undefined ? {} : { tenantMirror: authDatabase.tenantMirror },
     ),
   ],
-  rateLimit: authRuntimeSecurity.rateLimit,
+  rateLimit: {
+    ...authRuntimeSecurity.rateLimit,
+    ...(authRuntimeSecurity.rateLimit.storage === "database"
+      && authDatabase.rateLimitStorage !== undefined
+      ? { customStorage: authDatabase.rateLimitStorage }
+      : {}),
+  },
   secret: authRuntimeSecurity.secret,
   trustedOrigins: resolveTrustedOrigins(),
 });
@@ -115,6 +123,7 @@ function resolveAuthDatabase(): AuthDatabaseResolution {
 
   return {
     database: pool,
+    rateLimitStorage: createPostgresAuthRateLimitStorage(pool),
     tenantMirror: createPostgresTenantMirror(pool),
   };
 }
