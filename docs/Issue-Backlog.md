@@ -3191,7 +3191,7 @@ Edge cases:
 
 Acceptance criteria:
 - Signed-out visitors on `/` see the voice-agent agency landing page instead of the tenant auth form
-- Landing page includes agency-positioned SEO copy, service sections, workflow-builder proof, results, pricing, final CTA, and footer
+- Landing page includes product-positioned SEO copy, voice-system capabilities, workflow-builder proof, operational telemetry, results, FAQ, final CTA, and footer
 - `/login` and `/signup` render dedicated auth pages for tenant access
 - Authenticated users who visit `/login` or `/signup` are returned to the tenant app
 

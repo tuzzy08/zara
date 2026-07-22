@@ -49,7 +49,7 @@ Workspace, NestJS API, two Vite React apps, shared frontend packages, shared typ
 
 ## Marketing And Auth
 
-The tenant web app now separates public acquisition from tenant access. Signed-out `/` renders the Zara Voice Automation agency landing page with SEO-oriented copy, service sections, glass workflow-builder proof, results, pricing, final CTA, and footer. `/login` and `/signup` keep the compact tenant auth flow, and authenticated users are returned to the tenant workspace when they visit auth routes.
+The tenant web app now separates public acquisition from tenant access. Signed-out `/` renders Zara's monochrome editorial landing page with product-oriented copy, voice-system capabilities, workflow-builder proof, operational telemetry, outcomes, FAQ, final CTA, and footer. Its static switchboard hero is intentionally replaceable by a future approved motion asset. `/login` and `/signup` keep the compact tenant auth flow, and authenticated users are returned to the tenant workspace when they visit auth routes.
 
 Current auth hardening note: ISSUE-131 restores the first available tenant organization after successful tenant email sign-in because Better Auth starts fresh sessions without an active organization by default. Tenant auth forms do not forward Better Auth callback redirects because redirects can abort organization restoration before `set-active` completes. Better Auth organizations are mirrored into the product `tenants` table with the same id for product-table foreign keys. The shared auth client uses the server-owned auth context as the app-shell read model, restores tenant roles from that context, and rejects blank tenant organization names before creating the user account.
 

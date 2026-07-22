@@ -160,15 +160,53 @@ Implement the public Zara Voice Automation landing page as a voice-agent agency 
 ## Risks And Edge Cases
 
 - Landing metadata is client-side only in the current Vite app shell; crawler behavior depends on JavaScript execution until server rendering or prerendering is introduced.
-- The landing page uses CSS-rendered product visuals and inline SVG assets so the design remains responsive, inspectable, and animatable. It is structurally matched to the mockup, but exact font metrics may differ from the generated image renderer.
+- The landing page uses responsive CSS/inline-SVG product visuals plus an optimized generated WebP hero poster. The poster is deliberately isolated so an approved video can replace it without changing the page structure.
 - Protected tenant routes still render the sign-in form for signed-out users.
 
 ## Decisions
 
 - Treat `/` as the public acquisition surface when signed out and the tenant dashboard when signed in.
 - Use `/login` and `/signup` for dedicated auth instead of showing auth on the public landing.
-- Avoid generated bitmap assets for this pass because the glass workflow builder and call cards could be implemented more sharply as responsive UI.
+- Keep product-interface evidence responsive and inspectable; the later monochrome redesign supersedes the original no-bitmap decision only for its approved hero poster.
 
 ## Next Recommended Step
 
 Add real proof assets and server-rendered SEO metadata when the marketing site needs production acquisition traffic.
+
+## Monochrome Editorial Redesign Pass (2026-07-22)
+
+### Work Completed
+
+- Rebuilt the signed-out `/` landing as a full monochrome editorial experience with a fixed signal-system header, cinematic switchboard hero, capabilities, measurement model, common call patterns, workflow-builder proof, illustrative telemetry, operating approach, interactive feature controls, integrations, proof, FAQ, and closing CTA.
+- Added the approved text-free switchboard still as responsive 960px and 1672px WebP posters under `apps/web/public/marketing/`, isolated as a replaceable hero media layer.
+- Added responsive desktop, tablet, and mobile layouts plus `prefers-reduced-motion` behavior in an isolated landing stylesheet.
+- Updated public-route assertions and added focused component coverage for the redesigned content and primary navigation actions.
+- Updated `DESIGN.md`, the roadmap marketing note, and ISSUE-130 acceptance wording to make the monochrome signal system the current public-marketing direction.
+- Closed the dual-review findings by removing dead/misdirected controls, replacing unsupported proof claims with a measurement model and clearly illustrative telemetry, fixing gauge text layering, preserving mobile Sign in/Product navigation, simplifying feature controls to accessible pressed buttons, and reconciling stale handover decisions.
+
+### Tests Run
+
+- `npm.cmd run typecheck --workspace @zara/web` — passed.
+- `npm.cmd run build --workspace @zara/web` — passed with the existing Vite large-chunk warning.
+- `npx.cmd eslint apps/web/src/MarketingLandingPageMockup.tsx apps/web/src/MarketingLandingPageMockup.test.tsx` — passed.
+- `npm.cmd run test:run -- apps/web/src/MarketingLandingPageMockup.test.tsx --pool=threads` — blocked before test import because the Vitest worker timed out after 60 seconds; no test result was produced. The same environment-level worker-start failure occurred during the RED attempt.
+- Headless Chrome/CDP review on `http://127.0.0.1:4176/` — inspected every major section in individual small-step captures at 1440×1200 and 390×844. Verified the complete desktop/mobile sequence from hero through footer, corrected the signal-film mark and operating-principle card during the pass, and confirmed `scrollWidth === clientWidth` at every mobile section anchor.
+
+### Pending Work
+
+- No required redesign implementation remains. Replace the hero still with an approved video when a stronger motion asset is available.
+
+### Risks And Edge Cases
+
+- The responsive WebP hero posters are approximately 34 KB and 88 KB; an approved production video should retain an optimized poster and add responsive encodes.
+- The focused test exists but could not execute in this environment because Vitest workers did not start; rerun it when the local worker issue is resolved.
+
+### Decisions
+
+- Keep the static hero rather than shipping the rejected video.
+- Keep the landing visual system isolated from tenant-app CSS and make hero media replacement a single-source change.
+- Preserve ISSUE-130 as Implemented because all required acceptance work remains complete.
+
+### Next Recommended Step
+
+Review the static hero in the deployed environment, then replace only the hero media source when an approved motion version is ready.
