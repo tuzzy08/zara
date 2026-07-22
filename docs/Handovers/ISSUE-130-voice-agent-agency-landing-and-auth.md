@@ -210,3 +210,67 @@ Add real proof assets and server-rendered SEO metadata when the marketing site n
 ### Next Recommended Step
 
 Review the static hero in the deployed environment, then replace only the hero media source when an approved motion version is ready.
+
+## Landing Scroll-Container Correction (2026-07-22)
+
+### Work Completed
+
+- Corrected the redesigned landing root to provide its own `100dvh` vertical scroll container inside Zara's globally fixed application shell.
+- Added a focused CSS contract regression assertion so the landing cannot silently revert to a non-scrollable `overflow: clip` root.
+- Confirmed that all 15 landing sections were already present; the global `body { overflow: hidden; }` rule had made only the hero reachable.
+
+### Tests Run
+
+- `vite build` for `apps/web` — passed with the existing large-chunk warning.
+- Focused Vitest attempt for `MarketingLandingPageMockup.test.tsx` — blocked before test discovery because both thread and fork workers timed out while starting in the local Windows environment.
+- In-app browser audit on `http://127.0.0.1:4175/` — passed. Verified a 720px-high landing scroll container with 13,793px of content and audited the full page in 600px increments through manifesto, capabilities, outcomes, signal system, patterns, product, telemetry, approach, features, integrations, proof, principles, FAQ, final CTA, and footer.
+
+### Pending Work
+
+- No required acceptance work remains for ISSUE-130.
+
+### Risks And Decisions
+
+- Keep global body scrolling locked for authenticated application shells; the public marketing route owns its scrolling locally.
+- The focused regression test is present but should be rerun once the local Vitest worker-start issue is resolved.
+
+### Next Recommended Step
+
+Review the complete landing page in the normal development session; hero-video replacement remains an independent future media change.
+
+## Armory Fidelity And Motion Pass (2026-07-22)
+
+### Work Completed
+
+- Audited the Armory reference and Zara landing end to end in fixed 400px Computer Use increments, then rebuilt the public landing around the resulting layout, icon, density, and motion findings.
+- Replaced stock Lucide marketing iconography with a bespoke sixteen-glyph thin-stroke Zara signal family.
+- Added a DOM-built hero routing console layered over the approved switchboard poster, with independently animated switches, dials, route paths, meters, ports, lamps, and readouts.
+- Replaced repeated viewport-like panels with a continuous twelve-column editorial grid and more varied section rhythm.
+- Rebuilt workflow proof as an eleven-node branching operating canvas with status chrome, minimap, animated paths, policy, memory, tools, handoff, and replay evidence.
+- Rebuilt telemetry as six coordinated instruments and expanded feature, integration, proof, principle, FAQ, closing, and footer compositions.
+- Preserved the route-owned vertical scroll container and comprehensive `prefers-reduced-motion` fallback.
+
+### Tests Run
+
+- RED: focused landing test failed because the live routing surface, custom glyph family, dense workflow nodes, and expanded telemetry instruments did not exist.
+- GREEN: focused `MarketingLandingPageMockup.test.tsx` smoke/interaction test — passed.
+- `tsc -p apps/web/tsconfig.json --pretty false` — passed.
+- `vite build` for `apps/web` — passed with the existing large-chunk warning.
+- `eslint` for `MarketingLandingPageMockup.tsx` and its focused test — passed.
+- Repository-wide and `apps/web/src` Vitest regression runs were both attempted with one worker and each exceeded the five-minute command limit without returning a result; neither produced a pass or failure result.
+- Computer Use review on the existing local Zara tab — completed 33 sequential 400px inspections at 670×466 and a second 33-step pass at 1536×816; both reached the footer without observed blocking overlap or clipping at the inspected viewport.
+- Two-axis staged-diff review found and corrected invalid CSS bar-height expressions, mobile workflow canvas/node width divergence, test-hook styling coupling, brittle UI source/inventory assertions, and untyped marketing data tuples.
+
+### Pending Work
+
+- A matched narrow-mobile Armory/Zara comparison remains pending. The full-width Zara pass is complete, but Computer Use stopped when its Chrome URL-policy verifier could not confidently validate navigation from the local page to Armory for the paired 1536×816 reference pass. Broader regression suites should also be rerun in an environment where the Windows Vitest worker can complete within the available command window.
+
+### Risks And Decisions
+
+- The approved poster remains as atmospheric depth, but all important hero motion is now independently animatable DOM/CSS rather than baked into the image.
+- The public marketing route owns its custom icon language; tenant and admin product surfaces may continue using Lucide for operational UI.
+- The page intentionally adapts Armory's compositional discipline without copying its assets, claims, or product copy.
+
+### Next Recommended Step
+
+Complete the paired Armory comparison at full desktop and narrow-mobile widths when Computer Use can validate both URLs, then replace only the atmospheric poster when an approved video is available.

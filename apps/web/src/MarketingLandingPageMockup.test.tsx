@@ -18,6 +18,7 @@ describe("MarketingLandingPageMockup", () => {
 
     expect(screen.getByRole("heading", { name: "Build the system behind every call" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Analog voice-routing switchboard" })).toBeTruthy();
+    expect(screen.getByLabelText("Live voice routing control surface")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Build call logic at scale" })).toBeTruthy();
     expect(screen.getByLabelText("Zara workflow builder preview")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Every signal, in view" })).toBeTruthy();
