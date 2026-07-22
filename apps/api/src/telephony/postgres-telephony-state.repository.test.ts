@@ -346,6 +346,7 @@ describe("PostgresTelephonyStateRepository", () => {
 
   it("takes a tenant transaction lock before replacing normalized state", async () => {
     const queries: Array<{ sql: string; parameters?: unknown[] | undefined }> = [];
+    const databaseOperations: Array<Record<string, unknown>> = [];
     const client = {
       query: vi.fn(async (sql: string, parameters?: unknown[]) => {
         queries.push({ sql, parameters });
@@ -356,7 +357,18 @@ describe("PostgresTelephonyStateRepository", () => {
     const repository = new PostgresTelephonyStateRepository({
       async connect() { return client; },
       async query() { return { rows: [] }; },
+      totalCount: 4,
+      idleCount: 2,
+      waitingCount: 1,
+      options: { max: 10 },
+    } as never, {
+      recordDatabaseOperation(input: Record<string, unknown>) {
+        databaseOperations.push(input);
+      },
     } as never);
+
+    await repository.listOrganizationIds();
+    await repository.load("tenant-west-africa");
 
     await repository.save({
       schemaVersion: 1,
@@ -379,6 +391,23 @@ describe("PostgresTelephonyStateRepository", () => {
     expect(lockIndex).toBeGreaterThan(queries.findIndex(({ sql }) => sql === "begin"));
     expect(lockIndex).toBeLessThan(firstDeleteIndex);
     expect(queries[lockIndex]?.parameters).toEqual(["tenant-west-africa"]);
+    expect(databaseOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        operation: "organization_list",
+        outcome: "success",
+        pool: { active: 2, idle: 2, waiting: 1, limit: 10 },
+      }),
+      expect.objectContaining({
+        operation: "telephony_state_load",
+        outcome: "success",
+      }),
+      expect.objectContaining({
+        operation: "telephony_state_save",
+        outcome: "success",
+        transactionDurationMs: expect.any(Number),
+        advisoryLockWaitMs: expect.any(Number),
+      }),
+    ]));
   });
 });
 

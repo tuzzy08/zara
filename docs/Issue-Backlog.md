@@ -5079,3 +5079,26 @@ Implementation summary:
 - Added Better Auth custom Postgres storage with atomic upsert/increment behavior.
 - Reused the rate-limit row ID as an expired-window generation token and kept timestamps monotonic.
 - Installed custom storage only for database-backed production rate limiting.
+
+### ISSUE-222: PSTN single-instance capacity posture
+
+- Priority: P1
+- Area: Runtime / Telephony / Observability / Platform Admin
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, telephony, observability, platform-admin, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md](../docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md)
+- External: [Linear ZAR-224](https://linear.app/zara-voice/issue/ZAR-224/pstn-capacity-112-expose-single-instance-capacity-posture)
+
+Acceptance criteria:
+- Low-cardinality telemetry reports PSTN call lifecycle by runtime/provider, process pressure, Twilio/provider WebSocket posture, database pressure, and bounded media queues.
+- Platform staff can inspect the live redacted single-instance posture while tenant users remain excluded by the platform guard.
+- Relevant declared resources classify 70 percent as warning, 85 percent as critical, and 100 percent as exhausted.
+- The provisional premium ceiling remains 20 calls and is documented as an overload guard rather than certified capacity.
+- Exporter or optional-sample failure cannot fail a live call, and tests prevent high-cardinality metric dimensions.
+
+Implementation summary:
+- Added periodic process/resource sampling, lifecycle/WebSocket/queue/Postgres/exporter telemetry, and the redacted staff-only capacity posture.
+- Documented the exact provisional worker envelope and its non-certified, non-enforcing status.
+- Verified 79 focused API tests plus API typecheck and focused lint; the wider run passed 139 files and 1101 tests with unrelated dirty landing-page failures and an existing fixed-timeout production-output scan limitation recorded in the handover.

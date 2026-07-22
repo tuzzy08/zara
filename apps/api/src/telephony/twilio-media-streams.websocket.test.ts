@@ -32,6 +32,7 @@ import {
   PstnPremiumCallExecution,
   type PstnPremiumCallOutput,
 } from "./pstn-premium-call-execution";
+import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 
 describe("Twilio Media Streams websocket bridge", () => {
   const sockets: WebSocket[] = [];
@@ -45,10 +46,29 @@ describe("Twilio Media Streams websocket bridge", () => {
 
   it("bridges verified Twilio media streams and sends only Twilio media mark and clear messages outbound", async () => {
     const logs: string[] = [];
+    const capacityEvents: string[] = [];
     vi.spyOn(Logger.prototype, "log").mockImplementation((message: unknown) => {
       logs.push(String(message));
     });
-    const { app, moduleRef, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const { app, moduleRef, phoneNumber, authToken } = await createRoutedTwilioApp({
+      capacityObservability: {
+        openSocket(input: { leg: string }) { capacityEvents.push(`socket:${input.leg}`); },
+        updateSocketContext() { capacityEvents.push("socket:authorized"); },
+        recordSocketHandshake(input: { outcome: string }) {
+          capacityEvents.push(`handshake:${input.outcome}`);
+        },
+        recordSocketTraffic(input: { direction: string }) {
+          capacityEvents.push(`traffic:${input.direction}`);
+        },
+        recordSocketBuffered() { capacityEvents.push("socket:buffered"); },
+        closeSocket(input: { initiator: string }) { capacityEvents.push(`close:${input.initiator}`); },
+        trackCall() {},
+        endCall() {},
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+      } as never,
+    });
     const callSid = "CA-websocket-1";
     const callSessionId = `${callSid}:telephony`;
     const streamSid = "MZ-websocket-1";
@@ -220,6 +240,15 @@ describe("Twilio Media Streams websocket bridge", () => {
     const close = await withTimeout(nextClose(socket), "twilio stop close");
     expect(close.code).toBe(1000);
     expect(close.reason).toBe("twilio_stop");
+    expect(capacityEvents).toEqual(expect.arrayContaining([
+      "socket:twilio",
+      "socket:authorized",
+      "handshake:accepted",
+      "traffic:inbound",
+      "traffic:outbound",
+      "socket:buffered",
+      "close:local",
+    ]));
 
     const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/telephony/state");
     expect(JSON.stringify(stateResponse.body)).not.toContain("//////////8=");
@@ -349,6 +378,7 @@ describe("Twilio Media Streams websocket bridge", () => {
     const frames: PstnAudioFrame[] = [];
     const playbackMarks: Array<{ callSessionId: string; name: string }> = [];
     const stops: string[] = [];
+    const bridgeTerminalCalls: string[] = [];
     const premiumExecution = {
       async start(input: { callSessionId: string; output: PstnPremiumCallOutput }) {
         starts.push(input);
@@ -366,6 +396,19 @@ describe("Twilio Media Streams websocket bridge", () => {
     const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
       runtimeProfile: "premium-realtime",
       premiumExecution,
+      capacityObservability: {
+        openSocket() {},
+        updateSocketContext() {},
+        recordSocketHandshake() {},
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        trackCall() {},
+        endCall(input: { outcome: string }) { bridgeTerminalCalls.push(input.outcome); },
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+      },
     });
     const callSid = "CA-premium-execution";
     const callSessionId = `${callSid}:telephony`;
@@ -440,6 +483,7 @@ describe("Twilio Media Streams websocket bridge", () => {
     }));
     await withTimeout(nextClose(socket), "premium websocket close");
     await withTimeout(waitFor(() => stops.includes(callSessionId)), "premium execution stop");
+    expect(bridgeTerminalCalls).toEqual([]);
     await app.close();
   }, 30_000);
 
@@ -588,6 +632,20 @@ async function createRoutedTwilioApp(options?: {
     PstnPremiumCallExecution,
     "start" | "appendInboundFrame" | "acknowledgePlaybackMark" | "stop"
   >;
+  capacityObservability?: Pick<
+    PstnCapacityObservability,
+    | "openSocket"
+    | "updateSocketContext"
+    | "recordSocketHandshake"
+    | "recordSocketTraffic"
+    | "recordSocketBuffered"
+    | "closeSocket"
+    | "trackCall"
+    | "endCall"
+    | "recordQueue"
+    | "recordQueueDrop"
+    | "clearCallQueues"
+  >;
 }) {
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
@@ -608,6 +666,20 @@ async function createRoutedTwilioApp(options?: {
       async appendInboundFrame() {},
       acknowledgePlaybackMark() {},
       async stop() {},
+    })
+    .overrideProvider(PstnCapacityObservability)
+    .useValue(options?.capacityObservability ?? {
+      openSocket() {},
+      updateSocketContext() {},
+      recordSocketHandshake() {},
+      recordSocketTraffic() {},
+      recordSocketBuffered() {},
+      closeSocket() {},
+      trackCall() {},
+      endCall() {},
+      recordQueue() {},
+      recordQueueDrop() {},
+      clearCallQueues() {},
     })
     .compile();
 

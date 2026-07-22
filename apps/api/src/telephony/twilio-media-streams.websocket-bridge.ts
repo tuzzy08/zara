@@ -35,6 +35,7 @@ import {
   classifyPremiumCallStartupFailure,
   PstnPremiumCallExecution,
 } from "./pstn-premium-call-execution";
+import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 
 type TwilioMediaStreamSessionEvent =
   | TwilioMediaStreamBridgeEvent
@@ -60,7 +61,12 @@ interface TwilioMediaStreamAttachment {
   events: TwilioMediaStreamSessionEvent[];
   processing: Promise<void>;
   pendingMessageBytes: number;
+  pendingMessageCount: number;
   mediaFrameCount: number;
+  capacitySocketId: string;
+  capacityOpenedAtMs: number;
+  capacityHandshakeRecorded: boolean;
+  capacityCloseInitiator: "local" | "remote";
   recordedPhoneTestCheckpoints: Set<"inboundFrameReceived" | "outboundAudioSent">;
 }
 
@@ -83,6 +89,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     @Optional()
     @Inject(pstnCallObservabilityRecorderToken)
     private readonly pstnObservabilityRecorder?: PstnCallObservabilityRecorder,
+    @Optional()
+    @Inject(PstnCapacityObservability)
+    private readonly capacityObservability?: PstnCapacityObservability,
   ) {}
 
   onApplicationBootstrap() {
@@ -99,6 +108,19 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       this.httpServer.off("upgrade", this.handleUpgrade);
     }
 
+    for (const attachment of this.attachments.values()) {
+      this.capacityObservability?.closeSocket({
+        socketId: attachment.capacitySocketId,
+        initiator: "local",
+        code: 1001,
+      });
+      if (attachment.authorization?.runtimePath !== "pstn-premium-realtime") {
+        this.capacityObservability?.endCall({
+          callId: attachment.callSessionId,
+          outcome: "failed",
+        });
+      }
+    }
     this.websocketServer?.close();
     this.websocketServer = null;
     this.attachments.clear();
@@ -110,18 +132,18 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
 
   sendOutboundMedia(input: { callSessionId: string; frame: PstnAudioFrame }) {
     const attachment = this.requireAttachment(input.callSessionId);
-    attachment.client.send(JSON.stringify(attachment.bridge.outboundMedia(input.frame)));
+    this.sendTwilioMessage(attachment, attachment.bridge.outboundMedia(input.frame));
     this.recordPhoneTestCheckpointOnce(attachment, "outboundAudioSent");
   }
 
   sendMark(input: { callSessionId: string; name: string }) {
     const attachment = this.requireAttachment(input.callSessionId);
-    attachment.client.send(JSON.stringify(attachment.bridge.mark(input.name)));
+    this.sendTwilioMessage(attachment, attachment.bridge.mark(input.name));
   }
 
   clearBufferedAudio(input: { callSessionId: string }) {
     const attachment = this.requireAttachment(input.callSessionId);
-    attachment.client.send(JSON.stringify(attachment.bridge.clear()));
+    this.sendTwilioMessage(attachment, attachment.bridge.clear());
   }
 
   private readonly handleUpgrade = (
@@ -168,9 +190,20 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         events: [],
         processing: Promise.resolve(),
         pendingMessageBytes: 0,
+        pendingMessageCount: 0,
         mediaFrameCount: 0,
+        capacitySocketId: `twilio:${callSessionId}`,
+        capacityOpenedAtMs: Date.now(),
+        capacityHandshakeRecorded: false,
+        capacityCloseInitiator: "remote",
         recordedPhoneTestCheckpoints: new Set(),
       };
+      this.capacityObservability?.openSocket({
+        socketId: attachment.capacitySocketId,
+        leg: "twilio",
+        runtimePath: "unknown",
+        provider: "twilio",
+      });
       this.attachments.set(callSessionId, attachment);
       this.eventHistory.set(callSessionId, attachment.events);
       logTwilioPstnDiagnostic(this.logger, "media_socket_open", {
@@ -179,6 +212,21 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
 
       client.once("close", (code, reason) => {
         this.attachments.delete(callSessionId);
+        this.capacityObservability?.closeSocket({
+          socketId: attachment.capacitySocketId,
+          initiator: attachment.capacityCloseInitiator,
+          code,
+        });
+        if (
+          attachment.authorization !== undefined
+          && attachment.authorization.runtimePath !== "pstn-premium-realtime"
+        ) {
+          this.capacityObservability?.clearCallQueues(callSessionId);
+          this.capacityObservability?.endCall({
+            callId: callSessionId,
+            outcome: code === 1000 ? "completed" : "failed",
+          });
+        }
         if (attachment.authorization?.runtimePath === "pstn-premium-realtime") {
           void this.premiumCallExecution.stop({ callSessionId });
         }
@@ -191,16 +239,36 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       });
       client.on("message", (message) => {
         const messageBytes = rawDataByteLength(message);
+        this.capacityObservability?.recordSocketTraffic({
+          socketId: attachment.capacitySocketId,
+          direction: "inbound",
+          messageCount: 1,
+          byteCount: messageBytes,
+        });
         if (attachment.pendingMessageBytes + messageBytes > maxPendingTwilioMessageBytes) {
+          this.capacityObservability?.recordQueue({
+            callId: attachment.callSessionId,
+            queue: "twilio_ingress",
+            bytes: attachment.pendingMessageBytes + messageBytes,
+            items: attachment.pendingMessageCount + 1,
+            byteLimit: maxPendingTwilioMessageBytes,
+          });
+          this.capacityObservability?.recordQueueDrop({
+            callId: attachment.callSessionId,
+            queue: "twilio_ingress",
+            reason: "overflow",
+          });
           warnTwilioPstnDiagnostic(this.logger, "media_ingress_overflow", {
             callSessionId,
             pendingMessageBytes: attachment.pendingMessageBytes,
             incomingMessageBytes: messageBytes,
           });
-          attachment.client.close(4408, "twilio_media.ingress_overflow");
+          this.closeAttachment(attachment, 4408, "twilio_media.ingress_overflow");
           return;
         }
         attachment.pendingMessageBytes += messageBytes;
+        attachment.pendingMessageCount += 1;
+        this.recordTwilioIngressQueue(attachment);
         attachment.processing = attachment.processing
           .then(() =>
             this.handleProviderMessage({
@@ -219,10 +287,12 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
               failureCode: failure.failureCode,
               stage: failure.stage,
             });
-            attachment.client.close(4400, failure.failureCode);
+            this.closeAttachment(attachment, 4400, failure.failureCode);
           })
           .finally(() => {
             attachment.pendingMessageBytes = Math.max(0, attachment.pendingMessageBytes - messageBytes);
+            attachment.pendingMessageCount = Math.max(0, attachment.pendingMessageCount - 1);
+            this.recordTwilioIngressQueue(attachment);
           });
       });
     });
@@ -255,7 +325,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
           type: "error",
           error,
         });
-        attachment.client.close(4400, error.code);
+        this.closeAttachment(attachment, 4400, error.code);
       }
       return;
     }
@@ -324,8 +394,15 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
               callSessionId: attachment.authorization!.callSessionId,
               name,
             }),
-            close: (code, reason) => attachment.client.close(code, reason),
+            close: (code, reason) => this.closeAttachment(attachment, code, reason),
           },
+        });
+      } else {
+        this.capacityObservability?.trackCall({
+          callId: attachment.authorization.callSessionId,
+          state: "active",
+          runtimePath: attachment.authorization.runtimePath,
+          provider: "sandwich",
         });
       }
       return;
@@ -422,7 +499,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
           callSessionId: attachment.authorization.callSessionId,
         });
       }
-      attachment.client.close(1000, "twilio_stop");
+      this.closeAttachment(attachment, 1000, "twilio_stop");
     }
   }
 
@@ -459,7 +536,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       warnTwilioPstnDiagnostic(this.logger, "media_invalid_message", {
         callSessionId: attachment.callSessionId,
       });
-      attachment.client.close(4400, "twilio_media.invalid_message");
+      this.closeAttachment(attachment, 4400, "twilio_media.invalid_message");
       return "handled";
     }
 
@@ -483,7 +560,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         callSessionId: attachment.callSessionId,
         event: readString(parsedMessage.event) ?? "unknown",
       });
-      attachment.client.close(4401, "missing_stream_token");
+      this.closeAttachment(attachment, 4401, "missing_stream_token");
       return "handled";
     }
 
@@ -506,7 +583,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         streamSid: readString(start?.streamSid) ?? readString(parsedMessage.streamSid),
         reason: "missing_stream_token",
       });
-      attachment.client.close(4401, "missing_stream_token");
+      this.closeAttachment(attachment, 4401, "missing_stream_token");
       return "handled";
     }
 
@@ -522,7 +599,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         streamSid: readString(start?.streamSid) ?? readString(parsedMessage.streamSid),
         reason: "invalid_stream_token",
       });
-      attachment.client.close(4401, "invalid_stream_token");
+      this.closeAttachment(attachment, 4401, "invalid_stream_token");
       return "handled";
     }
 
@@ -530,6 +607,18 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     attachment.bridge = createTwilioMediaStreamsBridge({
       callSessionId: attachment.callSessionId,
       expectedCallSid: authorization.expectedCallSid,
+    });
+    this.capacityObservability?.updateSocketContext({
+      socketId: attachment.capacitySocketId,
+      runtimePath: authorization.runtimePath,
+      provider: "twilio",
+    });
+    this.recordTwilioHandshake(attachment, "accepted");
+    this.capacityObservability?.trackCall({
+      callId: authorization.callSessionId,
+      state: "reserved",
+      runtimePath: authorization.runtimePath,
+      provider: authorization.runtimePath === "pstn-sandwich" ? "sandwich" : "other",
     });
     logTwilioPstnDiagnostic(this.logger, "media_start_authorized", {
       organizationId: authorization.organizationId,
@@ -572,7 +661,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       type: "error",
       error,
     });
-    attachment.client.close(4400, error.code);
+    this.closeAttachment(attachment, 4400, error.code);
   }
 
   private recordPstnObservability(
@@ -594,6 +683,52 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       },
       events: [event],
     }).catch(() => undefined);
+  }
+
+  private sendTwilioMessage(attachment: TwilioMediaStreamAttachment, message: unknown) {
+    const serialized = JSON.stringify(message);
+    attachment.client.send(serialized);
+    this.capacityObservability?.recordSocketTraffic({
+      socketId: attachment.capacitySocketId,
+      direction: "outbound",
+      messageCount: 1,
+      byteCount: Buffer.byteLength(serialized, "utf8"),
+    });
+    this.capacityObservability?.recordSocketBuffered({
+      socketId: attachment.capacitySocketId,
+      bufferedBytes: attachment.client.bufferedAmount,
+    });
+  }
+
+  private recordTwilioIngressQueue(attachment: TwilioMediaStreamAttachment) {
+    this.capacityObservability?.recordQueue({
+      callId: attachment.callSessionId,
+      queue: "twilio_ingress",
+      bytes: attachment.pendingMessageBytes,
+      items: attachment.pendingMessageCount,
+      byteLimit: maxPendingTwilioMessageBytes,
+    });
+  }
+
+  private recordTwilioHandshake(
+    attachment: TwilioMediaStreamAttachment,
+    outcome: "accepted" | "rejected" | "failed",
+  ) {
+    if (attachment.capacityHandshakeRecorded) return;
+    attachment.capacityHandshakeRecorded = true;
+    this.capacityObservability?.recordSocketHandshake({
+      socketId: attachment.capacitySocketId,
+      latencyMs: Math.max(0, Date.now() - attachment.capacityOpenedAtMs),
+      outcome,
+    });
+  }
+
+  private closeAttachment(attachment: TwilioMediaStreamAttachment, code: number, reason: string) {
+    if (!attachment.capacityHandshakeRecorded) {
+      this.recordTwilioHandshake(attachment, "rejected");
+    }
+    attachment.capacityCloseInitiator = "local";
+    attachment.client.close(code, reason);
   }
 
   private requireAttachment(callSessionId: string) {

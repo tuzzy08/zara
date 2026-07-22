@@ -1,4 +1,5 @@
 import type { PlatformRole } from "@zara/core";
+import type { PstnCapacitySnapshot } from "../runtime-observability/pstn-capacity-observability";
 
 export interface PlatformAdminDashboard {
   systemHealth: {
@@ -181,6 +182,7 @@ export interface PlatformAiRuntimeObservability {
       status: "passing" | "attention_required" | "blocked";
     };
   };
+  pstnCapacity: PstnCapacitySnapshot;
   evalGate: {
     command: "npm run eval:runtime";
     failClosedForProtectedChanges: boolean;

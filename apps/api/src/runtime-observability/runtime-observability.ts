@@ -1,6 +1,12 @@
-import { SpanKind, trace } from "@opentelemetry/api";
+import { diag, metrics, SpanKind, trace } from "@opentelemetry/api";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+  type PushMetricExporter,
+} from "@opentelemetry/sdk-metrics";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import type {
@@ -348,6 +354,11 @@ export interface RuntimeObservabilityMetricsStore {
   getProviderHealthSummary(): RuntimeProviderHealthSummary;
 }
 
+export interface RuntimeMetricExportHealthStore {
+  recordFailure(): void;
+  getSnapshot(): { failureCount: number; lastFailureAt: string | null };
+}
+
 export interface RuntimeLatencyPercentiles {
   p50: number;
   p95: number;
@@ -370,7 +381,7 @@ export function resolveRuntimeObservabilityConfig(
   const langsmithProject = env["LANGSMITH_PROJECT"]?.trim() || "zara-runtime";
   const workspaceId = env["LANGSMITH_WORKSPACE_ID"]?.trim();
   const sinks: RuntimeObservabilitySink[] = ["event-log", "metrics"];
-  if (otelTracing) {
+  if (otelTracing || otelMetrics) {
     sinks.push("opentelemetry");
   }
   if (langsmithEnabled) {
@@ -461,7 +472,24 @@ export function createRuntimeObservabilityMetricsStore(): RuntimeObservabilityMe
   };
 }
 
+export function createRuntimeMetricExportHealthStore(
+  now: () => string = () => new Date().toISOString(),
+): RuntimeMetricExportHealthStore {
+  let failureCount = 0;
+  let lastFailureAt: string | null = null;
+  return {
+    recordFailure() {
+      failureCount += 1;
+      lastFailureAt = now();
+    },
+    getSnapshot() {
+      return { failureCount, lastFailureAt };
+    },
+  };
+}
+
 export const runtimeObservabilityMetricsStore = createRuntimeObservabilityMetricsStore();
+export const runtimeMetricExportHealthStore = createRuntimeMetricExportHealthStore();
 
 export function buildRuntimeTraceExport(input: RuntimeTraceExportInput): RuntimeTraceExportPlan {
   const baseAttributes = buildBaseAttributes(input);
@@ -696,6 +724,93 @@ export function configureOpenTelemetryRuntimeTracing(input: {
 
   provider.register();
   return createOpenTelemetryRuntimeSpanExporter();
+}
+
+export function configureOpenTelemetryRuntimeMetrics(input: {
+  config: RuntimeObservabilityConfig;
+  env?: Record<string, string | undefined> | undefined;
+}): MeterProvider | undefined {
+  if (!input.config.otel.metricsEnabled || !input.config.sinks.includes("opentelemetry")) {
+    return undefined;
+  }
+
+  const env = input.env ?? process.env;
+  const metricsEndpoint = env["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"]?.trim();
+  const headers = parseOtelHeaders(
+    env["OTEL_EXPORTER_OTLP_METRICS_HEADERS"] ?? env["OTEL_EXPORTER_OTLP_HEADERS"],
+  );
+  const exporter = createObservedMetricExporter(new OTLPMetricExporter({
+    ...(metricsEndpoint !== undefined && metricsEndpoint.length > 0 ? { url: metricsEndpoint } : {}),
+    ...(headers !== undefined ? { headers } : {}),
+  }), runtimeMetricExportHealthStore);
+  const reader = new PeriodicExportingMetricReader({
+    exporter,
+    exportIntervalMillis: readPositiveDuration(env["OTEL_METRIC_EXPORT_INTERVAL"], 60_000),
+    exportTimeoutMillis: readPositiveDuration(env["OTEL_METRIC_EXPORT_TIMEOUT"], 30_000),
+    cardinalityLimits: {
+      default: 200,
+    },
+  });
+  const provider = new MeterProvider({
+    resource: resourceFromAttributes({
+      "service.name": input.config.serviceName,
+      "service.version": input.config.releaseVersion,
+      "deployment.environment.name": input.config.environment,
+    }),
+    readers: [reader],
+  });
+  metrics.setGlobalMeterProvider(provider);
+  return provider;
+}
+
+export function createObservedMetricExporter(
+  exporter: PushMetricExporter,
+  healthStore: RuntimeMetricExportHealthStore = runtimeMetricExportHealthStore,
+): PushMetricExporter {
+  const recordFailure = () => {
+    healthStore.recordFailure();
+    diag.warn("OpenTelemetry metric export failed; live runtime execution is unaffected.");
+  };
+  return {
+    export(resourceMetrics, resultCallback) {
+      try {
+        exporter.export(resourceMetrics, (result) => {
+          if (result.code !== 0) recordFailure();
+          resultCallback(result);
+        });
+      } catch (error) {
+        recordFailure();
+        resultCallback({
+          code: 1,
+          ...(error instanceof Error ? { error } : {}),
+        });
+      }
+    },
+    async forceFlush() {
+      try {
+        await exporter.forceFlush();
+      } catch {
+        recordFailure();
+      }
+    },
+    async shutdown() {
+      try {
+        await exporter.shutdown();
+      } catch {
+        recordFailure();
+      }
+    },
+    ...(exporter.selectAggregationTemporality === undefined
+      ? {}
+      : {
+          selectAggregationTemporality: exporter.selectAggregationTemporality.bind(exporter),
+        }),
+    ...(exporter.selectAggregation === undefined
+      ? {}
+      : {
+          selectAggregation: exporter.selectAggregation.bind(exporter),
+        }),
+  };
 }
 
 export function createLangSmithRuntimeTraceExporter(input: {
@@ -1589,6 +1704,11 @@ function parseOtelHeaders(value: string | undefined): Record<string, string> | u
         return [[entry.slice(0, separatorIndex).trim(), entry.slice(separatorIndex + 1).trim()]];
       }),
   );
+}
+
+function readPositiveDuration(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function toSnakeCase(value: string) {

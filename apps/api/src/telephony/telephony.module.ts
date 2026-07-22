@@ -9,6 +9,7 @@ import {
   createConfiguredPstnCallObservabilityRecorder,
   pstnCallObservabilityRecorderToken,
 } from "../runtime-observability/runtime-observability";
+import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import { TelephonyController } from "./telephony.controller";
 import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
 import { resolveTelephonySecretVaultConfig } from "./telephony-env";
@@ -31,6 +32,7 @@ import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
   controllers: [TelephonyController],
   providers: [
     PostgresPoolService,
+    PstnCapacityObservability,
     TelephonyService,
     PstnPremiumCallExecution,
     TwilioMediaStreamsWebSocketBridge,
@@ -44,9 +46,14 @@ import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
     },
     {
       provide: TELEPHONY_STATE_REPOSITORY,
-      useFactory: (postgresPoolService: PostgresPoolService) =>
-        new PostgresTelephonyStateRepository(postgresPoolService.pool),
-      inject: [PostgresPoolService],
+      useFactory: (
+        postgresPoolService: PostgresPoolService,
+        capacityObservability: PstnCapacityObservability,
+      ) => new PostgresTelephonyStateRepository(
+        postgresPoolService.pool,
+        capacityObservability,
+      ),
+      inject: [PostgresPoolService, PstnCapacityObservability],
     },
     {
       provide: TelephonySecretVault,
@@ -57,6 +64,6 @@ import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
       useFactory: () => createConfiguredPstnCallObservabilityRecorder(process.env),
     },
   ],
-  exports: [TelephonyService],
+  exports: [PstnCapacityObservability, TelephonyService],
 })
 export class TelephonyModule {}

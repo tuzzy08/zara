@@ -1,29 +1,41 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 
+import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import type { PersistedTelephonyStateRecord } from "./telephony-state.repository";
 
-type Queryable = Pick<Pool, "query" | "connect">;
+type Queryable = Pick<Pool, "query" | "connect"> & {
+  readonly totalCount?: number | undefined;
+  readonly idleCount?: number | undefined;
+  readonly waitingCount?: number | undefined;
+  readonly options?: { max?: number | undefined } | undefined;
+};
 
 export class PostgresTelephonyStateRepository {
-  constructor(private readonly database: Queryable) {}
+  constructor(
+    private readonly database: Queryable,
+    private readonly capacityObservability?: Pick<PstnCapacityObservability, "recordDatabaseOperation">,
+  ) {}
 
   async listOrganizationIds() {
-    const result = await this.database.query<{
-      tenant_id: string;
-    }>("select distinct tenant_id from telephony_connections order by tenant_id asc");
+    return this.observeQuery("organization_list", async () => {
+      const result = await this.database.query<{
+        tenant_id: string;
+      }>("select distinct tenant_id from telephony_connections order by tenant_id asc");
 
-    return result.rows.map((row: { tenant_id: string }) => row.tenant_id);
+      return result.rows.map((row: { tenant_id: string }) => row.tenant_id);
+    });
   }
 
   async load(organizationId: string): Promise<PersistedTelephonyStateRecord | null> {
-    const connections = await this.database.query(
-      "select * from telephony_connections where tenant_id = $1 order by id asc",
-      [organizationId],
-    );
+    return this.observeQuery("telephony_state_load", async () => {
+      const connections = await this.database.query(
+        "select * from telephony_connections where tenant_id = $1 order by id asc",
+        [organizationId],
+      );
 
-    if (connections.rows.length === 0) {
-      return null;
-    }
+      if (connections.rows.length === 0) {
+        return null;
+      }
 
     const [
       phoneNumbers,
@@ -79,7 +91,7 @@ export class PostgresTelephonyStateRepository {
       ),
     ]);
 
-    return {
+      return {
       schemaVersion: 1,
       organizationId,
       connections: connections.rows.map(mapConnectionRow),
@@ -95,15 +107,24 @@ export class PostgresTelephonyStateRepository {
       processedWebhookEventIds: processedWebhookEvents.rows.map(
         (row: QueryResultRow) => row.event_sid as string,
       ),
-    };
+      };
+    });
   }
 
   async save(record: PersistedTelephonyStateRecord) {
-    const client = await this.database.connect();
+    const operationStartedAt = Date.now();
+    let transactionStartedAt = operationStartedAt;
+    let advisoryLockWaitMs = 0;
+    let outcome: "success" | "failure" = "failure";
+    let client: PoolClient | undefined;
 
     try {
+      client = await this.database.connect();
+      transactionStartedAt = Date.now();
       await client.query("begin");
+      const lockStartedAt = Date.now();
       await client.query("select pg_advisory_xact_lock(hashtext($1))", [record.organizationId]);
+      advisoryLockWaitMs = Math.max(0, Date.now() - lockStartedAt);
       await ensureTenantShell(client, record.organizationId);
 
       await clearTenantState(client, record.organizationId);
@@ -403,13 +424,68 @@ export class PostgresTelephonyStateRepository {
       }
 
       await client.query("commit");
+      outcome = "success";
     } catch (error) {
-      await client.query("rollback");
+      if (client !== undefined) await client.query("rollback");
       throw error;
     } finally {
-      client.release();
+      client?.release();
+      this.recordDatabaseOperation({
+        operation: "telephony_state_save",
+        outcome,
+        queryDurationMs: Math.max(0, Date.now() - operationStartedAt),
+        transactionDurationMs: Math.max(0, Date.now() - transactionStartedAt),
+        advisoryLockWaitMs,
+      });
     }
   }
+
+  private async observeQuery<T>(
+    operation: "organization_list" | "telephony_state_load",
+    query: () => Promise<T>,
+  ) {
+    const startedAt = Date.now();
+    let outcome: "success" | "failure" = "failure";
+    try {
+      const result = await query();
+      outcome = "success";
+      return result;
+    } finally {
+      this.recordDatabaseOperation({
+        operation,
+        outcome,
+        queryDurationMs: Math.max(0, Date.now() - startedAt),
+      });
+    }
+  }
+
+  private recordDatabaseOperation(input: {
+    operation: "organization_list" | "telephony_state_load" | "telephony_state_save";
+    outcome: "success" | "failure";
+    queryDurationMs: number;
+    transactionDurationMs?: number | undefined;
+    advisoryLockWaitMs?: number | undefined;
+  }) {
+    try {
+      this.capacityObservability?.recordDatabaseOperation({
+        ...input,
+        pool: readPoolSnapshot(this.database),
+      });
+    } catch {
+      // Capacity telemetry must never alter telephony persistence behavior.
+    }
+  }
+}
+
+function readPoolSnapshot(database: Queryable) {
+  const total = Math.max(0, database.totalCount ?? 0);
+  const idle = Math.max(0, database.idleCount ?? 0);
+  return {
+    active: Math.max(0, total - idle),
+    idle,
+    waiting: Math.max(0, database.waitingCount ?? 0),
+    limit: Math.max(1, database.options?.max ?? 10),
+  };
 }
 
 async function ensureTenantShell(client: PoolClient, organizationId: string) {

@@ -428,6 +428,24 @@ Implemented baseline:
 - `npm run eval:pstn` runs deterministic `zara.pstn-media.v1` Twilio media scenarios separately from ordinary tests and non-PSTN runtime evals.
 - Premium realtime PSTN traces include `runtimePath: pstn-premium-realtime`, provider/model/conversation-policy version/media profile, readiness and resident ingress pressure, interruption/truncation counts and acknowledged duration, first outbound frame latency, provider failure classifications, and the same redaction rules as sandwich PSTN traces.
 
+### Provisional Single-Instance Capacity Posture
+
+The current API process reports capacity against this exact provisional worker envelope:
+
+| Resource | Provisional value |
+| --- | ---: |
+| Premium PSTN calls | 20 concurrent calls |
+| CPU | 2 vCPU / 2,000 millicores |
+| Memory | 1 GiB / 1,073,741,824 bytes |
+| File descriptors | 4,096 |
+| Postgres pool | 10 connections |
+| Event-loop delay | p99 50 ms |
+| Premium WebSocket posture | 2 open legs per call: Twilio and realtime provider |
+
+These values are overload-posture denominators, not certified capacity and not admission enforcement. A deployment must set `PSTN_INSTANCE_CPU_LIMIT_MILLICORES`, `PSTN_INSTANCE_MEMORY_LIMIT_BYTES`, `PSTN_INSTANCE_FILE_DESCRIPTOR_LIMIT`, `PGPOOL_MAX`, `PSTN_EVENT_LOOP_DELAY_LIMIT_MS`, and `PSTN_CAPACITY_MAX_CONCURRENT_CALLS` to its actual worker limits when they differ from the provisional defaults. Qualification and explicit admission remain separate follow-up work.
+
+Relevant resources classify utilization below 70 percent as healthy, from 70 percent as warning, from 85 percent as critical, and at or above 100 percent as exhausted. The posture combines call lifecycle, process pressure, both WebSocket legs, database pool/latency/lock pressure, and existing bounded media queues. Metric dimensions are limited to runtime path, provider, lifecycle state, socket leg/direction/outcome, queue, database operation, and close classification; tenant, call, stream, response, phone-number, and tool identities are forbidden.
+
 Synthetic PSTN evals use a Twilio media harness with deterministic scenarios:
 
 - clean successful phone test

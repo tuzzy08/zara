@@ -174,6 +174,9 @@ Required runtime metrics:
 - packet projection size and truncation count
 - LangSmith export success, failure, and dropped-span count
 - PSTN first-response and premium readiness latency, ingress/provider/output queue pressure, playback bytes/frames/lag/generation/marks/completion acknowledgements, overflow and stale-frame drops, interruption and playback-clear counts, handoff duration, cleanup count, no-frame timeout count, STT reconnect count, TTS first-byte timeout count, model timeout count, bridge error count, barge-in count, Twilio stop reasons, successful phone-test rate, premium realtime provider failure count, and premium realtime blocked-fallback count
+- PSTN single-instance capacity: calls by lifecycle/runtime/provider; process CPU, event-loop utilization and p95/p99/max delay, RSS, heap, external/array-buffer memory, GC pauses, and open file descriptors; Twilio/provider socket count, handshake duration, message/byte throughput, buffered bytes, and close classification; Postgres pool active/idle/waiting, query/transaction/advisory-lock duration; and bounded queue utilization/drop counts
+
+PSTN capacity metrics use only bounded dimensions: runtime path, provider, lifecycle state, socket leg, direction, outcome, queue, database operation, and close classification. Tenant, call, stream, response, phone-number, and tool identifiers must remain in sampled redacted traces or structured logs rather than metric labels. `OTEL_METRICS_ENABLED=true` enables periodic OTLP/HTTP metric export; `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_METRIC_EXPORT_INTERVAL`, and `OTEL_METRIC_EXPORT_TIMEOUT` may configure the metrics pipeline independently. Missing or failed metric export remains nonfatal to live calls.
 
 ## Provider Benchmarks
 

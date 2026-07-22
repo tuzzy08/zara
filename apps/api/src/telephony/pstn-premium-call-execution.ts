@@ -26,6 +26,7 @@ import {
   type PstnCallObservabilityEvent,
   type PstnCallObservabilityRecorder,
 } from "../runtime-observability/runtime-observability";
+import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import { TelephonyService } from "./telephony.service";
 import { PremiumProviderMessagePressure } from "./premium-provider-message-pressure";
 import {
@@ -85,6 +86,7 @@ interface ActivePremiumCallExecution {
   registered: RegisteredPremiumRealtimeSession;
   providerConnection: PremiumRealtimeProviderConnection;
   providerEpoch: number;
+  providerSocketIds: Set<string>;
   inboundRuntime: RegisteredPremiumRealtimeSession["session"]["runtime"];
   pendingProviderTransition?: PendingProviderTransition | undefined;
   completedPlaybackResponseIds: Set<string>;
@@ -135,6 +137,11 @@ const completedPlaybackResponseLimit = 64;
 const providerHandoffTimeoutMs = 5_000;
 const providerResponseStartTimeoutMs = 8_000;
 const terminalCallSessionLimit = 1_024;
+const providerOutputByteLimit = 64 * 1_024;
+const providerOutputCountLimit = 256;
+const playbackByteLimit = 240_000;
+const playbackMarkLimit = 50;
+const ingressByteLimit = 256 * 1_024;
 interface StartPremiumCallExecutionInput {
   organizationId: string;
   dispatchId: string;
@@ -172,6 +179,9 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     @Optional()
     @Inject(pstnCallObservabilityRecorderToken)
     private readonly observabilityRecorder?: PstnCallObservabilityRecorder,
+    @Optional()
+    @Inject(PstnCapacityObservability)
+    private readonly capacityObservability?: PstnCapacityObservability,
   ) {}
 
   async start(input: StartPremiumCallExecutionInput) {
@@ -184,8 +194,17 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
 
     this.terminalCallSessionIds.delete(input.callSessionId);
     this.startingCallSessionIds.add(input.callSessionId);
+    this.capacityObservability?.trackCall({
+      callId: input.callSessionId,
+      state: "starting",
+      runtimePath: "pstn-premium-realtime",
+      provider: "other",
+    });
     try {
       await this.startExecution(input);
+    } catch (error) {
+      this.capacityObservability?.endCall({ callId: input.callSessionId, outcome: "failed" });
+      throw error;
     } finally {
       this.startingCallSessionIds.delete(input.callSessionId);
       this.cancelledCallSessions.delete(input.callSessionId);
@@ -262,8 +281,15 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         { message: "Premium realtime session registration failed for the PSTN call." },
       );
     }
+    this.capacityObservability?.trackCall({
+      callId: input.callSessionId,
+      state: "starting",
+      runtimePath: "pstn-premium-realtime",
+      provider: registered.session.runtime,
+    });
 
     let providerConnection: PremiumRealtimeProviderConnection;
+    const providerHandshakeStartedAt = Date.now();
     try {
       providerConnection = await this.providerTransport.connect({
         organizationId: registered.organizationId,
@@ -273,6 +299,13 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         manifest: registered.manifest,
       });
     } catch (error) {
+      this.capacityObservability?.recordSocketHandshakeAttempt({
+        leg: "provider",
+        runtimePath: "pstn-premium-realtime",
+        provider: registered.session.runtime,
+        latencyMs: Math.max(0, Date.now() - providerHandshakeStartedAt),
+        outcome: "failed",
+      });
       this.logger.error(`[twilio-pstn] premium_provider_start_failed ${JSON.stringify({
         organizationId: input.organizationId,
         dispatchId: input.dispatchId,
@@ -312,18 +345,47 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         },
       );
     }
+    const initialProviderSocketId = providerSocketId(input.callSessionId, 0);
+    this.capacityObservability?.openSocket({
+      socketId: initialProviderSocketId,
+      leg: "provider",
+      runtimePath: "pstn-premium-realtime",
+      provider: registered.session.runtime,
+    });
     const cancellationReason = this.cancelledCallSessions.get(input.callSessionId);
     if (cancellationReason !== undefined) {
       this.cancelledCallSessions.delete(input.callSessionId);
       this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
       providerConnection.close(1000, cancellationReason);
+      this.capacityObservability?.closeSocket({
+        socketId: initialProviderSocketId,
+        initiator: "local",
+        code: 1000,
+      });
+      this.capacityObservability?.endCall({
+        callId: input.callSessionId,
+        outcome: "completed",
+      });
       return;
     }
-    const readinessStartedAt = Date.now();
+    const readinessStartedAt = providerHandshakeStartedAt;
     let readinessRecorded = false;
     const actor = new PstnPremiumCallActor({
       callSessionId: input.callSessionId,
-      provider: adaptProviderConnection(providerConnection),
+      provider: adaptProviderConnection(providerConnection, {
+        onSend: (messageBytes, bufferedBytes) => {
+          this.capacityObservability?.recordSocketTraffic({
+            socketId: initialProviderSocketId,
+            direction: "outbound",
+            messageCount: 1,
+            byteCount: messageBytes,
+          });
+          this.capacityObservability?.recordSocketBuffered({
+            socketId: initialProviderSocketId,
+            bufferedBytes,
+          });
+        },
+      }),
       ingressAdmission: this.ingressAdmission,
       drain: () => {
         const installed = this.executions.get(input.callSessionId);
@@ -337,6 +399,17 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       closeCaller: (code, reason) => input.output.close(code, reason),
       onReady: () => {
         readinessRecorded = true;
+        this.capacityObservability?.recordSocketHandshake({
+          socketId: providerSocketId(input.callSessionId, execution.providerEpoch),
+          latencyMs: Math.max(0, Date.now() - readinessStartedAt),
+          outcome: "accepted",
+        });
+        this.capacityObservability?.trackCall({
+          callId: input.callSessionId,
+          state: "active",
+          runtimePath: "pstn-premium-realtime",
+          provider: execution.registered.session.runtime,
+        });
         this.recordMilestone(execution, "provider_ready", "premium.readiness", {
           provider: execution.registered.session.runtime,
           ready: true,
@@ -358,6 +431,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         execution.terminalFailureCode = reason;
         if (!readinessRecorded && reason.startsWith("premium_provider_readiness_")) {
           readinessRecorded = true;
+          this.capacityObservability?.recordSocketHandshake({
+            socketId: providerSocketId(input.callSessionId, execution.providerEpoch),
+            latencyMs: Math.max(0, Date.now() - readinessStartedAt),
+            outcome: "failed",
+          });
           this.recordPremiumEvent(execution, {
             type: "premium.readiness",
             at: new Date().toISOString(),
@@ -371,7 +449,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         }
         this.recordFailure(execution, reason);
       },
-      onTerminal: () => {
+      onTerminal: (state) => {
         const installed = this.executions.get(input.callSessionId);
         if (installed?.actor === actor) {
           this.clearExpectedProviderResponse(installed);
@@ -380,6 +458,13 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
           this.clearProviderTransition(installed, "provider_handoff_cancelled");
           this.executions.delete(input.callSessionId);
           this.rememberTerminalCallSession(input.callSessionId);
+          for (const socketId of installed.providerSocketIds) {
+            this.capacityObservability?.closeSocket({ socketId, initiator: "local", code: 1000 });
+          }
+          this.capacityObservability?.endCall({
+            callId: input.callSessionId,
+            outcome: state === "failed" ? "failed" : "completed",
+          });
         }
       },
     });
@@ -388,6 +473,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       registered,
       providerConnection,
       providerEpoch: 0,
+      providerSocketIds: new Set([initialProviderSocketId]),
       inboundRuntime: registered.session.runtime,
       completedPlaybackResponseIds: new Set(),
       actor,
@@ -449,6 +535,17 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         return;
       }
       const messageBytes = Buffer.byteLength(message, "utf8");
+      const socketId = providerSocketId(execution.callSessionId, providerEpoch);
+      this.capacityObservability?.recordSocketTraffic({
+        socketId,
+        direction: "inbound",
+        messageCount: 1,
+        byteCount: messageBytes,
+      });
+      this.capacityObservability?.recordSocketBuffered({
+        socketId,
+        bufferedBytes: providerConnection.getBufferedAmountBytes(),
+      });
       try {
         execution.providerMessagePressure.assertMessageWithinLimit(messageBytes);
       } catch (error) {
@@ -531,7 +628,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
           }
         });
     });
-    providerConnection.onClose(() => {
+    providerConnection.onClose((event) => {
+      this.capacityObservability?.closeSocket({
+        socketId: providerSocketId(execution.callSessionId, providerEpoch),
+        initiator: "remote",
+        code: event.code,
+      });
       if (!this.isCurrentProviderLeg(execution, providerEpoch)) {
         return;
       }
@@ -588,6 +690,19 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       residentByteLength: Buffer.byteLength(JSON.stringify(providerMessage), "utf8"),
     });
     const pressure = execution.actor.getDiagnostics();
+    const ingressQueue = pressure.state === "handing_off" ? "handoff_ingress" : "startup_ingress";
+    this.capacityObservability?.recordQueue({
+      callId: execution.callSessionId,
+      queue: ingressQueue,
+      bytes: pressure.ingressDepthBytes,
+      items: Math.ceil(pressure.ingressDepthBytes / 160),
+      byteLimit: ingressByteLimit,
+      itemLimit: Math.ceil(ingressByteLimit / 160),
+    });
+    this.capacityObservability?.recordSocketBuffered({
+      socketId: providerSocketId(execution.callSessionId, execution.providerEpoch),
+      bufferedBytes: pressure.providerBufferedBytes,
+    });
     this.recordPremiumEvent(execution, {
       type: "premium.pressure",
       at: new Date().toISOString(),
@@ -615,6 +730,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       return;
     }
 
+    this.capacityObservability?.trackCall({
+      callId: input.callSessionId,
+      state: "draining",
+      runtimePath: "pstn-premium-realtime",
+      provider: execution.registered.session.runtime,
+    });
     await execution.actor.stop("pstn_stream_stopped");
     this.clearProviderTransition(execution, "pstn_stream_stopped");
     if (this.executions.get(input.callSessionId) === execution) {
@@ -726,6 +847,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     }
     this.clearExpectedProviderResponse(execution);
     execution.actor.beginHandoff();
+    this.capacityObservability?.trackCall({
+      callId: execution.callSessionId,
+      state: "handing_off",
+      runtimePath: "pstn-premium-realtime",
+      provider: transition.target.runtime,
+    });
     if (transition.source.runtime === "gemini-live" && execution.activeGeminiResponseId !== undefined) {
       execution.playback.interrupt();
       execution.activeGeminiResponseId = undefined;
@@ -805,6 +932,8 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     }
 
     let replacement: PremiumRealtimeProviderConnection | undefined;
+    const replacementSocketId = providerSocketId(execution.callSessionId, pending.epoch);
+    const replacementHandshakeStartedAt = Date.now();
     try {
       replacement = await this.providerTransport.connect({
         organizationId: execution.registered.organizationId,
@@ -813,22 +942,44 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         session: targetSession,
         manifest: execution.registered.manifest,
       });
+      execution.providerSocketIds.add(replacementSocketId);
+      this.capacityObservability?.openSocket({
+        socketId: replacementSocketId,
+        leg: "provider",
+        runtimePath: "pstn-premium-realtime",
+        provider: targetSession.runtime,
+      });
       if (
         this.executions.get(execution.callSessionId) !== execution
         || execution.pendingProviderTransition !== pending
         || execution.providerEpoch !== pending.epoch
       ) {
         replacement.close(1000, "provider_handoff_cancelled");
+        this.capacityObservability?.closeSocket({
+          socketId: replacementSocketId,
+          initiator: "local",
+          code: 1000,
+        });
         return;
       }
       pending.replacementConnection = replacement;
       await replacement.waitUntilReady();
+      this.capacityObservability?.recordSocketHandshake({
+        socketId: replacementSocketId,
+        latencyMs: Math.max(0, Date.now() - replacementHandshakeStartedAt),
+        outcome: "accepted",
+      });
       if (
         this.executions.get(execution.callSessionId) !== execution
         || execution.pendingProviderTransition !== pending
         || execution.providerEpoch !== pending.epoch
       ) {
         replacement.close(1000, "provider_handoff_cancelled");
+        this.capacityObservability?.closeSocket({
+          socketId: replacementSocketId,
+          initiator: "local",
+          code: 1000,
+        });
         return;
       }
 
@@ -838,12 +989,47 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       this.bindProviderConnection(execution, replacement, pending.epoch);
       const continuation = buildProviderContinuationMessage(pending.transition);
       replacement.send(continuation);
+      const replacementBufferedBytes = replacement.getBufferedAmountBytes();
+      this.capacityObservability?.recordSocketTraffic({
+        socketId: replacementSocketId,
+        direction: "outbound",
+        messageCount: 1,
+        byteCount: Buffer.byteLength(JSON.stringify(continuation), "utf8"),
+      });
+      this.capacityObservability?.recordSocketBuffered({
+        socketId: replacementSocketId,
+        bufferedBytes: replacementBufferedBytes,
+      });
       pending.replacementConnection = undefined;
-      execution.actor.completeHandoff(adaptProviderConnection(replacement));
+      execution.actor.completeHandoff(adaptProviderConnection(replacement, {
+        onSend: (messageBytes, bufferedBytes) => {
+          this.capacityObservability?.recordSocketTraffic({
+            socketId: replacementSocketId,
+            direction: "outbound",
+            messageCount: 1,
+            byteCount: messageBytes,
+          });
+          this.capacityObservability?.recordSocketBuffered({
+            socketId: replacementSocketId,
+            bufferedBytes,
+          });
+        },
+      }));
       this.expectProviderResponse(execution, "handoff_continuation");
       this.clearProviderTransition(execution);
       execution.pendingProviderTransition = undefined;
       sourceConnection.close(1000, "provider_agent_handoff");
+      this.capacityObservability?.closeSocket({
+        socketId: providerSocketId(execution.callSessionId, pending.epoch - 1),
+        initiator: "local",
+        code: 1000,
+      });
+      this.capacityObservability?.trackCall({
+        callId: execution.callSessionId,
+        state: "active",
+        runtimePath: "pstn-premium-realtime",
+        provider: targetSession.runtime,
+      });
       this.recordPremiumEvent(execution, {
         type: "premium.handoff",
         at: new Date().toISOString(),
@@ -863,11 +1049,31 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
         targetRuntime: pending.transition.target.runtime,
       })}`);
     } catch {
+      if (replacement === undefined) {
+        this.capacityObservability?.recordSocketHandshakeAttempt({
+          leg: "provider",
+          runtimePath: "pstn-premium-realtime",
+          provider: targetSession.runtime,
+          latencyMs: Math.max(0, Date.now() - replacementHandshakeStartedAt),
+          outcome: "failed",
+        });
+      } else {
+        this.capacityObservability?.recordSocketHandshake({
+          socketId: replacementSocketId,
+          latencyMs: Math.max(0, Date.now() - replacementHandshakeStartedAt),
+          outcome: "failed",
+        });
+      }
       if (replacement !== undefined) {
         if (pending.replacementConnection === replacement) {
           pending.replacementConnection = undefined;
         }
         replacement.close(1011, "premium_provider_handoff_failed");
+        this.capacityObservability?.closeSocket({
+          socketId: replacementSocketId,
+          initiator: "local",
+          code: 1011,
+        });
       }
       this.failExecution(execution, "premium_provider_handoff_failed");
     }
@@ -894,6 +1100,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       const replacement = pending.replacementConnection;
       pending.replacementConnection = undefined;
       replacement.close(1011, closeReason);
+      this.capacityObservability?.closeSocket({
+        socketId: providerSocketId(execution.callSessionId, pending.epoch),
+        initiator: "local",
+        code: 1011,
+      });
     }
   }
 
@@ -964,6 +1175,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
             type: "premium.playback",
             at: new Date().toISOString(),
             payload: { staleGenerationDiscarded: true, playbackCleared: false },
+          });
+          this.capacityObservability?.recordQueueDrop({
+            callId: execution.callSessionId,
+            queue: "twilio_playback",
+            reason: "stale",
           });
         }
         if (!result.accepted && result.reason === "response_unregistered") {
@@ -1114,6 +1330,22 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
 
   private recordPlayback(execution: ActivePremiumCallExecution) {
     const state = execution.playback.getState();
+    this.capacityObservability?.recordQueue({
+      callId: execution.callSessionId,
+      queue: "twilio_playback",
+      bytes: state.queuedAudioBytes,
+      items: state.queuedFrameCount,
+      byteLimit: playbackByteLimit,
+      itemLimit: Math.ceil(playbackByteLimit / 160),
+    });
+    this.capacityObservability?.recordQueue({
+      callId: execution.callSessionId,
+      queue: "twilio_marks",
+      bytes: 0,
+      items: state.inFlightMarkCount,
+      byteLimit: 1,
+      itemLimit: playbackMarkLimit,
+    });
     this.recordPremiumEvent(execution, {
       type: "premium.playback",
       at: new Date().toISOString(),
@@ -1158,6 +1390,14 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
 
   private recordFailure(execution: ActivePremiumCallExecution, reason: string) {
     const overflow = reason.includes("overflow") || reason === "premium_provider_congested";
+    const overflowQueue = capacityQueueForFailure(reason);
+    if (overflowQueue !== undefined) {
+      this.capacityObservability?.recordQueueDrop({
+        callId: execution.callSessionId,
+        queue: overflowQueue,
+        reason: "overflow",
+      });
+    }
     const pendingHandoff = execution.pendingProviderTransition;
     if (pendingHandoff !== undefined) {
       this.recordPremiumEvent(execution, {
@@ -1192,13 +1432,29 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
 
   private recordProviderOutputPressure(execution: ActivePremiumCallExecution) {
     const pressure = execution.providerMessagePressure.getSnapshot();
+    const providerBufferedBytes = execution.providerConnection.getBufferedAmountBytes();
+    this.capacityObservability?.recordQueue({
+      callId: execution.callSessionId,
+      queue: "provider_output",
+      bytes: providerBufferedBytes,
+      items: 0,
+      byteLimit: ingressByteLimit,
+    });
+    this.capacityObservability?.recordQueue({
+      callId: execution.callSessionId,
+      queue: "tool_handoff",
+      bytes: pressure.bytes,
+      items: pressure.count,
+      byteLimit: providerOutputByteLimit,
+      itemLimit: providerOutputCountLimit,
+    });
     this.recordPremiumEvent(execution, {
       type: "premium.pressure",
       at: new Date().toISOString(),
       payload: {
         providerOutputDepthBytes: pressure.bytes,
         providerOutputDepthCount: pressure.count,
-        providerBufferedBytes: execution.providerConnection.getBufferedAmountBytes(),
+        providerBufferedBytes,
       },
     });
   }
@@ -1470,16 +1726,36 @@ function buildInitialGreetingInstruction(registered: RegisteredPremiumRealtimeSe
 
 function adaptProviderConnection(
   connection: PremiumRealtimeProviderConnection,
+  hooks?: {
+    onSend(messageBytes: number, bufferedBytes: number): void;
+  },
 ): PstnPremiumCallActorProvider {
   return {
     waitUntilReady: () => connection.waitUntilReady(),
     getBufferedAmountBytes: () => connection.getBufferedAmountBytes(),
     send: (message) => {
       connection.send(message);
-      return connection.getBufferedAmountBytes();
+      const bufferedBytes = connection.getBufferedAmountBytes();
+      hooks?.onSend(Buffer.byteLength(JSON.stringify(message), "utf8"), bufferedBytes);
+      return bufferedBytes;
     },
     close: (code, reason) => connection.close(code, reason),
   };
+}
+
+function providerSocketId(callSessionId: string, epoch: number) {
+  return `provider:${callSessionId}:${epoch}`;
+}
+
+function capacityQueueForFailure(reason: string) {
+  if (reason === "premium_startup_overflow") return "startup_ingress" as const;
+  if (reason === "premium_handoff_overflow") return "handoff_ingress" as const;
+  if (reason === "premium_provider_output_overflow") return "tool_handoff" as const;
+  if (reason === "premium_provider_congested") return "provider_output" as const;
+  if (reason === "premium_playback_overflow" || reason === "premium_playback_capacity_overflow") {
+    return "twilio_playback" as const;
+  }
+  return undefined;
 }
 
 function readSampleRate(mimeType: string) {

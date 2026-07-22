@@ -1036,6 +1036,42 @@ describe("PlatformAdminController", () => {
         status: "attention_required",
       },
     });
+    expect(response.body.aiObservability.pstnCapacity).toMatchObject({
+      status: expect.stringMatching(/^(healthy|warning|critical|exhausted)$/),
+      envelope: {
+        maxConcurrentCalls: 20,
+        expectedWebSocketLegsPerPremiumCall: 2,
+        certified: false,
+      },
+      resources: {
+        calls: {
+          used: expect.any(Number),
+          limit: 20,
+          utilization: expect.any(Number),
+        },
+        cpu: expect.any(Object),
+        eventLoop: expect.any(Object),
+        memory: expect.any(Object),
+        database: expect.any(Object),
+        fileDescriptors: expect.any(Object),
+        queues: expect.any(Object),
+      },
+      calls: {
+        active: expect.any(Number),
+        current: expect.any(Array),
+      },
+      process: {
+        cpuUtilization: expect.any(Number),
+        eventLoopUtilization: expect.any(Number),
+        rssBytes: expect.any(Number),
+        gcPauseDurationMs: expect.any(Number),
+      },
+      sockets: {
+        open: expect.any(Array),
+        bufferedBytes: expect.any(Number),
+      },
+      queues: expect.any(Array),
+    });
     expect(response.body.aiObservability.evalGate).toMatchObject({
       command: "npm run eval:runtime",
       failClosedForProtectedChanges: true,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
 import { Logger } from "@nestjs/common";
 
+import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import {
   PstnPremiumCallExecution,
   type PstnPremiumCallOutput,
@@ -21,6 +22,7 @@ describe("PstnPremiumCallExecution", () => {
     let cleared = 0;
     let providerClosed = false;
     let terminatedRuntimeSessionId: string | undefined;
+    const capacityEvents: string[] = [];
     const providerReady = deferred<void>();
     const registered = {
       organizationId: "tenant-west-africa",
@@ -149,6 +151,21 @@ describe("PstnPremiumCallExecution", () => {
           return { exportedSpanCount: 0, langsmithExported: false, warnings: [], metrics: {} };
         },
       } as never,
+      {
+        trackCall(input: { state: string }) { capacityEvents.push(`call:${input.state}`); },
+        endCall(input: { outcome: string }) { capacityEvents.push(`end:${input.outcome}`); },
+        openSocket(input: { leg: string }) { capacityEvents.push(`socket:${input.leg}`); },
+        updateSocketContext() {},
+        recordSocketHandshake(input: { outcome: string }) {
+          capacityEvents.push(`handshake:${input.outcome}`);
+        },
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        recordQueue(input: { queue: string }) { capacityEvents.push(`queue:${input.queue}`); },
+        recordQueueDrop() {},
+        clearCallQueues() {},
+      } as never,
     );
 
     await execution.start({
@@ -273,6 +290,16 @@ describe("PstnPremiumCallExecution", () => {
     await execution.stop({ callSessionId: "CA-premium:telephony" });
     expect(providerClosed).toBe(true);
     expect(terminatedRuntimeSessionId).toBe("premium-session-1");
+    expect(capacityEvents).toEqual(expect.arrayContaining([
+      "call:starting",
+      "socket:provider",
+      "handshake:accepted",
+      "call:active",
+      "queue:provider_output",
+      "queue:twilio_playback",
+      "call:draining",
+      "end:completed",
+    ]));
     providerCloseHandler?.({ code: 1000, reason: "done" });
   });
 
@@ -631,10 +658,16 @@ describe("PstnPremiumCallExecution", () => {
 
   it("removes the runtime session when the provider connection cannot start", async () => {
     const terminatedSessionIds: string[] = [];
+    const failedHandshakes: string[] = [];
     const { execution } = createMinimalExecutionHarness("openai-realtime", {
       connectError: new Error("provider unavailable"),
       onTerminate(sessionId) {
         terminatedSessionIds.push(sessionId);
+      },
+      capacityObservability: {
+        recordSocketHandshakeAttempt(input: { outcome: string }) {
+          failedHandshakes.push(input.outcome);
+        },
       },
     });
 
@@ -646,6 +679,7 @@ describe("PstnPremiumCallExecution", () => {
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     })).rejects.toThrow("provider unavailable");
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
+    expect(failedHandshakes).toEqual(["failed"]);
   });
 
   it("never writes provider-controlled startup error text to logs", async () => {
@@ -1254,12 +1288,18 @@ describe("PstnPremiumCallExecution", () => {
     const providerCloses: string[] = [];
     let updates = 0;
     const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const queueDrops: string[] = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       processProviderGate: processGate.promise,
       onTerminate: (sessionId) => terminations.push(sessionId),
       onProviderClose: (reason) => providerCloses.push(reason),
       onUpdate: () => { updates += 1; },
       onObservedEvent: (event) => observed.push(event),
+      capacityObservability: {
+        recordQueueDrop(input: { queue: string; reason: string }) {
+          queueDrops.push(`${input.queue}:${input.reason}`);
+        },
+      },
     });
     await harness.execution.start({
       organizationId: "tenant-west-africa",
@@ -1289,6 +1329,7 @@ describe("PstnPremiumCallExecution", () => {
     );
 
     expect(providerCloses).toEqual(["premium_provider_output_overflow"]);
+    expect(queueDrops).toContain("tool_handoff:overflow");
     processGate.resolve();
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(updates).toBe(0);
@@ -1819,6 +1860,7 @@ function createMinimalExecutionHarness(
     onUpdate?: (() => void) | undefined;
     onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
     recordCheckpoint?: ((checkpoint: string) => Promise<void>) | undefined;
+    capacityObservability?: Partial<PstnCapacityObservability> | undefined;
   } = {},
 ) {
   const manifest = options.manifest ?? createPremiumManifest();
@@ -1845,6 +1887,23 @@ function createMinimalExecutionHarness(
   };
   let providerCloseHandler: ((event: { code: number; reason: string }) => void) | undefined;
   let providerMessageHandler: ((message: string) => void) | undefined;
+  const capacityObservability = options.capacityObservability === undefined
+    ? undefined
+    : {
+        trackCall() {},
+        endCall() {},
+        openSocket() {},
+        updateSocketContext() {},
+        recordSocketHandshake() {},
+        recordSocketHandshakeAttempt() {},
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+        ...options.capacityObservability,
+      } as PstnCapacityObservability;
   const execution = new PstnPremiumCallExecution(
     {
       async getState() {
@@ -1928,6 +1987,7 @@ function createMinimalExecutionHarness(
             } };
           },
         },
+    capacityObservability,
   );
   return {
     execution,

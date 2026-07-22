@@ -97,6 +97,8 @@ Premium PSTN hardening sequence: ISSUE-184 provides the bounded per-call actor a
 
 Premium PSTN live-conformance follow-up: ISSUE-220 is implemented. Premium sessions snapshot versioned platform-admin provider/channel policy, default OpenAI to `gpt-realtime-2.1`, use low-eagerness semantic VAD for PSTN without Zara-side VAD, normalize provider lifecycle events, truncate unheard OpenAI audio from acknowledged Twilio playback, and enforce deadline-aligned resident-byte ingress plus process-wide aggregate admission. Production conformance also retains the 50-mark Twilio pacing window while allowing 30 seconds of per-call provider/playout skew under a separate shared 32 MiB queued-playback admission bound.
 
+PSTN capacity qualification began with implemented ISSUE-222. The current API instance now projects low-cardinality call, process, Twilio/provider WebSocket, Postgres, bounded-queue, and exporter-health posture through the staff-only runtime observability API against an explicit provisional 20-call, 2-vCPU, 1-GiB worker envelope. This is visibility for later load qualification and admission work, not certified or enforced capacity.
+
 PSTN follow-up note: `/sandbox` now terminates Phone test waiting sessions as `expired` when their waiting window closes, the API completes the matching Twilio provider call for active expired/manual Phone tests and immediate live-call termination policies when credentials are available, and `/calls` can remove an individual imported BYO provider number from Zara inventory without deleting the provider connection or releasing the customer-owned Twilio number.
 
 ## Integrations
