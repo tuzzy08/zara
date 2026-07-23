@@ -23,7 +23,9 @@ import {
   telephonyExecutionCommands,
   telephonyExecutionSessions,
   telephonyHealthChecks,
+  telephonyMediaStreamTokens,
   telephonyPhoneNumbers,
+  telephonyPhoneTestCheckpoints,
   telephonyProcessedWebhookEvents,
   telephonyProviderHeartbeats,
   telephonyWebhookEvents,
@@ -203,6 +205,7 @@ describe("database foundations", () => {
     expect(getTableName(telephonyHealthChecks)).toBe("telephony_health_checks");
     expect(getTableName(telephonyProviderHeartbeats)).toBe("telephony_provider_heartbeats");
     expect(getTableName(telephonyDispatches)).toBe("telephony_dispatches");
+    expect(getTableColumns(telephonyDispatches)).toHaveProperty("recordingConsent");
     expect(getTableName(telephonyExecutionSessions)).toBe("telephony_execution_sessions");
     expect(Object.keys(getTableColumns(telephonyExecutionSessions))).toEqual([
       "id",
@@ -214,6 +217,7 @@ describe("database foundations", () => {
       "ownershipMode",
       "direction",
       "status",
+      "version",
       "toPhoneNumber",
       "fromPhoneNumber",
       "workflowLabel",
@@ -224,11 +228,16 @@ describe("database foundations", () => {
       "mediaPath",
       "outageMode",
       "fallbackTarget",
+      "recordingConsent",
       "diagnostics",
       "policyState",
       "createdAt",
       "updatedAt",
     ]);
+    expect(getTableName(telephonyMediaStreamTokens)).toBe("telephony_media_stream_tokens");
+    expect(getTableName(telephonyPhoneTestCheckpoints)).toBe(
+      "telephony_phone_test_checkpoints",
+    );
     expect(getTableName(telephonyExecutionCommands)).toBe("telephony_execution_commands");
     expect(getTableName(telephonyWebhookEvents)).toBe("telephony_webhook_events");
     expect(getTableName(telephonyCallControlEvents)).toBe("telephony_call_control_events");
@@ -255,6 +264,48 @@ describe("database foundations", () => {
     );
     expect(migrationJournal.entries).toContainEqual(
       expect.objectContaining({ tag: "0008_telephony_execution_policy_state" }),
+    );
+  });
+
+  it("ships additive incremental telephony persistence with an ordered rollback", () => {
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0009_telephony_incremental_persistence.sql",
+      ),
+      "utf8",
+    );
+    const migrationJournal = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, "apps/api/src/database/migrations/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    const rollbackFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
+      ),
+      "utf8",
+    );
+
+    expect(migrationFile).toContain('ADD COLUMN IF NOT EXISTS "version" integer');
+    expect(migrationFile).toContain('ADD COLUMN IF NOT EXISTS "recording_consent" jsonb');
+    expect(migrationFile).toContain('PRIMARY KEY ("tenant_id", "id")');
+    expect(migrationFile).toContain(
+      'ALTER TABLE "telephony_dispatches" ADD COLUMN IF NOT EXISTS "runtime_path" text',
+    );
+    expect(migrationFile).toContain('CREATE TABLE IF NOT EXISTS "telephony_media_stream_tokens"');
+    expect(migrationFile).toContain('char_length("token_hash") = 43');
+    expect(migrationFile).toContain(
+      'CREATE TABLE IF NOT EXISTS "telephony_phone_test_checkpoints"',
+    );
+    expect(migrationFile).toContain("Rollback order:");
+    expect(migrationFile).toContain("duplicate tenant call dispatches exist");
+    expect(rollbackFile).toContain('DROP TABLE IF EXISTS "telephony_media_stream_tokens"');
+    expect(rollbackFile).toContain("Cannot restore legacy webhook uniqueness");
+    expect(migrationJournal.entries).toContainEqual(
+      expect.objectContaining({ tag: "0009_telephony_incremental_persistence" }),
     );
   });
 

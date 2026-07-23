@@ -1,7 +1,9 @@
 import {
   boolean,
   bigint,
+  check,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -13,6 +15,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type {
   CompiledRuntimeManifest,
   EncryptedCredentialReference,
@@ -23,6 +26,7 @@ import type {
   TelephonyConnection,
   TelephonyExecutionSession,
   TelephonyProviderHeartbeat,
+  TelephonyRecordingConsentState,
   TelephonyRecordingPolicy,
 } from "@zara/core";
 
@@ -459,7 +463,7 @@ export const telephonyProviderHeartbeats = pgTable(
 export const telephonyDispatches = pgTable(
   "telephony_dispatches",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     tenantId: text("tenant_id")
       .notNull()
       .references(() => tenants.id, {
@@ -478,9 +482,11 @@ export const telephonyDispatches = pgTable(
     workflowLabel: text("workflow_label"),
     routeMode: text("route_mode").$type<TelephonyDispatchRecord["routeMode"] | null>(),
     runtimeProfile: text("runtime_profile").$type<TelephonyDispatchRecord["runtimeProfile"] | null>(),
+    runtimePath: text("runtime_path").$type<TelephonyDispatchRecord["runtimePath"] | null>(),
     testRouteSessionId: text("test_route_session_id"),
     outageMode: text("outage_mode").$type<TelephonyDispatchRecord["outageMode"] | null>(),
     recording: jsonb("recording").$type<TelephonyRecordingPolicy>().notNull(),
+    recordingConsent: jsonb("recording_consent").$type<TelephonyRecordingConsentState>(),
     toPhoneNumber: text("to_phone_number").notNull(),
     fromPhoneNumber: text("from_phone_number").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -488,30 +494,29 @@ export const telephonyDispatches = pgTable(
     policyChecks: jsonb("policy_checks").$type<OutboundCallPolicyChecks | null>(),
   },
   (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
     tenantCreatedAtIndex: index("telephony_dispatches_tenant_created_at_idx").on(
       table.tenantId,
       table.createdAt,
     ),
     callSessionIndex: index("telephony_dispatches_call_session_idx").on(table.callSessionId),
+    tenantCallSessionUniqueIndex: uniqueIndex(
+      "telephony_dispatches_tenant_call_session_unique_idx",
+    ).on(table.tenantId, table.callSessionId),
   }),
 );
 
 export const telephonyExecutionSessions = pgTable(
   "telephony_execution_sessions",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     tenantId: text("tenant_id")
       .notNull()
       .references(() => tenants.id, {
         onDelete: "cascade",
         onUpdate: "cascade",
       }),
-    dispatchId: text("dispatch_id")
-      .notNull()
-      .references(() => telephonyDispatches.id, {
-        onDelete: "cascade",
-        onUpdate: "cascade",
-      }),
+    dispatchId: text("dispatch_id").notNull(),
     callSessionId: text("call_session_id").notNull(),
     connectionId: text("connection_id")
       .notNull()
@@ -525,6 +530,7 @@ export const telephonyExecutionSessions = pgTable(
       .notNull(),
     direction: text("direction").$type<TelephonyExecutionSession["direction"]>().notNull(),
     status: text("status").$type<TelephonyExecutionSession["status"]>().notNull(),
+    version: integer("version").notNull().default(0),
     toPhoneNumber: text("to_phone_number").notNull(),
     fromPhoneNumber: text("from_phone_number").notNull(),
     workflowLabel: text("workflow_label"),
@@ -535,19 +541,70 @@ export const telephonyExecutionSessions = pgTable(
     mediaPath: text("media_path").$type<TelephonyExecutionSession["mediaPath"]>().notNull(),
     outageMode: text("outage_mode").$type<TelephonyExecutionSession["outageMode"] | null>(),
     fallbackTarget: text("fallback_target"),
+    recordingConsent: jsonb("recording_consent").$type<TelephonyRecordingConsentState>(),
     diagnostics: jsonb("diagnostics").$type<string[]>().notNull(),
     policyState: jsonb("policy_state").$type<TelephonyExecutionSession["policyState"] | null>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
+    dispatchForeignKey: foreignKey({
+      columns: [table.tenantId, table.dispatchId],
+      foreignColumns: [telephonyDispatches.tenantId, telephonyDispatches.id],
+      name: "telephony_execution_sessions_dispatch_fk",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
     tenantUpdatedAtIndex: index("telephony_execution_sessions_tenant_updated_at_idx").on(
       table.tenantId,
       table.updatedAt,
     ),
-    callSessionUniqueIndex: uniqueIndex("telephony_execution_sessions_call_session_unique_idx").on(
-      table.callSessionId,
+    tenantCallSessionUniqueIndex: uniqueIndex(
+      "telephony_execution_sessions_tenant_call_session_unique_idx",
+    ).on(table.tenantId, table.callSessionId),
+  }),
+);
+
+export const telephonyMediaStreamTokens = pgTable(
+  "telephony_media_stream_tokens",
+  {
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    callSessionId: text("call_session_id").notNull(),
+    dispatchId: text("dispatch_id").notNull(),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => telephonyConnections.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.callSessionId] }),
+    sessionForeignKey: foreignKey({
+      columns: [table.tenantId, table.callSessionId],
+      foreignColumns: [telephonyExecutionSessions.tenantId, telephonyExecutionSessions.callSessionId],
+      name: "telephony_media_stream_tokens_session_fk",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    dispatchForeignKey: foreignKey({
+      columns: [table.tenantId, table.dispatchId],
+      foreignColumns: [telephonyDispatches.tenantId, telephonyDispatches.id],
+      name: "telephony_media_stream_tokens_dispatch_fk",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    tokenHashCheck: check(
+      "telephony_media_stream_tokens_token_hash_check",
+      sql`char_length(${table.tokenHash}) = 43 and ${table.tokenHash} ~ '^[A-Za-z0-9_-]{43}$'`,
     ),
+    tenantTokenHashUniqueIndex: uniqueIndex(
+      "telephony_media_stream_tokens_tenant_token_hash_unique_idx",
+    ).on(table.tenantId, table.tokenHash),
   }),
 );
 
@@ -561,12 +618,7 @@ export const telephonyExecutionCommands = pgTable(
         onDelete: "cascade",
         onUpdate: "cascade",
       }),
-    sessionId: text("session_id")
-      .notNull()
-      .references(() => telephonyExecutionSessions.id, {
-        onDelete: "cascade",
-        onUpdate: "cascade",
-      }),
+    sessionId: text("session_id").notNull(),
     dispatchId: text("dispatch_id").notNull(),
     callSessionId: text("call_session_id").notNull(),
     provider: text("provider").notNull(),
@@ -578,6 +630,13 @@ export const telephonyExecutionCommands = pgTable(
     appliedAt: timestamp("applied_at", { withTimezone: true }),
   },
   (table) => ({
+    sessionForeignKey: foreignKey({
+      columns: [table.tenantId, table.sessionId],
+      foreignColumns: [telephonyExecutionSessions.tenantId, telephonyExecutionSessions.id],
+      name: "telephony_execution_commands_session_fk",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
     sessionRequestedAtIndex: index("telephony_execution_commands_session_requested_at_idx").on(
       table.sessionId,
       table.requestedAt,
@@ -588,7 +647,7 @@ export const telephonyExecutionCommands = pgTable(
 export const telephonyWebhookEvents = pgTable(
   "telephony_webhook_events",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     tenantId: text("tenant_id")
       .notNull()
       .references(() => tenants.id, {
@@ -609,8 +668,10 @@ export const telephonyWebhookEvents = pgTable(
     duplicate: boolean("duplicate").notNull(),
   },
   (table) => ({
-    tenantEventSidIndex: uniqueIndex("telephony_webhook_events_tenant_event_sid_unique_idx").on(
+    primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
+    tenantEventSidIndex: uniqueIndex("telephony_webhook_events_tenant_connection_event_sid_unique_idx").on(
       table.tenantId,
+      table.connectionId,
       table.eventSid,
     ),
   }),
@@ -678,5 +739,28 @@ export const telephonyProcessedWebhookEvents = pgTable(
     tenantEventSidIndex: uniqueIndex(
       "telephony_processed_webhook_events_tenant_event_sid_unique_idx",
     ).on(table.tenantId, table.eventSid),
+  }),
+);
+
+export const telephonyPhoneTestCheckpoints = pgTable(
+  "telephony_phone_test_checkpoints",
+  {
+    id: text("id").notNull(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    phoneNumberId: text("phone_number_id")
+      .notNull()
+      .references(() => telephonyPhoneNumbers.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    callSessionId: text("call_session_id").notNull(),
+    testRouteSessionId: text("test_route_session_id").notNull(),
+    checkpoint: text("checkpoint").notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
+    tenantTestCheckpointUniqueIndex: uniqueIndex(
+      "telephony_phone_test_checkpoints_tenant_test_checkpoint_unique_idx",
+    ).on(table.tenantId, table.testRouteSessionId, table.checkpoint),
   }),
 );

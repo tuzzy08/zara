@@ -249,13 +249,14 @@ export class PostgresTelephonyStateRepository {
           `insert into telephony_dispatches (
             id, tenant_id, direction, disposition, reason, call_session_id, phone_number_id,
             fallback_phone_number_id, connection_id, published_version_id, workspace_id,
-            workflow_label, route_mode, runtime_profile, test_route_session_id, outage_mode,
-            recording, to_phone_number, from_phone_number, created_at, source, policy_checks
+            workflow_label, route_mode, runtime_profile, runtime_path, test_route_session_id, outage_mode,
+            recording, recording_consent, to_phone_number, from_phone_number,
+            created_at, source, policy_checks
           ) values (
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11,
-            $12, $13, $14, $15, $16,
-            $17::jsonb, $18, $19, $20, $21, $22::jsonb
+            $12, $13, $14, $15, $16, $17,
+            $18::jsonb, $19::jsonb, $20, $21, $22, $23, $24::jsonb
           )`,
           [
             dispatch.id,
@@ -272,9 +273,11 @@ export class PostgresTelephonyStateRepository {
             dispatch.workflowLabel ?? null,
             dispatch.routeMode ?? null,
             dispatch.runtimeProfile ?? null,
+            dispatch.runtimePath ?? null,
             dispatch.testRouteSessionId ?? null,
             dispatch.outageMode ?? null,
             JSON.stringify(dispatch.recording),
+            JSON.stringify(dispatch.recordingConsent),
             dispatch.toPhoneNumber,
             dispatch.fromPhoneNumber,
             dispatch.createdAt,
@@ -290,12 +293,13 @@ export class PostgresTelephonyStateRepository {
             id, tenant_id, dispatch_id, call_session_id, connection_id, provider,
             ownership_mode, direction, status, to_phone_number, from_phone_number,
             workflow_label, workspace_id, test_call, bridge_kind, bridge_target, media_path,
-            outage_mode, fallback_target, diagnostics, policy_state, created_at, updated_at
+            outage_mode, fallback_target, recording_consent, diagnostics, policy_state,
+            created_at, updated_at
           ) values (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
             $12, $13, $14, $15, $16, $17,
-            $18, $19, $20::jsonb, $21::jsonb, $22, $23
+            $18, $19, $20::jsonb, $21::jsonb, $22::jsonb, $23, $24
           )`,
           [
             session.id,
@@ -317,6 +321,7 @@ export class PostgresTelephonyStateRepository {
             session.mediaPath,
             session.outageMode ?? null,
             session.fallbackTarget ?? null,
+            jsonOrNull(session.recordingConsent),
             JSON.stringify(session.diagnostics),
             jsonOrNull(session.policyState),
             session.createdAt,
@@ -618,10 +623,14 @@ function mapDispatchRow(row: QueryResultRow) {
     ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
     ...(row.route_mode === null ? {} : { routeMode: row.route_mode }),
     ...(row.runtime_profile === null ? {} : { runtimeProfile: row.runtime_profile }),
+    ...(row.runtime_path === null ? {} : { runtimePath: row.runtime_path }),
     ...(row.test_route_session_id === null ? {} : { testRouteSessionId: row.test_route_session_id }),
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     recording,
-    recordingConsent: buildRecordingConsent(recording, createdAt),
+    recordingConsent:
+      row.recording_consent === null
+        ? buildRecordingConsent(recording, createdAt)
+        : row.recording_consent,
     toPhoneNumber: row.to_phone_number as string,
     fromPhoneNumber: row.from_phone_number as string,
     createdAt,
@@ -653,6 +662,7 @@ function mapExecutionSessionRow(row: QueryResultRow) {
     mediaPath: row.media_path,
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     ...(row.fallback_target === null ? {} : { fallbackTarget: row.fallback_target }),
+    ...(row.recording_consent === null ? {} : { recordingConsent: row.recording_consent }),
     diagnostics: row.diagnostics as string[],
     ...(row.policy_state === null ? {} : { policyState: row.policy_state }),
     createdAt,

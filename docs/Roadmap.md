@@ -172,3 +172,5 @@ Tenant telephony setup now uses the ISSUE-219 provider-row and connection-table 
 Deployment planning now includes separate production and staging runbooks covering release flow, secrets, migrations, rollback, smoke tests, staging parity, safe seed data, validation, drift controls, observability dashboards, backup/DR restore checks, and final release-gate ownership.
 
 Production auth rate-limit persistence now includes ISSUE-221's atomic Postgres storage. Concurrent first writes, active increments, and expired-window resets retain one unique row, one reset per bucket generation, and monotonic request timestamps without changing memory-backed test/development behavior.
+
+PSTN capacity persistence sequencing now includes ISSUE-225 as an expansion-only contract. It adds tenant-composite row-owned webhook, atomic call-setup, versioned execution-lifecycle, one-time media-token, and phone-test checkpoint operations beside the existing snapshot repository; ZAR-228 and ZAR-229 adopt those contracts in live paths before ZAR-230 removes whole-tenant snapshot persistence from live-call execution.

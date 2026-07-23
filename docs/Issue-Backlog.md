@@ -5143,3 +5143,25 @@ Acceptance criteria:
 - Machine-readable reports carry release/environment/resource/scenario/latency/failure/SLO evidence without credentials, media, caller PII, or token material.
 - Deterministic CI smoke stays separate from explicitly approved release-scale and real-provider jobs.
 - A current single-instance baseline report is retained before incremental persistence migration begins.
+
+### ISSUE-225: Incremental telephony persistence contracts
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: In Progress
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-225-incremental-telephony-persistence.md](../docs/Handovers/ISSUE-225-incremental-telephony-persistence.md)
+- External: [Linear ZAR-226](https://linear.app/zara-voice/issue/ZAR-226/pstn-capacity-412-expand-incremental-telephony-persistence-contracts)
+
+Acceptance criteria:
+- Additive Postgres contracts cover webhook dedupe, atomic call setup, execution and call lifecycle transitions, one-time media token claim, and phone-test checkpoints without replacing the existing snapshot callers.
+- Provider event and call identities are database-unique, retries return explicit existing/conflict outcomes, and competing transitions use versioned compare-and-swap semantics.
+- Media credentials are stored as bounded hashes with expiry and one-time claim state; raw token material is never persisted.
+- Incremental mutations own only their target rows, preserve same-tenant concurrent calls, and cannot read or mutate another tenant's rows.
+- The migration is backward-safe, documents rollback order, and has Postgres-compatible tests for retry, conflict, stale transition, tenant isolation, expiry, and atomic rollback behavior.
+
+Implementation summary:
+- Added an expansion-only incremental repository with database identities, atomic call setup and unclaimed-token replay rotation, versioned lifecycle CAS, database-clock one-time token claims, bounded tenant cleanup, and append-only test checkpoints.
+- Added production-compatible base64url token hashing, tenant-composite call identities, persisted consent/failover retry checks, runtime-path persistence, migration duplicate preflights, executable rollback parity checks, and a real-PostgreSQL CI gate while leaving all live snapshot callers unchanged.

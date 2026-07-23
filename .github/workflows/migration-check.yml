@@ -11,6 +11,20 @@ on:
 jobs:
   migration-check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: zara
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d zara"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zara
     steps:
@@ -28,3 +42,99 @@ jobs:
 
       - name: Verify generated migrations are current
         run: npm run db:check
+
+      - name: Apply migrations to PostgreSQL
+        run: npm run db:migrate
+
+      - name: Verify incremental telephony persistence on PostgreSQL
+        env:
+          ZARA_TEST_POSTGRES_URL: ${{ env.DATABASE_URL }}
+        run: npm exec -- vitest run apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts
+
+      - name: Create rollback test database
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from "pg";
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          await pool.query("create database zara_rollback");
+          await pool.end();
+          NODE
+
+      - name: Apply migrations to rollback test database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zara_rollback
+        run: npm run db:migrate
+
+      - name: Execute incremental telephony rollback
+        env:
+          ROLLBACK_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zara_rollback
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import pg from "pg";
+          const pool = new pg.Pool({ connectionString: process.env.ROLLBACK_DATABASE_URL });
+          const rollback = await readFile(
+            "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
+            "utf8",
+          );
+          await pool.query(rollback);
+          const result = await pool.query(
+            `select
+               to_regclass('telephony_media_stream_tokens') as token_table,
+               to_regclass('telephony_phone_test_checkpoints') as checkpoint_table,
+               to_regclass('telephony_execution_sessions_call_session_unique_idx') as legacy_session_index,
+               to_regclass('telephony_execution_sessions_tenant_call_session_unique_idx') as tenant_session_index,
+               to_regclass('telephony_webhook_events_tenant_event_sid_unique_idx') as legacy_webhook_index,
+               to_regclass('telephony_webhook_events_tenant_connection_event_sid_unique_idx') as tenant_webhook_index,
+               exists (
+                 select 1 from information_schema.columns
+                 where table_name = 'telephony_execution_sessions' and column_name = 'version'
+               ) as has_version,
+               exists (
+                 select 1 from information_schema.columns
+                 where table_name = 'telephony_dispatches' and column_name = 'runtime_path'
+               ) as has_runtime_path,
+               exists (
+                 select 1 from information_schema.columns
+                 where table_name in ('telephony_dispatches', 'telephony_execution_sessions')
+                   and column_name = 'recording_consent'
+               ) as has_recording_consent,
+               (
+                 select count(*) = 5 from pg_constraint
+                 where conname in (
+                   'telephony_dispatches_pkey',
+                   'telephony_execution_sessions_pkey',
+                   'telephony_webhook_events_pkey',
+                   'telephony_execution_sessions_dispatch_id_telephony_dispatches_id_fk',
+                   'telephony_execution_commands_session_id_telephony_execution_sessions_id_fk'
+                 )
+               ) as has_legacy_constraints,
+               exists (
+                 select 1 from pg_constraint
+                 where conname in (
+                   'telephony_dispatches_tenant_id_id_pk',
+                   'telephony_execution_sessions_tenant_id_id_pk',
+                   'telephony_webhook_events_tenant_id_id_pk',
+                   'telephony_execution_sessions_dispatch_fk',
+                   'telephony_execution_commands_session_fk'
+                 )
+               ) as has_incremental_constraints`,
+          );
+          const row = result.rows[0];
+          if (
+            row?.token_table !== null ||
+            row.checkpoint_table !== null ||
+            row.legacy_session_index === null ||
+            row.tenant_session_index !== null ||
+            row.legacy_webhook_index === null ||
+            row.tenant_webhook_index !== null ||
+            row.has_version ||
+            row.has_runtime_path ||
+            row.has_recording_consent ||
+            !row.has_legacy_constraints ||
+            row.has_incremental_constraints
+          ) {
+            throw new Error(`Incremental telephony rollback parity failed: ${JSON.stringify(row)}`);
+          }
+          await pool.end();
+          NODE
