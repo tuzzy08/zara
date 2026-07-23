@@ -10,7 +10,7 @@ import type {
   TelephonyTransitionOutcome,
   TransitionTelephonyExecutionSessionInput,
 } from "./telephony-incremental.repository";
-import type { TelephonyWebhookEvent } from "./telephony.models";
+import type { TelephonyDispatchRecord, TelephonyWebhookEvent } from "./telephony.models";
 
 type Queryable = Pick<Pool, "query" | "connect">;
 
@@ -28,7 +28,12 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
 
     const beforeInsert = await this.loadWebhookEvent(event);
     if (beforeInsert !== undefined) {
-      return { outcome: webhookEventMatches(beforeInsert, event) ? ("existing" as const) : ("conflict" as const) };
+      return webhookEventMatches(beforeInsert, event)
+        ? {
+            outcome: "existing" as const,
+            receivedAt: normalizeTimestamp(beforeInsert.received_at),
+          }
+        : { outcome: "conflict" as const };
     }
 
     const inserted = await this.database.query(
@@ -52,13 +57,56 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
     );
 
     if (inserted.rows.length > 0) {
-      return { outcome: "inserted" as const };
+      return { outcome: "inserted" as const, receivedAt: event.receivedAt };
     }
 
     const existing = await this.loadWebhookEvent(event);
+    if (existing === undefined || !webhookEventMatches(existing, event)) {
+      return { outcome: "conflict" as const };
+    }
     return {
-      outcome: webhookEventMatches(existing, event) ? ("existing" as const) : ("conflict" as const),
+      outcome: "existing" as const,
+      receivedAt: normalizeTimestamp(existing.received_at),
     };
+  }
+
+  async insertDispatch(dispatch: TelephonyDispatchRecord) {
+    const client = await this.database.connect();
+    try {
+      await client.query("begin");
+      if (!(await dispatchReferencesAreOwned(client, dispatch))) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const };
+      }
+
+      const existing = await loadDispatch(client, dispatch.tenantId, dispatch.id);
+      if (existing !== undefined) {
+        await client.query("commit");
+        return {
+          outcome: dispatchMatches(existing, dispatch)
+            ? ("existing" as const)
+            : ("conflict" as const),
+        };
+      }
+
+      const inserted = await insertDispatchRow(client, dispatch);
+      if (inserted.rows.length > 0) {
+        await client.query("commit");
+        return { outcome: "inserted" as const };
+      }
+
+      const raced = await loadDispatch(client, dispatch.tenantId, dispatch.id);
+      const outcome = dispatchMatches(raced, dispatch)
+        ? ("existing" as const)
+        : ("conflict" as const);
+      await client.query("commit");
+      return { outcome };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async createCallSetup(input: CreateTelephonyCallSetupInput) {
@@ -71,10 +119,14 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
         await client.query("rollback");
         return { outcome: "conflict" as const };
       }
-      const inserted = await insertDispatch(client, input);
+      const inserted = await insertDispatchRow(client, input.dispatch);
       if (inserted.rows.length === 0) {
         const existing = await loadCallSetup(client, input);
         if (!callSetupMatches(existing, input)) {
+          await client.query("rollback");
+          return { outcome: "conflict" as const };
+        }
+        if (existing?.claimed_at !== null) {
           await client.query("rollback");
           return { outcome: "conflict" as const };
         }
@@ -85,10 +137,6 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
         ) {
           await client.query("commit");
           return { outcome: "existing" as const, mediaToken: "retained" as const };
-        }
-        if (existing?.claimed_at !== null) {
-          await client.query("rollback");
-          return { outcome: "conflict" as const };
         }
         const rotated = await client.query(
           `update telephony_media_stream_tokens
@@ -339,6 +387,7 @@ interface CallSetupRow extends QueryResultRow {
   ownership_mode: string | null;
   direction: string | null;
   status: string | null;
+  version: number | null;
   session_to: string | null;
   session_from: string | null;
   bridge_kind: string | null;
@@ -362,6 +411,55 @@ interface CallSetupRow extends QueryResultRow {
   token_created_at: unknown;
 }
 
+type DispatchRow = Pick<
+  CallSetupRow,
+  | "dispatch_id"
+  | "dispatch_connection_id"
+  | "dispatch_direction"
+  | "disposition"
+  | "reason"
+  | "phone_number_id"
+  | "fallback_phone_number_id"
+  | "published_version_id"
+  | "workspace_id"
+  | "workflow_label"
+  | "route_mode"
+  | "runtime_profile"
+  | "runtime_path"
+  | "test_route_session_id"
+  | "dispatch_outage_mode"
+  | "recording"
+  | "dispatch_recording_consent"
+  | "dispatch_to"
+  | "dispatch_from"
+  | "source"
+  | "policy_checks"
+> & {
+  call_session_id: string | null;
+};
+
+async function loadDispatch(
+  database: Pick<Pool, "query"> | Pick<PoolClient, "query">,
+  tenantId: string,
+  dispatchId: string,
+) {
+  const result = await database.query<DispatchRow>(
+    `select
+       id as dispatch_id, connection_id as dispatch_connection_id,
+       direction as dispatch_direction, disposition, reason, call_session_id,
+       phone_number_id, fallback_phone_number_id, published_version_id, workspace_id,
+       workflow_label, route_mode, runtime_profile, runtime_path, test_route_session_id,
+       outage_mode as dispatch_outage_mode, recording,
+       recording_consent as dispatch_recording_consent,
+       to_phone_number as dispatch_to, from_phone_number as dispatch_from,
+       source, policy_checks
+     from telephony_dispatches
+     where tenant_id = $1 and id = $2`,
+    [tenantId, dispatchId],
+  );
+  return result.rows[0];
+}
+
 async function loadCallSetup(database: Pick<PoolClient, "query">, input: CreateTelephonyCallSetupInput) {
   const result = await database.query<CallSetupRow>(
     `select
@@ -376,7 +474,7 @@ async function loadCallSetup(database: Pick<PoolClient, "query">, input: CreateT
        d.created_at as dispatch_created_at, d.source, d.policy_checks,
        s.id as session_id, s.dispatch_id as session_dispatch_id,
        s.connection_id as session_connection_id, s.provider, s.ownership_mode,
-       s.direction, s.status, s.to_phone_number as session_to,
+       s.direction, s.status, s.version, s.to_phone_number as session_to,
        s.from_phone_number as session_from, s.bridge_kind, s.bridge_target,
        s.media_path, s.test_call, s.workflow_label as session_workflow_label,
        s.workspace_id as session_workspace_id, s.outage_mode as session_outage_mode,
@@ -400,37 +498,62 @@ async function callSetupReferencesAreOwned(
   client: Pick<PoolClient, "query">,
   input: CreateTelephonyCallSetupInput,
 ) {
-  const connection = await client.query(
-    "select id from telephony_connections where tenant_id = $1 and id = $2",
-    [input.dispatch.tenantId, input.executionSession.connectionId],
+  return dispatchReferencesAreOwned(
+    client,
+    input.dispatch,
+    input.executionSession.connectionId,
   );
-  if (connection.rows.length === 0) return false;
-  if (input.dispatch.phoneNumberId === undefined) return true;
+}
 
-  const primaryNumber = await client.query(
-    "select id, connection_id from telephony_phone_numbers where tenant_id = $1 and id = $2",
-    [input.dispatch.tenantId, input.dispatch.phoneNumberId],
+async function dispatchReferencesAreOwned(
+  database: Pick<Pool, "query"> | Pick<PoolClient, "query">,
+  dispatch: TelephonyDispatchRecord,
+  effectiveConnectionId = dispatch.connectionId,
+) {
+  if (effectiveConnectionId !== undefined) {
+    const connection = await database.query(
+      `select id from telephony_connections
+       where tenant_id = $1 and id = $2
+       for key share`,
+      [dispatch.tenantId, effectiveConnectionId],
+    );
+    if (connection.rows.length === 0) return false;
+  }
+  if (dispatch.phoneNumberId === undefined) return true;
+
+  const primaryNumber = await database.query(
+    `select id, connection_id from telephony_phone_numbers
+     where tenant_id = $1 and id = $2
+     for key share`,
+    [dispatch.tenantId, dispatch.phoneNumberId],
   );
   if (primaryNumber.rows.length === 0) return false;
-  if (input.dispatch.fallbackPhoneNumberId === undefined) {
-    return primaryNumber.rows[0]?.connection_id === input.executionSession.connectionId;
+  if (dispatch.fallbackPhoneNumberId === undefined) {
+    return (
+      effectiveConnectionId === undefined ||
+      primaryNumber.rows[0]?.connection_id === effectiveConnectionId
+    );
   }
+  if (effectiveConnectionId === undefined) return false;
 
-  const fallbackNumber = await client.query(
+  const fallbackNumber = await database.query(
     `select id from telephony_phone_numbers
-     where tenant_id = $1 and id = $2 and connection_id = $3`,
+     where tenant_id = $1 and id = $2 and connection_id = $3
+     for key share`,
     [
-      input.dispatch.tenantId,
-      input.dispatch.fallbackPhoneNumberId,
-      input.executionSession.connectionId,
+      dispatch.tenantId,
+      dispatch.fallbackPhoneNumberId,
+      effectiveConnectionId,
     ],
   );
   return fallbackNumber.rows.length > 0;
 }
 
-async function insertDispatch(client: PoolClient, input: CreateTelephonyCallSetupInput) {
-  const dispatch = input.dispatch;
-  return client.query(
+async function insertDispatchRow(
+  database: Pick<Pool, "query"> | Pick<PoolClient, "query">,
+  dispatch: TelephonyDispatchRecord,
+) {
+  return database.query(
     `insert into telephony_dispatches (
       id, tenant_id, direction, disposition, reason, call_session_id,
       phone_number_id, fallback_phone_number_id, connection_id, published_version_id,
@@ -586,6 +709,8 @@ function callSetupMatches(row: CallSetupRow | undefined, input: CreateTelephonyC
     row.provider === session.provider &&
     row.ownership_mode === session.ownershipMode &&
     row.direction === session.direction &&
+    row.status === session.status &&
+    row.version === 0 &&
     row.session_to === session.toPhoneNumber &&
     row.session_from === session.fromPhoneNumber &&
     row.bridge_kind === session.bridgeKind &&
@@ -602,6 +727,34 @@ function callSetupMatches(row: CallSetupRow | undefined, input: CreateTelephonyC
     row.token_hash !== null &&
     row.expires_at !== null &&
     row.token_created_at !== null
+  );
+}
+
+function dispatchMatches(row: DispatchRow | undefined, dispatch: TelephonyDispatchRecord) {
+  return (
+    row !== undefined &&
+    row.dispatch_id === dispatch.id &&
+    row.dispatch_connection_id === (dispatch.connectionId ?? null) &&
+    row.dispatch_direction === dispatch.direction &&
+    row.disposition === dispatch.disposition &&
+    row.reason === dispatch.reason &&
+    row.call_session_id === (dispatch.callSessionId ?? null) &&
+    row.phone_number_id === (dispatch.phoneNumberId ?? null) &&
+    row.fallback_phone_number_id === (dispatch.fallbackPhoneNumberId ?? null) &&
+    row.published_version_id === (dispatch.publishedVersionId ?? null) &&
+    row.workspace_id === (dispatch.workspaceId ?? null) &&
+    row.workflow_label === (dispatch.workflowLabel ?? null) &&
+    row.route_mode === (dispatch.routeMode ?? null) &&
+    row.runtime_profile === (dispatch.runtimeProfile ?? null) &&
+    row.runtime_path === (dispatch.runtimePath ?? null) &&
+    row.test_route_session_id === (dispatch.testRouteSessionId ?? null) &&
+    row.dispatch_outage_mode === (dispatch.outageMode ?? null) &&
+    jsonMatches(row.recording, dispatch.recording) &&
+    jsonMatches(row.dispatch_recording_consent, dispatch.recordingConsent) &&
+    row.dispatch_to === dispatch.toPhoneNumber &&
+    row.dispatch_from === dispatch.fromPhoneNumber &&
+    row.source === dispatch.source &&
+    jsonMatches(row.policy_checks, dispatch.policyChecks ?? null)
   );
 }
 

@@ -26,6 +26,8 @@ import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
 } from "./telephony-state.repository";
+import { TELEPHONY_INCREMENTAL_REPOSITORY } from "./telephony-incremental.repository";
+import { InMemoryTelephonyIncrementalRepository } from "./telephony-incremental.repository.test-helper";
 import {
   TWILIO_NUMBER_INVENTORY_PROVIDER,
   type TwilioNumberInventoryProvider,
@@ -281,6 +283,9 @@ describe("TelephonyController", () => {
     expect(webhookResponse.text).toContain(
       '<Parameter name="zaraRuntimePath" value="pstn-sandwich" />',
     );
+    const initialStreamToken = webhookResponse.text.match(
+      /<Parameter name="zaraStreamToken" value="([^"]+)" \/>/,
+    )?.[1];
 
     const duplicateWebhookResponse = await request(app.getHttpServer())
       .post("/telephony/webhooks/twilio")
@@ -289,7 +294,10 @@ describe("TelephonyController", () => {
 
     expect(duplicateWebhookResponse.status).toBe(200);
     expect(duplicateWebhookResponse.headers["content-type"]).toContain("text/xml");
-    expect(duplicateWebhookResponse.text).toContain("<Reject reason=\"busy\" />");
+    expect(duplicateWebhookResponse.text).toContain("<Connect>");
+    expect(duplicateWebhookResponse.text.match(
+      /<Parameter name="zaraStreamToken" value="([^"]+)" \/>/,
+    )?.[1]).toBe(initialStreamToken);
 
     await app.close();
   }, 30_000);
@@ -2636,6 +2644,8 @@ async function createTestingApp(input: {
         join(tmpdir(), "zara-telephony-tests", randomUUID()),
       ),
     )
+    .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
+    .useValue(new InMemoryTelephonyIncrementalRepository())
     .overrideProvider(BILLING_STATE_REPOSITORY)
     .useValue(
       new FileBillingStateRepository(

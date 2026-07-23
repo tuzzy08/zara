@@ -90,10 +90,85 @@ describe("PstnLoadRunner", () => {
         attemptedCalls: 2,
         meaningfulCalls: 2,
         latencyMs: {
+          webhook: { p50: 10, p95: 10, p99: 10 },
           firstAudio: { p50: 40, p95: 40, p99: 40 },
         },
-        slo: { passed: true },
+        slo: {
+          passed: true,
+          webhookP95Ms: 10,
+          maximumWebhookP95Ms: 1_000,
+        },
       }],
+    });
+  });
+
+  it("fails the answer-path SLO when deterministic webhook p95 exceeds one second", async () => {
+    const runner = new PstnLoadRunner({
+      runCall: vi.fn(async ({ scenario }) => ({
+        ...passedCall(scenario),
+        webhookLatencyMs: 1_001,
+      })),
+      readTelemetry: vi.fn(async () => healthyTelemetry()),
+      sleep: vi.fn(async () => undefined),
+    });
+
+    const report = await runner.run(profile({
+      stages: [{ ...profile().stages[0]!, verifyDrain: false }],
+    }), metadata);
+
+    expect(report.outcome).toBe("failed");
+    expect(report.failures).toContainEqual(expect.objectContaining({ code: "slo_breach" }));
+    expect(report.stages[0]?.slo).toMatchObject({
+      webhookP95Ms: 1_001,
+      maximumWebhookP95Ms: 1_000,
+      passed: false,
+    });
+  });
+
+  it("records webhook p95 from a deterministic concurrent burst", async () => {
+    let activeCalls = 0;
+    let peakActiveCalls = 0;
+    let releaseBurst: () => void = () => undefined;
+    const burstReady = new Promise<void>((resolve) => {
+      releaseBurst = resolve;
+    });
+    const runner = new PstnLoadRunner({
+      runCall: vi.fn(async ({ scenario, callIndex }) => {
+        activeCalls += 1;
+        peakActiveCalls = Math.max(peakActiveCalls, activeCalls);
+        if (activeCalls === 4) releaseBurst();
+        await burstReady;
+        activeCalls -= 1;
+        return {
+          ...passedCall(scenario),
+          webhookLatencyMs: 100 + callIndex,
+        };
+      }),
+      readTelemetry: vi.fn(async () => healthyTelemetry()),
+      sleep: vi.fn(async () => undefined),
+    });
+
+    const report = await runner.run(profile({
+      stages: [{
+        ...profile().stages[0]!,
+        concurrency: 4,
+        callCount: 8,
+        verifyDrain: false,
+      }],
+    }), metadata);
+
+    expect(peakActiveCalls).toBe(4);
+    expect(report.stages[0]).toMatchObject({
+      attemptedCalls: 8,
+      peakObservedConcurrency: 4,
+      latencyMs: {
+        webhook: { p95: 107 },
+      },
+      slo: {
+        passed: true,
+        webhookP95Ms: 107,
+        maximumWebhookP95Ms: 1_000,
+      },
     });
   });
 

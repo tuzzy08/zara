@@ -114,6 +114,8 @@ export interface PstnLoadStageReport {
     passed: boolean;
     successRate: number;
     minimumSuccessRate: number;
+    webhookP95Ms: number | null;
+    maximumWebhookP95Ms: number;
     firstAudioP95Ms: number | null;
     maximumFirstAudioP95Ms: number;
   };
@@ -155,6 +157,7 @@ interface LoadRunnerDependencies {
   drainAttempts?: number;
   drainIntervalMs?: number;
   minimumSuccessRate?: number;
+  maximumWebhookP95Ms?: number;
   maximumFirstAudioP95Ms?: number;
   telemetryPollIntervalMs?: number;
 }
@@ -192,6 +195,7 @@ export class PstnLoadRunner {
   private readonly drainAttempts: number;
   private readonly drainIntervalMs: number;
   private readonly minimumSuccessRate: number;
+  private readonly maximumWebhookP95Ms: number;
   private readonly maximumFirstAudioP95Ms: number;
   private readonly telemetryPollIntervalMs: number;
 
@@ -201,6 +205,7 @@ export class PstnLoadRunner {
     this.drainAttempts = dependencies.drainAttempts ?? 30;
     this.drainIntervalMs = dependencies.drainIntervalMs ?? 1_000;
     this.minimumSuccessRate = dependencies.minimumSuccessRate ?? 0.99;
+    this.maximumWebhookP95Ms = dependencies.maximumWebhookP95Ms ?? 1_000;
     this.maximumFirstAudioP95Ms = dependencies.maximumFirstAudioP95Ms ?? 2_000;
     this.telemetryPollIntervalMs = dependencies.telemetryPollIntervalMs ?? 100;
   }
@@ -369,6 +374,7 @@ export class PstnLoadRunner {
     }
     const analysis = analyzeResults(stage, results, {
       minimumSuccessRate: this.minimumSuccessRate,
+      maximumWebhookP95Ms: this.maximumWebhookP95Ms,
       maximumFirstAudioP95Ms: this.maximumFirstAudioP95Ms,
     });
     failures.push(...analysis.failures);
@@ -467,7 +473,11 @@ export class PstnLoadRunner {
 function analyzeResults(
   stage: PstnLoadStage,
   results: LoadCallResult[],
-  sloConfig: { minimumSuccessRate: number; maximumFirstAudioP95Ms: number },
+  sloConfig: {
+    minimumSuccessRate: number;
+    maximumWebhookP95Ms: number;
+    maximumFirstAudioP95Ms: number;
+  },
 ) {
   const failures: LoadFailureSummary[] = [];
   const meaningful = results.filter((result) => result.inboundFrameCount > 0 || result.outboundFrameCount > 0);
@@ -489,16 +499,22 @@ function analyzeResults(
   const completed = results.filter((result) => result.outcome !== "aborted");
   const passed = completed.filter((result) => result.outcome === "passed");
   const successRate = completed.length === 0 ? 0 : passed.length / completed.length;
+  const webhook = percentiles(passed.flatMap((result) =>
+    result.webhookLatencyMs === undefined ? [] : [result.webhookLatencyMs]));
+  const webhookEvidenceComplete = passed.every((result) =>
+    result.webhookLatencyMs !== undefined && Number.isFinite(result.webhookLatencyMs));
   const firstAudioRequired = results
     .filter((result) => result.outcome === "passed" && requiresFirstAudio(result.scenario));
   const firstAudio = percentiles(firstAudioRequired
     .flatMap((result) => result.firstAudioLatencyMs === undefined ? [] : [result.firstAudioLatencyMs]));
   const firstAudioEvidenceComplete = firstAudioRequired.every((result) =>
     result.firstAudioLatencyMs !== undefined && Number.isFinite(result.firstAudioLatencyMs));
-  if (!firstAudioEvidenceComplete) {
+  if (!webhookEvidenceComplete || !firstAudioEvidenceComplete) {
     failures.push({ code: "latency_evidence_missing", count: 1, stage: stage.name });
   }
   const sloPassed = successRate >= sloConfig.minimumSuccessRate
+    && webhookEvidenceComplete
+    && (webhook.p95 === null || webhook.p95 <= sloConfig.maximumWebhookP95Ms)
     && firstAudioEvidenceComplete
     && (firstAudio.p95 === null || firstAudio.p95 <= sloConfig.maximumFirstAudioP95Ms);
   if (!sloPassed) failures.push({ code: "slo_breach", count: 1, stage: stage.name });
@@ -507,8 +523,7 @@ function analyzeResults(
     failures,
     latencyMs: {
       call: percentiles(results.map((result) => result.durationMs)),
-      webhook: percentiles(results.flatMap((result) =>
-        result.webhookLatencyMs === undefined ? [] : [result.webhookLatencyMs])),
+      webhook,
       mediaConnect: percentiles(results.flatMap((result) =>
         result.mediaConnectLatencyMs === undefined ? [] : [result.mediaConnectLatencyMs])),
       firstAudio,
@@ -517,6 +532,8 @@ function analyzeResults(
       passed: sloPassed,
       successRate,
       minimumSuccessRate: sloConfig.minimumSuccessRate,
+      webhookP95Ms: webhook.p95,
+      maximumWebhookP95Ms: sloConfig.maximumWebhookP95Ms,
       firstAudioP95Ms: firstAudio.p95,
       maximumFirstAudioP95Ms: sloConfig.maximumFirstAudioP95Ms,
     },

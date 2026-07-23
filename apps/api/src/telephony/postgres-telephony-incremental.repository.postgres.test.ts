@@ -152,6 +152,50 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
     ]);
   });
 
+  it("persists separate blocked starts without serializing them through call setup", async () => {
+    const first = structuredClone(callSetup(tenantA, `blocked-a-${suffix}`).dispatch);
+    const second = structuredClone(callSetup(tenantA, `blocked-b-${suffix}`).dispatch);
+    for (const dispatch of [first, second]) {
+      dispatch.disposition = "blocked";
+      dispatch.reason = "Live route is paused.";
+      delete dispatch.callSessionId;
+    }
+
+    await expect(
+      Promise.all([
+        repository.insertDispatch(first),
+        repository.insertDispatch(second),
+      ]),
+    ).resolves.toEqual([{ outcome: "inserted" }, { outcome: "inserted" }]);
+  });
+
+  it("rejects setup when its owned number is concurrently deleted", async () => {
+    const setup = callSetup(tenantA, `delete-race-${suffix}`);
+    const deletingClient = await pool.connect();
+    try {
+      await deletingClient.query("begin");
+      await deletingClient.query(
+        "delete from telephony_phone_numbers where tenant_id = $1 and id = $2",
+        [tenantA, setup.dispatch.phoneNumberId],
+      );
+
+      const setupAttempt = repository.createCallSetup(setup);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await deletingClient.query("commit");
+
+      await expect(setupAttempt).resolves.toEqual({ outcome: "conflict" });
+      const dispatch = await pool.query(
+        "select id from telephony_dispatches where tenant_id = $1 and id = $2",
+        [tenantA, setup.dispatch.id],
+      );
+      expect(dispatch.rows).toHaveLength(0);
+    } finally {
+      await deletingClient.query("rollback").catch(() => undefined);
+      deletingClient.release();
+      await seedPhoneNumber(pool, tenantA);
+    }
+  });
+
   it("rejects a retry that changes failover routing state", async () => {
     const setup = callSetup(tenantA, `fallback-retry-${suffix}`);
     setup.dispatch.outageMode = "provider-fallback";
@@ -217,12 +261,17 @@ async function seedTenant(pool: Pool, tenantId: string) {
        'active', 'healthy', $3::jsonb, true, 'configured', 'integration-test')`,
     [`connection-${tenantId}`, tenantId, JSON.stringify(recordingPolicy())],
   );
+  await seedPhoneNumber(pool, tenantId);
+}
+
+async function seedPhoneNumber(pool: Pool, tenantId: string) {
   await pool.query(
     `insert into telephony_phone_numbers (
        id, tenant_id, connection_id, provider, provision_source, external_number_id,
        phone_number, friendly_name, voice_capable, caller_id_eligible, status, webhook_status
      ) values ($1, $2, $3, 'twilio', 'provider-import', $4, $5, 'Test line', true, true,
-       'routed', 'configured')`,
+       'routed', 'configured')
+     on conflict (id) do nothing`,
     [
       `number-${tenantId}`,
       tenantId,

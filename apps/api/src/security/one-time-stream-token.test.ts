@@ -1,13 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 import {
   createOneTimeStreamToken,
   hashOneTimeStreamToken,
+  resolveOneTimeStreamTokenSecret,
   verifyOneTimeStreamToken,
 } from "./one-time-stream-token";
 
 describe("one-time stream tokens", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("verifies scoped signed tokens and rejects expired or mismatched tokens", () => {
     const secret = createHash("sha256").update("test-stream-secret").digest();
     const minted = createOneTimeStreamToken({
@@ -52,5 +57,15 @@ describe("one-time stream tokens", () => {
       },
       now: "2099-01-01T00:00:00.000Z",
     })).toBe(false);
+  });
+
+  it("requires a shared signing secret in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ZARA_STREAM_TOKEN_SECRET", "");
+    vi.stubEnv("BETTER_AUTH_SECRET", "");
+
+    expect(() => resolveOneTimeStreamTokenSecret()).toThrow(
+      "ZARA_STREAM_TOKEN_SECRET or BETTER_AUTH_SECRET is required in production.",
+    );
   });
 });

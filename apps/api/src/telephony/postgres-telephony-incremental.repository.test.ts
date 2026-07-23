@@ -21,6 +21,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
 
     await expect(harness.repository.insertWebhookEvent(event)).resolves.toEqual({
       outcome: "inserted",
+      receivedAt: event.receivedAt,
     });
     await expect(
       harness.repository.insertWebhookEvent({
@@ -30,19 +31,51 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       }),
     ).resolves.toEqual({
       outcome: "existing",
+      receivedAt: event.receivedAt,
     });
     await expect(
       harness.repository.insertWebhookEvent({ ...event, callSid: "CA-conflict" }),
     ).resolves.toEqual({ outcome: "conflict" });
     await expect(
       harness.repository.insertWebhookEvent(webhookEvent("tenant-b", "event-1")),
-    ).resolves.toEqual({ outcome: "inserted" });
+    ).resolves.toEqual({
+      outcome: "inserted",
+      receivedAt: webhookEvent("tenant-b", "event-1").receivedAt,
+    });
     await expect(
       harness.repository.insertWebhookEvent({
         ...webhookEvent("tenant-a", "event-cross-tenant"),
         connectionId: "connection-tenant-b",
       }),
     ).resolves.toEqual({ outcome: "conflict" });
+  });
+
+  it("persists a blocked dispatch idempotently without creating call setup rows", async () => {
+    const harness = await createHarness();
+    const dispatch = structuredClone(callSetup("tenant-a", "blocked-call").dispatch);
+    dispatch.disposition = "blocked";
+    dispatch.reason = "Live route is paused.";
+    delete dispatch.callSessionId;
+
+    await expect(harness.repository.insertDispatch(dispatch)).resolves.toEqual({
+      outcome: "inserted",
+    });
+    await expect(
+      harness.repository.insertDispatch({
+        ...dispatch,
+        createdAt: "2026-07-23T12:00:05.000Z",
+      }),
+    ).resolves.toEqual({ outcome: "existing" });
+    await expect(
+      harness.repository.insertDispatch({
+        ...dispatch,
+        reason: "A materially different block.",
+      }),
+    ).resolves.toEqual({ outcome: "conflict" });
+
+    expect((await harness.pool.query("select * from telephony_dispatches")).rows).toHaveLength(1);
+    expect((await harness.pool.query("select * from telephony_execution_sessions")).rows).toEqual([]);
+    expect((await harness.pool.query("select * from telephony_media_stream_tokens")).rows).toEqual([]);
   });
 
   it("creates each call setup atomically and preserves concurrent same-tenant calls", async () => {
@@ -71,8 +104,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     regeneratedRetry.executionSession.createdAt = "2026-07-23T12:00:02.000Z";
     regeneratedRetry.executionSession.updatedAt = "2026-07-23T12:00:02.000Z";
     await expect(harness.repository.createCallSetup(regeneratedRetry)).resolves.toEqual({
-      outcome: "existing",
-      mediaToken: "retained",
+      outcome: "conflict",
     });
     await expect(
       harness.repository.createCallSetup({
@@ -110,6 +142,23 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       { table_name: "sessions", count: "2" },
       { table_name: "tokens", count: "2" },
     ]);
+  });
+
+  it("rejects duplicate setup after the established session has progressed", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "call-terminal-retry");
+    await harness.repository.createCallSetup(setup);
+    await harness.pool.query(
+      `update telephony_execution_sessions
+       set status = 'completed', version = 1
+       where tenant_id = $1 and call_session_id = $2`,
+      [setup.dispatch.tenantId, setup.executionSession.callSessionId],
+    );
+
+    await expect(harness.repository.createCallSetup(setup)).resolves.toEqual({
+      outcome: "conflict",
+    });
   });
 
   it("validates fallback numbers against the selected fallback connection", async () => {
@@ -251,6 +300,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     const harness = await createHarness();
     pool = harness.pool;
     const active = callSetup("tenant-a", "call-token");
+    active.mediaToken.expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
     const expired = callSetup("tenant-a", "call-expired");
     const otherTenantExpired = callSetup("tenant-b", "call-expired-b");
     expired.mediaToken.createdAt = "2026-07-23T11:55:00.000Z";
@@ -272,6 +322,9 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     });
     await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
       outcome: "already_claimed",
+    });
+    await expect(harness.repository.createCallSetup(active)).resolves.toEqual({
+      outcome: "conflict",
     });
     await harness.pool.query(
       "update telephony_media_stream_tokens set expires_at = $1 where tenant_id = $2 and call_session_id = $3",

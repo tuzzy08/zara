@@ -19,6 +19,8 @@ import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
 } from "./telephony-state.repository";
+import { TELEPHONY_INCREMENTAL_REPOSITORY } from "./telephony-incremental.repository";
+import { InMemoryTelephonyIncrementalRepository } from "./telephony-incremental.repository.test-helper";
 import {
   TWILIO_NUMBER_INVENTORY_PROVIDER,
   type TwilioNumberInventoryProvider,
@@ -656,6 +658,8 @@ async function createRoutedTwilioApp(options?: {
         join(tmpdir(), "zara-telephony-websocket-tests", randomUUID()),
       ),
     )
+    .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
+    .useValue(new InMemoryTelephonyIncrementalRepository())
     .overrideProvider(TWILIO_NUMBER_INVENTORY_PROVIDER)
     .useValue(createGeneratedTwilioInventoryProvider())
     .overrideProvider(TWILIO_NUMBER_ROUTING_PROVIDER)

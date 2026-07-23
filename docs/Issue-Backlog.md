@@ -3723,6 +3723,7 @@ Implemented:
 - Replaced the old `/workflows` routed-number dispatch simulation with Published test (browser) and Phone test (Twilio/PSTN) mode labels plus deep links to the shared Phone test sandbox.
 - Added `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete` for sanitized manual phone-test completion.
 - Follow-up: workflow-page Phone test is clickable even when no routed numbers exist so the no-route checklist is visible, and the workflow canvas, inspector, sandbox drawer, and sandbox metric cards have more vertical room to avoid overlap.
+- Follow-up: the full sandbox keeps Live cost and Session metrics as its only persistent right-rail cards and moves Escalations, Monitor, Replay, Routing, Tools, and Manifest into one tabbed utility dock; the separate Runtime decision card was removed without removing routing inspection.
 - Follow-up: `/calls` now prints persisted incoming call logs from webhook and dispatch records so operators can see real Twilio callback/route attempts in the UI.
 - Follow-up: `/sandbox` keeps the Phone test start button green and disabled while a waiting/active test is in progress, and automatically completes the test as `expired` when the waiting window closes.
 - Follow-up: active Twilio Phone test expiry/manual end now completes the matching provider call best-effort from the API using dispatch and execution-session correlation.
@@ -5023,6 +5024,7 @@ Implementation summary:
 - Replaced the tenant hero and inline setup cards with the approved provider setup surface and responsive connection modal.
 - Removed tenant-side Platform edge, Health, and Outbound cards and deleted their obsolete component/model paths.
 - Added a non-persisting Twilio credential probe and platform-admin-owned platform connection provisioning endpoint/control.
+- Follow-up: kept the existing Connections table layout while enlarging configured-connection text and replacing tiny icon-only heartbeat, validation, number-import, and deletion controls with labeled buttons and functional colored borders.
 
 Implementation summary:
 - Added asynchronous redacted premium lifecycle, pressure, playback, failure, handoff, and cleanup telemetry with exact safe failure classification.
@@ -5165,3 +5167,23 @@ Acceptance criteria:
 Implementation summary:
 - Added an expansion-only incremental repository with database identities, atomic call setup and unclaimed-token replay rotation, versioned lifecycle CAS, database-clock one-time token claims, bounded tenant cleanup, and append-only test checkpoints.
 - Added production-compatible base64url token hashing, tenant-composite call identities, persisted consent/failover retry checks, runtime-path persistence, migration duplicate preflights, executable rollback parity checks, and a real-PostgreSQL CI gate while leaving all live snapshot callers unchanged.
+
+### ISSUE-226: Incremental inbound webhook and call setup
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: In Progress
+- Blocked by: ISSUE-225
+- Handover: [docs/Handovers/ISSUE-226-incremental-inbound-call-setup.md](../docs/Handovers/ISSUE-226-incremental-inbound-call-setup.md)
+- External: [Linear ZAR-228](https://linear.app/zara-voice/issue/ZAR-228/pstn-capacity-512-migrate-inbound-webhook-dispatch-and-media-token)
+
+Acceptance criteria:
+- Verified Twilio webhook events use row-owned idempotent persistence without replacing tenant state.
+- Routed dispatch, execution session, and hashed one-time media credential commit atomically before Connect Stream TwiML is returned.
+- Duplicate deliveries, process restart, partial failure, concurrent starts, and tenant isolation preserve one durable call setup with explicit retry or conflict outcomes.
+- Blocked dispatches persist incrementally and caller-safe failures carry stable operator diagnostic reason codes.
+- Deterministic concurrent-burst evidence records webhook response p95 and fails the answer-path SLO above 1,000 ms.
+- Existing route, workflow, runtime, subscription, budget, caller, and non-live telephony management behavior remains unchanged.
+- The synchronous Twilio answer path no longer invokes whole-tenant snapshot persistence.

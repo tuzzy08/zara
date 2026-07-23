@@ -76,6 +76,10 @@ import type {
   TelephonyWebhookEvent,
 } from "./telephony.models";
 import {
+  TELEPHONY_INCREMENTAL_REPOSITORY,
+  type TelephonyIncrementalRepository,
+} from "./telephony-incremental.repository";
+import {
   TELEPHONY_STATE_REPOSITORY,
   type PersistedTelephonyStateRecord,
   type TelephonyStateRepository,
@@ -132,6 +136,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     private readonly twilioNumberInventory: TwilioNumberInventoryProvider,
     @Inject(TWILIO_NUMBER_ROUTING_PROVIDER)
     private readonly twilioNumberRouting: TwilioNumberRoutingProvider,
+    @Inject(TELEPHONY_INCREMENTAL_REPOSITORY)
+    private readonly incrementalRepository: TelephonyIncrementalRepository,
     @Optional()
     private readonly auditLogService?: AuditLogService,
     @Optional()
@@ -833,7 +839,30 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     testCall?: boolean | undefined;
     now?: string | undefined;
   }) {
-    const state = await this.getOrCreateState(input.organizationId);
+    const prepared = await this.prepareInboundCall(input);
+    await this.persistState(prepared.state);
+
+    return {
+      state: cloneState(prepared.state),
+      dispatch: cloneDispatch(prepared.dispatch),
+      ...(prepared.execution === null
+        ? {}
+        : { session: cloneExecutionSession(prepared.execution.session) }),
+    };
+  }
+
+  private async prepareInboundCall(input: {
+    organizationId: string;
+    toPhoneNumber: string;
+    fromPhoneNumber: string;
+    callSid: string;
+    source?: "manual" | "webhook" | undefined;
+    testCall?: boolean | undefined;
+    now?: string | undefined;
+    isolateState?: boolean | undefined;
+  }) {
+    const currentState = await this.getOrCreateState(input.organizationId);
+    const state = input.isolateState === true ? structuredClone(currentState) : currentState;
     const now = input.now ?? new Date().toISOString();
     const liveCallPolicy = await this.resolveLiveRoutePolicyPosture({
       organizationId: input.organizationId,
@@ -888,13 +917,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         execution.commands,
       );
     }
-    await this.persistState(state);
-
-    return {
-      state: cloneState(state),
-      dispatch: cloneDispatch(dispatch),
-      ...(execution === null ? {} : { session: cloneExecutionSession(execution.session) }),
-    };
+    return { state, dispatch, execution };
   }
 
   async dispatchOutboundCall(input: {
@@ -1756,21 +1779,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       eventSid: payload.EventSid,
     });
     const eventSid = payload.EventSid ?? payload.CallSid ?? `${connection.id}:unknown-event`;
-    if (state.processedWebhookEventIds.has(eventSid)) {
-      logTwilioPstnDiagnostic(this.logger, "webhook_duplicate", {
-        organizationId,
-        connectionId: connection.id,
-        accountSid: payload.AccountSid,
-        callSid: payload.CallSid,
-        eventSid,
-      });
-      return {
-        duplicate: true,
-        twiml: renderTwilioRejectTwiML("busy"),
-      };
-    }
-
-    state.processedWebhookEventIds.add(eventSid);
+    const receivedAt = new Date().toISOString();
     const event: TelephonyWebhookEvent = {
       id: `${connection.id}:${eventSid}`,
       tenantId: organizationId,
@@ -1779,18 +1788,63 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       callSid: payload.CallSid ?? "unknown-call",
       eventSid,
       eventType: payload.EventType ?? "unknown",
-      receivedAt: new Date().toISOString(),
+      receivedAt,
       duplicate: false,
     };
-    state.webhookEvents = [event, ...state.webhookEvents].slice(0, 50);
+    let webhookOutcome: Awaited<ReturnType<TelephonyIncrementalRepository["insertWebhookEvent"]>>;
+    try {
+      webhookOutcome = await this.incrementalRepository.insertWebhookEvent(event);
+    } catch (error) {
+      return this.failTwilioAnswerPersistence({
+        organizationId,
+        connectionId: connection.id,
+        callSid: payload.CallSid,
+        eventSid,
+        reasonCode: "webhook_event_persistence_failed",
+        error,
+      });
+    }
+    if (webhookOutcome.outcome === "conflict") {
+      return this.failTwilioAnswerPersistence({
+        organizationId,
+        connectionId: connection.id,
+        callSid: payload.CallSid,
+        eventSid,
+        reasonCode: "webhook_event_conflict",
+      });
+    }
+
+    const authoritativeReceivedAt = webhookOutcome.receivedAt;
+    event.receivedAt = authoritativeReceivedAt;
+    const duplicate = webhookOutcome.outcome === "existing";
+    if (duplicate) {
+      logTwilioPstnDiagnostic(this.logger, "webhook_duplicate", {
+        organizationId,
+        connectionId: connection.id,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
+        eventSid,
+      });
+    }
+    state.processedWebhookEventIds.add(eventSid);
+    state.webhookEvents = [
+      event,
+      ...state.webhookEvents.filter(
+        (candidate) =>
+          candidate.connectionId !== event.connectionId ||
+          candidate.eventSid !== event.eventSid,
+      ),
+    ].slice(0, 50);
 
     if (isTwilioIncomingVoiceWebhook(payload)) {
-      const dispatchResponse = await this.dispatchInboundCall({
+      const dispatchResponse = await this.prepareInboundCall({
         organizationId,
         toPhoneNumber: payload.To ?? "",
         fromPhoneNumber: payload.From ?? "",
         callSid: payload.CallSid ?? eventSid,
         source: "webhook",
+        now: authoritativeReceivedAt,
+        isolateState: true,
       });
       this.recordPstnObservability({
         traceId: `twilio:${event.id}`,
@@ -1831,12 +1885,160 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         runtimePath: dispatchResponse.dispatch.runtimePath,
         reason: dispatchResponse.dispatch.reason,
       });
-      const mediaStreamToken = dispatchResponse.dispatch.callSessionId === undefined
-        ? null
-        : await this.mintTwilioMediaStreamToken({
+      let mediaStreamToken: { token: string; expiresAt: string } | null = null;
+      if (dispatchResponse.execution === null) {
+        let dispatchOutcome: Awaited<ReturnType<TelephonyIncrementalRepository["insertDispatch"]>>;
+        try {
+          dispatchOutcome = await this.incrementalRepository.insertDispatch(
+            dispatchResponse.dispatch,
+          );
+        } catch (error) {
+          return this.failTwilioAnswerPersistence({
             organizationId,
-            callSessionId: dispatchResponse.dispatch.callSessionId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "dispatch_persistence_failed",
+            error,
           });
+        }
+        if (dispatchOutcome.outcome === "conflict") {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "dispatch_persistence_conflict",
+          });
+        }
+        this.commitInboundProjection(state, dispatchResponse);
+      } else {
+        const expiresAt = new Date(
+          Date.parse(authoritativeReceivedAt) + twilioMediaStreamTokenTtlMs,
+        ).toISOString();
+        if (Date.parse(expiresAt) <= Date.now()) {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "media_token_expired",
+          });
+        }
+        const streamToken = createOneTimeStreamToken({
+          secret: this.mediaStreamTokenSecret,
+          subject: dispatchResponse.execution.session.callSessionId,
+          scope: {
+            organizationId,
+            dispatchId: dispatchResponse.execution.session.dispatchId,
+            connectionId: dispatchResponse.execution.session.connectionId,
+          },
+          expiresAt,
+          nonce: hashOneTimeStreamToken(
+            `${organizationId}\0${connection.id}\0${eventSid}\0${payload.CallSid ?? eventSid}`,
+          ),
+        });
+        const tokenRecord: TelephonyMediaStreamTokenRecord = {
+          callSessionId: dispatchResponse.execution.session.callSessionId,
+          dispatchId: dispatchResponse.execution.session.dispatchId,
+          connectionId: dispatchResponse.execution.session.connectionId,
+          tokenHash: streamToken.tokenHash,
+          expiresAt,
+          createdAt: authoritativeReceivedAt,
+        };
+        let callSetupOutcome: Awaited<ReturnType<TelephonyIncrementalRepository["createCallSetup"]>>;
+        try {
+          callSetupOutcome = await this.incrementalRepository.createCallSetup({
+            dispatch: dispatchResponse.dispatch,
+            executionSession: dispatchResponse.execution.session,
+            mediaToken: {
+              tenantId: organizationId,
+              ...tokenRecord,
+            },
+          });
+        } catch (error) {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "call_setup_persistence_failed",
+            error,
+          });
+        }
+        if (callSetupOutcome.outcome === "conflict") {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "call_setup_persistence_conflict",
+          });
+        }
+        if (
+          dispatchResponse.dispatch.routeMode === "test_route" &&
+          dispatchResponse.dispatch.phoneNumberId !== undefined &&
+          dispatchResponse.dispatch.testRouteSessionId !== undefined
+        ) {
+          for (const checkpoint of ["allowedCallerMatched", "verifiedWebhook"]) {
+            try {
+              const checkpointOutcome =
+                await this.incrementalRepository.recordPhoneTestCheckpoint({
+                  id: `${organizationId}:${dispatchResponse.dispatch.testRouteSessionId}:${checkpoint}`,
+                  tenantId: organizationId,
+                  phoneNumberId: dispatchResponse.dispatch.phoneNumberId,
+                  callSessionId: dispatchResponse.execution.session.callSessionId,
+                  testRouteSessionId: dispatchResponse.dispatch.testRouteSessionId,
+                  checkpoint,
+                  observedAt: authoritativeReceivedAt,
+                });
+              if (
+                checkpointOutcome.outcome === "conflict" ||
+                checkpointOutcome.outcome === "not_found"
+              ) {
+                return this.failTwilioAnswerPersistence({
+                  organizationId,
+                  connectionId: connection.id,
+                  callSid: payload.CallSid,
+                  eventSid,
+                  reasonCode: "phone_test_checkpoint_persistence_conflict",
+                });
+              }
+            } catch (error) {
+              return this.failTwilioAnswerPersistence({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                reasonCode: "phone_test_checkpoint_persistence_failed",
+                error,
+              });
+            }
+          }
+        }
+
+        state.mediaStreamTokens = [
+          tokenRecord,
+          ...state.mediaStreamTokens.filter(
+            (candidate) =>
+              candidate.callSessionId !== dispatchResponse.execution?.session.callSessionId,
+          ),
+        ].slice(0, 80);
+        this.commitInboundProjection(state, dispatchResponse);
+        mediaStreamToken = {
+          token: streamToken.token,
+          expiresAt,
+        };
+        logTwilioPstnDiagnostic(this.logger, "media_token_minted", {
+          organizationId,
+          callSessionId: tokenRecord.callSessionId,
+          dispatchId: tokenRecord.dispatchId,
+          connectionId: tokenRecord.connectionId,
+          expiresAt,
+          persistenceOutcome: callSetupOutcome.outcome,
+          tokenDisposition: callSetupOutcome.mediaToken,
+        });
+      }
       const twiml = renderTwiMLForTwilioDispatch({
         organizationId,
         connectionId: connection.id,
@@ -1859,14 +2061,13 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       });
 
       return {
-        duplicate: false,
+        duplicate,
         event: cloneWebhookEvent(event),
         dispatch: dispatchResponse.dispatch,
         twiml,
       };
     }
 
-    await this.persistState(state);
     logTwilioPstnDiagnostic(this.logger, "webhook_acknowledged", {
       organizationId,
       connectionId: connection.id,
@@ -1879,10 +2080,70 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     return {
-      duplicate: false,
+      duplicate,
       event: cloneWebhookEvent(event),
       twiml: renderTwilioRejectTwiML("rejected"),
     };
+  }
+
+  private failTwilioAnswerPersistence(input: {
+    organizationId: string;
+    connectionId: string;
+    callSid?: string | undefined;
+    eventSid: string;
+    reasonCode: string;
+    error?: unknown;
+  }) {
+    warnTwilioPstnDiagnostic(this.logger, "webhook_answer_persistence_failed", {
+      organizationId: input.organizationId,
+      connectionId: input.connectionId,
+      callSid: input.callSid,
+      eventSid: input.eventSid,
+      reasonCode: input.reasonCode,
+      ...(input.error === undefined
+        ? {}
+        : { error: safeTwilioDiagnosticErrorMessage(input.error) }),
+    });
+    return {
+      duplicate: false,
+      reasonCode: input.reasonCode,
+      twiml: renderTwilioUnavailableTwiML(
+        "This Zara voice line is temporarily unavailable. Please try again later.",
+      ),
+    };
+  }
+
+  private commitInboundProjection(
+    state: TelephonyStateStore,
+    prepared: Awaited<ReturnType<TelephonyService["prepareInboundCall"]>>,
+  ) {
+    state.dispatches = [
+      prepared.dispatch,
+      ...state.dispatches.filter((candidate) => candidate.id !== prepared.dispatch.id),
+    ].slice(0, 40);
+    if (prepared.execution !== null) {
+      state.executionSessions = upsertExecutionSession(
+        state.executionSessions,
+        prepared.execution.session,
+      );
+      state.executionCommands = upsertExecutionCommands(
+        state.executionCommands,
+        prepared.execution.commands,
+      );
+    }
+    if (
+      prepared.dispatch.routeMode === "test_route" &&
+      prepared.dispatch.phoneNumberId !== undefined
+    ) {
+      const preparedPhoneNumber = prepared.state.phoneNumbers.find(
+        (candidate) => candidate.id === prepared.dispatch.phoneNumberId,
+      );
+      if (preparedPhoneNumber !== undefined) {
+        state.phoneNumbers = state.phoneNumbers.map((candidate) =>
+          candidate.id === preparedPhoneNumber.id ? preparedPhoneNumber : candidate,
+        );
+      }
+    }
   }
 
   async handleTwilioStatusCallback(input: {

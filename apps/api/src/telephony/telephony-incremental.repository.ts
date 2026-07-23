@@ -7,6 +7,9 @@ import type {
 } from "./telephony.models";
 
 export type TelephonyInsertOutcome = { outcome: "inserted" | "existing" | "conflict" };
+export type TelephonyWebhookInsertOutcome =
+  | { outcome: "inserted" | "existing"; receivedAt: string }
+  | { outcome: "conflict" };
 
 export type TelephonyCallSetupOutcome =
   | { outcome: "inserted"; mediaToken: "created" }
@@ -65,7 +68,8 @@ export interface TelephonyPhoneTestCheckpointRecord {
 }
 
 export interface TelephonyIncrementalRepository {
-  insertWebhookEvent(event: TelephonyWebhookEvent): Promise<TelephonyInsertOutcome>;
+  insertWebhookEvent(event: TelephonyWebhookEvent): Promise<TelephonyWebhookInsertOutcome>;
+  insertDispatch(dispatch: TelephonyDispatchRecord): Promise<TelephonyInsertOutcome>;
   createCallSetup(input: CreateTelephonyCallSetupInput): Promise<TelephonyCallSetupOutcome>;
   transitionExecutionSession(
     input: TransitionTelephonyExecutionSessionInput,
@@ -80,3 +84,5 @@ export interface TelephonyIncrementalRepository {
     checkpoint: TelephonyPhoneTestCheckpointRecord,
   ): Promise<TelephonyInsertOutcome | { outcome: "not_found" }>;
 }
+
+export const TELEPHONY_INCREMENTAL_REPOSITORY = Symbol("TELEPHONY_INCREMENTAL_REPOSITORY");

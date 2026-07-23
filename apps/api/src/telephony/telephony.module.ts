@@ -11,8 +11,10 @@ import {
 } from "../runtime-observability/runtime-observability";
 import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import { TelephonyController } from "./telephony.controller";
+import { PostgresTelephonyIncrementalRepository } from "./postgres-telephony-incremental.repository";
 import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
 import { resolveTelephonySecretVaultConfig } from "./telephony-env";
+import { TELEPHONY_INCREMENTAL_REPOSITORY } from "./telephony-incremental.repository";
 import { TELEPHONY_STATE_REPOSITORY } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
@@ -54,6 +56,12 @@ import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
         capacityObservability,
       ),
       inject: [PostgresPoolService, PstnCapacityObservability],
+    },
+    {
+      provide: TELEPHONY_INCREMENTAL_REPOSITORY,
+      useFactory: (postgresPoolService: PostgresPoolService) =>
+        new PostgresTelephonyIncrementalRepository(postgresPoolService.pool),
+      inject: [PostgresPoolService],
     },
     {
       provide: TelephonySecretVault,
