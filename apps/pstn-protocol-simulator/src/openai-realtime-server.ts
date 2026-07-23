@@ -155,6 +155,7 @@ export class OpenAiRealtimeProtocolSimulator {
       const session = isRecord(message.session) ? message.session : {};
       const tools = Array.isArray(session.tools) ? session.tools.filter(isRecord) : [];
       this.sessionTools.set(socket, tools);
+      await waitForOpenAiRealtimeEvent(scenario.timing);
       this.send(socket, callId, {
         type: "session.updated",
         session,

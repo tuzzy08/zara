@@ -33,6 +33,8 @@ Runtime evals run through `npm run eval:runtime`, a separate Vitest config, `.ev
 
 PSTN media evals run through `npm run eval:pstn`, a separate Vitest config, `.pstn.eval.ts` files, `langsmith/vitest`, and `langsmith/vitest/reporter` when LangSmith tracking is enabled. They use synthetic Twilio media harness scenarios and must remain separate from ordinary tests and non-PSTN runtime evals.
 
+PSTN capacity load runs are a third, separate layer. `npm run load:pstn:ci` exercises a bounded deterministic smoke, while `npm run load:pstn:release -- <stepped|burst|failure|soak>` requires explicit operator approval and an external load-generator host. Release load must fail on missing capacity telemetry, absent scenario traffic, call-identity leakage, resource exhaustion, hard SLO breach, or failure to drain calls, sockets, reservations, queues, and memory. A local workstation run is not release capacity evidence.
+
 Deterministic evals must cover exact routing and policy outcomes. LLM-as-judge evals through `openevals` are reserved for qualitative behavior such as transfer-context acknowledgement, safe tool-output summarization, missing-input questions, and role/policy adherence.
 
 Protected prompt, model, routing, tool, transfer, and policy changes run `npm run eval:runtime` as a separate gate. Deterministic suites require a 100% pass rate. LLM-as-judge suites require a minimum score of 0.8 and fall back to manual release-owner review when qualitative scores are below threshold. LangSmith outages can be overridden only when local deterministic evals pass and the exception is recorded.

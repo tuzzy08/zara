@@ -50,6 +50,27 @@ describe("OpenAiRealtimeProtocolSimulator", () => {
     expect(verifyCallFingerprint(payload, createCallFingerprint("call-session-2"))).toBe(false);
   });
 
+  it("can delay provider readiness independently for load scenarios", async () => {
+    simulator = new OpenAiRealtimeProtocolSimulator();
+    const endpoint = await simulator.start();
+    simulator.setScenario("call-session-delayed-ready", {
+      callFingerprint: createCallFingerprint("call-session-delayed-ready"),
+      responseMode: "normal",
+      timing: { mode: "delayed", delayMs: 60 },
+    });
+    const socket = new WebSocket(endpoint, {
+      headers: { "X-Zara-Simulator-Call-Id": "call-session-delayed-ready" },
+    });
+    const messages: Array<Record<string, unknown>> = [];
+    socket.on("message", (raw) => messages.push(JSON.parse(raw.toString()) as Record<string, unknown>));
+    await new Promise<void>((resolve) => socket.once("open", resolve));
+
+    socket.send(JSON.stringify({ type: "session.update", session: { model: "gpt-realtime-2.1" } }));
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(messages.some((message) => message.type === "session.updated")).toBe(false);
+    await expect(waitForMessage(messages, "session.updated")).resolves.toBeDefined();
+  });
+
   it("auto-creates a response after a simulated caller turn", async () => {
     simulator = new OpenAiRealtimeProtocolSimulator();
     const endpoint = await simulator.start();

@@ -16,6 +16,8 @@
     "bench:realtime": "tsx apps/api/src/provider-benchmarks/run-provider-benchmarks.ts realtime",
     "bench:tts": "tsx apps/api/src/provider-benchmarks/run-provider-benchmarks.ts tts",
     "eval:pstn": "vitest run --config pstn.vitest.config.ts",
+    "load:pstn:ci": "npm run load:ci --workspace @zara/pstn-protocol-simulator",
+    "load:pstn:release": "npm run load:release --workspace @zara/pstn-protocol-simulator --",
     "smoke:pstn-protocol": "npm run smoke --workspace @zara/pstn-protocol-simulator",
     "eval:runtime": "vitest run --config ls.vitest.config.ts",
     "lint": "eslint .",

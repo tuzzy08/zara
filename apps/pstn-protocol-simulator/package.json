@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "load:ci": "tsx src/run-load.ts ci-smoke",
+    "load:release": "tsx src/run-load.ts",
     "smoke": "tsx src/run-smoke.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

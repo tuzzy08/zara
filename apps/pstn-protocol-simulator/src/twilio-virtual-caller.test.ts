@@ -38,6 +38,10 @@ describe("TwilioVirtualCaller", () => {
       fetch,
       websocketFactory: () => socket,
       sleep: async () => new Promise<void>((resolve) => setImmediate(resolve)),
+      nowMs: (() => {
+        let now = 0;
+        return () => now += 10;
+      })(),
     });
 
     const resultPromise = caller.run({
@@ -67,6 +71,12 @@ describe("TwilioVirtualCaller", () => {
     ]);
     expect(result.outboundFingerprintMatched).toBe(true);
     expect(result.markAcknowledgements).toBe(1);
+    expect(result).toMatchObject({
+      webhookLatencyMs: 10,
+      mediaConnectLatencyMs: 10,
+      firstOutboundAudioLatencyMs: expect.any(Number),
+      totalDurationMs: expect.any(Number),
+    });
     const mark = socket.sent.map((message) => JSON.parse(message) as Record<string, unknown>)
       .find((message) => message.event === "mark");
     expect(mark?.sequenceNumber).toMatch(/^\d+$/u);
@@ -265,6 +275,33 @@ describe("TwilioVirtualCaller", () => {
     expect(socket.terminateRequests).toBe(1);
   });
 
+  it("terminates an active media socket when the load safety signal aborts", async () => {
+    const socket = new FakeSocket();
+    const controller = new AbortController();
+    const caller = new TwilioVirtualCaller({
+      fetch: createWebhookResponse("call-session-abort", "abort-token"),
+      websocketFactory: () => socket,
+      sleep: async () => new Promise<void>((resolve) => setImmediate(resolve)),
+    });
+    const result = caller.run({
+      accountSid: "AC11111111111111111111111111111111",
+      authToken: "auth-token",
+      callSid: "CA12121212121212121212121212121212",
+      from: "+15550001111",
+      to: "+15550002222",
+      webhookUrl: "https://api.example.test/telephony/webhooks/twilio",
+      durationMs: 10_000,
+      silence: true,
+      signal: controller.signal,
+    });
+    socket.open();
+    while (socket.sent.length < 2) await new Promise<void>((resolve) => setImmediate(resolve));
+    controller.abort();
+
+    await expect(result).rejects.toThrow("aborted by the load safety stop");
+    expect(socket.terminateRequests + socket.closeRequests).toBeGreaterThan(0);
+  });
+
   it("rejects Zara playback commands for another Twilio stream", async () => {
     const socket = new FakeSocket();
     socket.onSend = (message) => {
@@ -326,6 +363,7 @@ describe("TwilioVirtualCaller", () => {
       .map((message) => JSON.parse(message) as { event?: string; sequenceNumber?: string; media?: { timestamp?: string } })
       .filter((message) => message.event === "media");
     expect(result.inboundFrameCount).toBe(4);
+    expect(result.outboundFrameCountAfterTurns).toEqual([0, 0]);
     expect(media.map((message) => message.sequenceNumber)).toEqual(["2", "3", "4", "5"]);
     expect(media.map((message) => message.media?.timestamp)).toEqual(["0", "20", "290", "310"]);
   });

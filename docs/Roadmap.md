@@ -101,6 +101,8 @@ PSTN capacity qualification began with implemented ISSUE-222. The current API in
 
 PSTN capacity qualification continues with implemented ISSUE-223's external deterministic protocol harness. A virtual Twilio caller exercises the signed webhook and bidirectional Media Streams contract while an external OpenAI Realtime simulator drives readiness, media, interruption, tool/handoff, pressure, and failure scenarios through the existing provider transport seam. Simulator selection is restricted to test/staging and rejected during production startup; measured load remains a later issue.
 
+PSTN capacity qualification now proceeds through ISSUE-224's implemented external load profiles. Stepped, burst, failure, and two-hour soak jobs exercise the existing protocol simulator against staff-only capacity posture with hard safety stops and redacted machine reports. The issue remains In Progress until an approved isolated-staging run retains the pre-persistence single-instance baseline.
+
 PSTN follow-up note: `/sandbox` now terminates Phone test waiting sessions as `expired` when their waiting window closes, the API completes the matching Twilio provider call for active expired/manual Phone tests and immediate live-call termination policies when credentials are available, and `/calls` can remove an individual imported BYO provider number from Zara inventory without deleting the provider connection or releasing the customer-owned Twilio number.
 
 ## Integrations

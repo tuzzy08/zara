@@ -46,6 +46,8 @@ export interface TwilioVirtualCallerInput {
   cadenceFactor?: number | undefined;
   completionProbe?: (() => boolean) | undefined;
   requireRemoteClose?: boolean | undefined;
+  quiescenceMs?: number | undefined;
+  signal?: AbortSignal | undefined;
   beforeConnect?: ((input: {
     callSessionId: string;
     callFingerprint: string;
@@ -57,12 +59,17 @@ export interface TwilioVirtualCallerResult {
   callSessionId: string;
   inboundFrameCount: number;
   outboundFrameCount: number;
+  outboundFrameCountAfterTurns: number[];
   outboundFingerprintMatched: boolean;
   markAcknowledgements: number;
   clearCount: number;
   closeMode: "stop" | "abrupt" | "remote";
   remoteCloseCode?: number | undefined;
   remoteCloseReason?: string | undefined;
+  webhookLatencyMs: number;
+  mediaConnectLatencyMs: number;
+  firstOutboundAudioLatencyMs?: number | undefined;
+  totalDurationMs: number;
 }
 
 export class TwilioVirtualCaller {
@@ -73,9 +80,12 @@ export class TwilioVirtualCaller {
     fetch?: typeof fetch;
     websocketFactory?: (url: string) => CallerWebSocket;
     sleep?: (delayMs: number) => Promise<void>;
+    nowMs?: (() => number) | undefined;
   } = {}) {}
 
   async run(input: TwilioVirtualCallerInput): Promise<TwilioVirtualCallerResult> {
+    const startedAt = this.nowMs();
+    throwIfAborted(input.signal);
     const parameters = {
       AccountSid: input.accountSid,
       ApiVersion: "2010-04-01",
@@ -96,12 +106,15 @@ export class TwilioVirtualCaller {
         }),
       },
       body: new URLSearchParams(parameters),
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
     if (!response.ok) {
       throw new Error(`Zara Twilio webhook rejected simulated call with HTTP ${response.status}.`);
     }
 
     const twiml = parseConnectStreamTwiML(await response.text());
+    const webhookCompletedAt = this.nowMs();
+    throwIfAborted(input.signal);
     const streamTokenHash = createHash("sha256").update(twiml.streamToken).digest("hex");
     if (this.seenStreamTokenHashes.has(streamTokenHash)) {
       throw new Error("Twilio webhook reused a media stream token across simulated calls.");
@@ -122,16 +135,22 @@ export class TwilioVirtualCaller {
       else socket.close(1011, "simulated_connect_failure");
       throw error;
     }
+    const mediaConnectedAt = this.nowMs();
+    throwIfAborted(input.signal);
     const streamSid = createTwilioStreamSid(input.callSid);
     const result: TwilioVirtualCallerResult = {
       callSid: input.callSid,
       callSessionId,
       inboundFrameCount: 0,
       outboundFrameCount: 0,
+      outboundFrameCountAfterTurns: [],
       outboundFingerprintMatched: true,
       markAcknowledgements: 0,
       clearCount: 0,
       closeMode: input.abruptDisconnect === true ? "abrupt" : "stop",
+      webhookLatencyMs: Math.max(0, webhookCompletedAt - startedAt),
+      mediaConnectLatencyMs: Math.max(0, mediaConnectedAt - webhookCompletedAt),
+      totalDurationMs: 0,
     };
     let nextSequenceNumber = 2;
     let providerMessageVersion = 0;
@@ -156,6 +175,9 @@ export class TwilioVirtualCaller {
       }),
       markAckLatencyMs: input.markAckLatencyMs ?? 0,
       loseMarks: input.loseMarks === true,
+      onFirstOutboundAudio: () => {
+        result.firstOutboundAudioLatencyMs ??= Math.max(0, this.nowMs() - startedAt);
+      },
     });
     socket.on("message", (raw) => {
       try {
@@ -195,9 +217,9 @@ export class TwilioVirtualCaller {
       });
 
       if (input.silence === true) {
-        await this.sleep(input.durationMs);
+        await this.sleep(input.durationMs, input.signal);
       } else {
-        await this.sleep(Math.max(0, input.interruptionAtMs ?? 0));
+        await this.sleep(Math.max(0, input.interruptionAtMs ?? 0), input.signal);
         const turns = input.callerTurns ?? [{ durationMs: input.durationMs }];
         let mediaTimestampMs = 0;
         for (const turn of turns) {
@@ -220,15 +242,19 @@ export class TwilioVirtualCaller {
               },
             });
             result.inboundFrameCount += 1;
-            await this.sleep(Math.max(1, Math.round(20 / Math.max(0.01, input.cadenceFactor ?? 1))));
+            await this.sleep(
+              Math.max(1, Math.round(20 / Math.max(0.01, input.cadenceFactor ?? 1))),
+              input.signal,
+            );
           }
           if (remoteClosed) break;
           mediaTimestampMs += frames.length * 20;
           const silenceAfterMs = Math.max(0, turn.silenceAfterMs ?? 0);
           if (silenceAfterMs > 0) {
             mediaTimestampMs += silenceAfterMs;
-            await this.sleep(silenceAfterMs);
+            await this.sleep(silenceAfterMs, input.signal);
           }
+          result.outboundFrameCountAfterTurns.push(result.outboundFrameCount);
         }
       }
 
@@ -238,6 +264,8 @@ export class TwilioVirtualCaller {
         readError: () => lifecycleError,
         ...(input.completionProbe === undefined ? {} : { completionProbe: input.completionProbe }),
         requireRemoteClose: input.requireRemoteClose === true,
+        quiescenceMs: input.quiescenceMs ?? 200,
+        signal: input.signal,
       });
       await playback.waitUntilIdle();
       if (lifecycleError !== undefined) throw lifecycleError;
@@ -257,6 +285,7 @@ export class TwilioVirtualCaller {
         socket.close(1000, "simulated_call_completed");
       }
       await waitForSocketClose(socket, socketClosed);
+      result.totalDurationMs = Math.max(0, this.nowMs() - startedAt);
       return result;
     } finally {
       if (!remoteClosed) {
@@ -274,11 +303,13 @@ export class TwilioVirtualCaller {
     readError: () => Error | undefined;
     completionProbe?: (() => boolean) | undefined;
     requireRemoteClose: boolean;
+    quiescenceMs: number;
+    signal?: AbortSignal | undefined;
   }) {
     let observedVersion = input.readVersion();
     let quietTicks = 0;
     for (let tick = 0; tick < 250; tick += 1) {
-      await this.sleep(20);
+      await this.sleep(20, input.signal);
       const error = input.readError();
       if (error !== undefined) throw error;
       if (input.isClosed()) return;
@@ -289,7 +320,11 @@ export class TwilioVirtualCaller {
         quietTicks = 0;
       }
       if (input.completionProbe?.() === true && !input.requireRemoteClose) return;
-      if (input.completionProbe === undefined && observedVersion > 0 && quietTicks >= 10) return;
+      if (
+        input.completionProbe === undefined
+        && observedVersion > 0
+        && quietTicks >= Math.max(1, Math.ceil(input.quiescenceMs / 20))
+      ) return;
     }
     throw new Error("Timed out waiting for the simulated call completion contract.");
   }
@@ -303,8 +338,21 @@ export class TwilioVirtualCaller {
     }
   }
 
-  private sleep(delayMs: number) {
-    return (this.dependencies.sleep ?? defaultSleep)(delayMs);
+  private async sleep(delayMs: number, signal?: AbortSignal) {
+    throwIfAborted(signal);
+    if (signal === undefined) {
+      await (this.dependencies.sleep ?? defaultSleep)(delayMs);
+      return;
+    }
+    await Promise.race([
+      (this.dependencies.sleep ?? defaultSleep)(delayMs),
+      waitUntilAborted(signal),
+    ]);
+    throwIfAborted(signal);
+  }
+
+  private nowMs() {
+    return (this.dependencies.nowMs ?? Date.now)();
   }
 }
 
@@ -328,6 +376,7 @@ class TwilioPlaybackQueue {
     acknowledgeMark(name: string): void;
     markAckLatencyMs: number;
     loseMarks: boolean;
+    onFirstOutboundAudio(): void;
   }) {}
 
   receive(raw: string) {
@@ -340,6 +389,7 @@ class TwilioPlaybackQueue {
       throw new Error("Zara sent a playback command for another Twilio stream.");
     }
     if (message.event === "media" && typeof message.media?.payload === "string") {
+      this.dependencies.onFirstOutboundAudio();
       this.queue.push({ type: "media", payloadBase64: message.media.payload, generation: this.generation });
       this.startDrain();
       return;
@@ -475,4 +525,8 @@ async function waitForSocketClose(socket: CallerWebSocket, closed: Promise<void>
 function waitUntilAborted(signal: AbortSignal) {
   if (signal.aborted) return Promise.resolve();
   return new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+}
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+  if (signal?.aborted === true) throw new Error("Simulated PSTN call aborted by the load safety stop.");
 }

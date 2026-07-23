@@ -178,6 +178,8 @@ Required runtime metrics:
 
 PSTN capacity metrics use only bounded dimensions: runtime path, provider, lifecycle state, socket leg, direction, outcome, queue, database operation, and close classification. Tenant, call, stream, response, phone-number, and tool identifiers must remain in sampled redacted traces or structured logs rather than metric labels. `OTEL_METRICS_ENABLED=true` enables periodic OTLP/HTTP metric export; `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_METRIC_EXPORT_INTERVAL`, and `OTEL_METRIC_EXPORT_TIMEOUT` may configure the metrics pipeline independently. Missing or failed metric export remains nonfatal to live calls.
 
+Capacity qualification consumes the staff-only posture from an external load process. The stepped profile covers 1, 5, 10, 20, 40, 60, and 100 calls; burst, failure, and two-hour soak profiles remain explicitly approved release jobs. Reports use `zara.pstn-load-report.v1`, retain bounded scenario/SLO/resource evidence, and contain no credentials, caller PII, tenant identifiers, stream tokens, transcripts, media, or raw provider payloads. `exhausted` posture hard-stops later load stages; the provisional 20-call guard remains uncertified until an approved baseline report is retained.
+
 ## Provider Benchmarks
 
 Provider benchmarks are separate from runtime evals and production traces. They run through:

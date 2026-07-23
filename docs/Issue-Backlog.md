@@ -5125,3 +5125,21 @@ Acceptance criteria:
 Implementation summary:
 - Added an external Twilio virtual caller and OpenAI Realtime protocol simulator with deterministic timing, call-isolated media fingerprints, real playback/mark/clear behavior, tool/handoff and failure scenarios, guarded test/staging transport selection, and one redacted smoke command.
 - Verified 56 focused simulator/transport tests, 140 premium/telephony regressions, 25 PSTN evals, both workspace typechecks, focused lint, and the two full-suite outliers independently after the saturated repository run.
+
+### ISSUE-224: PSTN stepped, burst, failure, and soak load profiles
+
+- Priority: P1
+- Area: Runtime / Telephony / Testing / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, telephony, observability, testing, tdd-required
+- Status: In Progress
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-224-pstn-load-profiles.md](../docs/Handovers/ISSUE-224-pstn-load-profiles.md)
+- External: [Linear ZAR-227](https://linear.app/zara-voice/issue/ZAR-227/pstn-capacity-312-add-stepped-burst-failure-and-soak-load-profiles)
+
+Acceptance criteria:
+- External profiles cover stepped concurrency at 1, 5, 10, 20, 40, 60, and 100 calls, burst/failure scenarios, and a two-hour soak at an explicitly qualified target.
+- Resource exhaustion stops further load safely; required telemetry, meaningful traffic, call identity isolation, drain recovery, and hard SLOs fail closed.
+- Machine-readable reports carry release/environment/resource/scenario/latency/failure/SLO evidence without credentials, media, caller PII, or token material.
+- Deterministic CI smoke stays separate from explicitly approved release-scale and real-provider jobs.
+- A current single-instance baseline report is retained before incremental persistence migration begins.
