@@ -1,0 +1,18 @@
+{
+  "name": "@zara/pstn-protocol-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "smoke": "tsx src/run-smoke.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "saxes": "^6.0.0",
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

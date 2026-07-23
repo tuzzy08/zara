@@ -5102,3 +5102,26 @@ Implementation summary:
 - Added periodic process/resource sampling, lifecycle/WebSocket/queue/Postgres/exporter telemetry, and the redacted staff-only capacity posture.
 - Documented the exact provisional worker envelope and its non-certified, non-enforcing status.
 - Verified 79 focused API tests plus API typecheck and focused lint; the wider run passed 139 files and 1101 tests with unrelated dirty landing-page failures and an existing fixed-timeout production-output scan limitation recorded in the handover.
+
+### ISSUE-223: Deterministic PSTN protocol simulator
+
+- Priority: P1
+- Area: Runtime / Telephony / Testing / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, telephony, observability, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-223-pstn-protocol-simulator.md](../docs/Handovers/ISSUE-223-pstn-protocol-simulator.md)
+- External: [Linear ZAR-225](https://linear.app/zara-voice/issue/ZAR-225/pstn-capacity-212-build-deterministic-twilio-and-openai-protocol)
+
+Acceptance criteria:
+- An external virtual caller signs the real Twilio form webhook, validates queryless Connect Stream TwiML, opens the returned WebSocket, and emits deterministic 8 kHz mono PCMU at 20 ms cadence.
+- Twilio mark latency/loss, silence, interruption, abrupt disconnect, clear, and media behavior are configurable and observable without logging raw media or stream credentials.
+- An external OpenAI Realtime simulator covers readiness, caller turns, response audio, transcripts, tools, handoffs, incomplete responses, protocol errors, rate limits, output pressure, and provider closure under deterministic timing modes.
+- Calls carry unique call, stream, response, and media fingerprints; cross-call media fails fingerprint validation.
+- Simulator transport is test/staging-only, selected at the existing provider transport seam, and rejected during production startup.
+- One smoke command covers normal, interrupted, tool/handoff, and provider-failure paths with redacted output.
+
+Implementation summary:
+- Added an external Twilio virtual caller and OpenAI Realtime protocol simulator with deterministic timing, call-isolated media fingerprints, real playback/mark/clear behavior, tool/handoff and failure scenarios, guarded test/staging transport selection, and one redacted smoke command.
+- Verified 56 focused simulator/transport tests, 140 premium/telephony regressions, 25 PSTN evals, both workspace typechecks, focused lint, and the two full-suite outliers independently after the saturated repository run.

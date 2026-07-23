@@ -6,6 +6,7 @@ import { SandboxLiveSessionsModule } from "../sandbox-live-sessions/sandbox-live
 import { PremiumRealtimeToolLoopService } from "./premium-realtime-tool-loop.service";
 import {
   premiumRealtimeProviderTransportToken,
+  resolvePremiumRealtimeProviderEndpoint,
   WsPremiumRealtimeProviderTransport,
 } from "./premium-realtime-provider-transport";
 import { RuntimeSessionsController } from "./runtime-sessions.controller";
@@ -21,7 +22,10 @@ import { RuntimeSessionsWebSocketBridge } from "./runtime-sessions.websocket-bri
     RuntimeSessionsWebSocketBridge,
     {
       provide: premiumRealtimeProviderTransportToken,
-      useFactory: () => new WsPremiumRealtimeProviderTransport(),
+      useFactory: () => {
+        resolvePremiumRealtimeProviderEndpoint(process.env);
+        return new WsPremiumRealtimeProviderTransport();
+      },
     },
   ],
   exports: [

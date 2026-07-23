@@ -99,6 +99,8 @@ Premium PSTN live-conformance follow-up: ISSUE-220 is implemented. Premium sessi
 
 PSTN capacity qualification began with implemented ISSUE-222. The current API instance now projects low-cardinality call, process, Twilio/provider WebSocket, Postgres, bounded-queue, and exporter-health posture through the staff-only runtime observability API against an explicit provisional 20-call, 2-vCPU, 1-GiB worker envelope. This is visibility for later load qualification and admission work, not certified or enforced capacity.
 
+PSTN capacity qualification continues with implemented ISSUE-223's external deterministic protocol harness. A virtual Twilio caller exercises the signed webhook and bidirectional Media Streams contract while an external OpenAI Realtime simulator drives readiness, media, interruption, tool/handoff, pressure, and failure scenarios through the existing provider transport seam. Simulator selection is restricted to test/staging and rejected during production startup; measured load remains a later issue.
+
 PSTN follow-up note: `/sandbox` now terminates Phone test waiting sessions as `expired` when their waiting window closes, the API completes the matching Twilio provider call for active expired/manual Phone tests and immediate live-call termination policies when credentials are available, and `/calls` can remove an individual imported BYO provider number from Zara inventory without deleting the provider connection or releasing the customer-owned Twilio number.
 
 ## Integrations
