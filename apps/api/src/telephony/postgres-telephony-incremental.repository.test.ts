@@ -158,7 +158,14 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       harness.repository.createCallSetup(callSetup("tenant-a", "observed-call")),
     ).resolves.toEqual({ outcome: "inserted", mediaToken: "created" });
 
-    expect(recordDatabaseOperation).toHaveBeenCalledWith(
+    const transactionObservation = recordDatabaseOperation.mock.calls
+      .map(([observation]) => observation)
+      .find(
+        (observation) =>
+          observation.operation === "telephony_call_setup_create" &&
+          observation.transactionDurationMs !== undefined,
+      );
+    expect(transactionObservation).toEqual(
       expect.objectContaining({
         operation: "telephony_call_setup_create",
         outcome: "success",
@@ -166,10 +173,10 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         transactionDurationMs: expect.any(Number),
         poolAcquisitionWaitMs: expect.any(Number),
         rowLockWaitMs: expect.any(Number),
-        deadlockCount: 0,
-        retryCount: 0,
       }),
     );
+    expect(transactionObservation).not.toHaveProperty("deadlockCount");
+    expect(transactionObservation).not.toHaveProperty("retryCount");
 
     recordDatabaseOperation.mockImplementation(() => {
       throw new Error("metrics exporter unavailable");
@@ -369,7 +376,8 @@ describe("PostgresTelephonyIncrementalRepository", () => {
   });
 
   it("loads the owned mutation context and records call control atomically", async () => {
-    const harness = await createHarness();
+    const recordDatabaseOperation = vi.fn();
+    const harness = await createHarness({ recordDatabaseOperation });
     pool = harness.pool;
     const setup = callSetup("tenant-a", "call-control");
     await harness.repository.createCallSetup(setup);
@@ -433,12 +441,47 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       },
       event,
       executionCommands: [command],
+      retryCount: 2,
     };
 
+    recordDatabaseOperation.mockClear();
     await expect(harness.repository.recordCallControlMutation(mutation)).resolves.toEqual({
       outcome: "updated",
       version: 1,
     });
+    expect(
+      recordDatabaseOperation.mock.calls
+        .map(([observation]) => observation)
+        .filter((observation) => observation.retryCount !== undefined),
+    ).toEqual([
+      expect.objectContaining({
+        operation: "telephony_call_control_mutation",
+        outcome: "success",
+        retryCount: 2,
+      }),
+    ]);
+    recordDatabaseOperation.mockClear();
+    await expect(
+      harness.repository.recordCallControlMutation({
+        ...mutation,
+        event: {
+          ...event,
+          id: "stale-control-event",
+        },
+        executionCommands: [
+          {
+            ...command,
+            id: "stale-control-command",
+          },
+        ],
+        retryCount: 1,
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 1 });
+    expect(
+      recordDatabaseOperation.mock.calls
+        .map(([observation]) => observation)
+        .filter((observation) => observation.retryCount !== undefined),
+    ).toEqual([]);
     const reloaded = await harness.repository.loadCallMutationContext({
       tenantId: mutation.tenantId,
       callSessionId: mutation.callSessionId,
@@ -971,6 +1014,160 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       }),
     ).resolves.toBeNull();
   });
+
+  it("atomically deletes tenant-retained call data with exact per-table counts", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const expired = callSetup("tenant-a", "retention-expired");
+    const retained = callSetup("tenant-a", "retention-retained");
+    const otherTenant = callSetup("tenant-b", "retention-other-tenant");
+    setCallSetupTimestamps(retained, "2026-07-25T12:00:00.000Z");
+    await harness.repository.createCallSetup(expired);
+    await harness.repository.createCallSetup(retained);
+    await harness.repository.createCallSetup(otherTenant);
+    const expiredWebhook = webhookEvent("tenant-a", "retention-expired");
+    const retainedWebhook = webhookEvent("tenant-a", "retention-retained");
+    retainedWebhook.receivedAt = "2026-07-25T12:00:00.000Z";
+    await harness.repository.insertWebhookEvent(expiredWebhook);
+    await harness.repository.insertWebhookEvent(retainedWebhook);
+    await harness.pool.query(
+      `insert into telephony_call_control_events
+         (id, tenant_id, dispatch_id, call_session_id, event_type, at, summary, payload)
+       values
+         ('retention-expired', 'tenant-a', $1, $2, 'dtmf.received', '2026-07-23T12:00:00.000Z', 'expired', '{}'),
+         ('retention-retained', 'tenant-a', $3, $4, 'dtmf.received', '2026-07-25T12:00:00.000Z', 'retained', '{}'),
+         ('retention-other', 'tenant-b', $5, $6, 'dtmf.received', '2026-07-23T12:00:00.000Z', 'other', '{}')`,
+      [
+        expired.dispatch.id,
+        expired.executionSession.callSessionId,
+        retained.dispatch.id,
+        retained.executionSession.callSessionId,
+        otherTenant.dispatch.id,
+        otherTenant.executionSession.callSessionId,
+      ],
+    );
+
+    await expect(
+      harness.repository.deleteRetainedCallData({
+        tenantId: "tenant-a",
+        retainAfter: "2026-07-24T00:00:00.000Z",
+      }),
+    ).resolves.toEqual({
+      tenantId: "tenant-a",
+      retainAfter: "2026-07-24T00:00:00.000Z",
+      deletedCounts: {
+        webhookEvents: 1,
+        callControlEvents: 1,
+        executionCommands: 1,
+        executionSessions: 1,
+        mediaTokens: 1,
+        dispatches: 1,
+      },
+    });
+    await expect(runtimeRowCounts(harness.pool, "tenant-a")).resolves.toEqual({
+      webhookEvents: 1,
+      callControlEvents: 1,
+      executionCommands: 1,
+      executionSessions: 1,
+      mediaTokens: 1,
+      dispatches: 1,
+    });
+    await expect(runtimeRowCounts(harness.pool, "tenant-b")).resolves.toMatchObject({
+      callControlEvents: 1,
+      executionCommands: 1,
+      executionSessions: 1,
+      mediaTokens: 1,
+      dispatches: 1,
+    });
+    await expect(
+      harness.repository.deleteRetainedCallData({
+        tenantId: "tenant-a",
+        retainAfter: "2026-07-24T00:00:00.000Z",
+      }),
+    ).resolves.toMatchObject({
+      deletedCounts: {
+        webhookEvents: 0,
+        callControlEvents: 0,
+        executionCommands: 0,
+        executionSessions: 0,
+        mediaTokens: 0,
+        dispatches: 0,
+      },
+    });
+  });
+
+  it("atomically deletes one tenant-owned connection and its call graph", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const target = callSetup("tenant-a", "connection-delete");
+    target.dispatch.routeMode = "test_route";
+    target.dispatch.testRouteSessionId = "connection-delete-test";
+    const otherTenant = callSetup("tenant-b", "connection-delete-other");
+    await harness.repository.createCallSetup(target);
+    await harness.repository.createCallSetup(otherTenant);
+    await harness.repository.insertWebhookEvent(webhookEvent("tenant-a", "connection-delete"));
+    await harness.repository.recordPhoneTestCheckpointByCall({
+      tenantId: "tenant-a",
+      callSessionId: target.executionSession.callSessionId,
+      checkpoint: "verifiedWebhook",
+      observedAt: "2026-07-23T12:00:01.000Z",
+    });
+    await harness.pool.query(
+      `insert into telephony_call_control_events
+         (id, tenant_id, dispatch_id, call_session_id, event_type, at, summary, payload)
+       values ('connection-delete', 'tenant-a', $1, $2, 'dtmf.received',
+               '2026-07-23T12:00:01.000Z', 'delete me', '{}')`,
+      [target.dispatch.id, target.executionSession.callSessionId],
+    );
+
+    await expect(
+      harness.repository.deleteConnection({
+        tenantId: "tenant-a",
+        connectionId: "connection-tenant-a",
+      }),
+    ).resolves.toEqual({
+      outcome: "deleted",
+      deletedCounts: {
+        connections: 1,
+        phoneNumbers: 1,
+        phoneTestCheckpoints: 1,
+        webhookEvents: 1,
+        callControlEvents: 1,
+        executionCommands: 1,
+        executionSessions: 1,
+        mediaTokens: 1,
+        dispatches: 1,
+      },
+    });
+    await expect(runtimeRowCounts(harness.pool, "tenant-a")).resolves.toEqual({
+      webhookEvents: 0,
+      callControlEvents: 0,
+      executionCommands: 0,
+      executionSessions: 0,
+      mediaTokens: 0,
+      dispatches: 0,
+    });
+    await expect(
+      harness.pool.query(
+        "select id from telephony_phone_numbers where tenant_id = 'tenant-a' order by id",
+      ),
+    ).resolves.toMatchObject({ rows: [{ id: "number-a-fallback" }] });
+    await expect(
+      harness.pool.query("select count(*)::int as count from telephony_phone_test_checkpoints"),
+    ).resolves.toMatchObject({ rows: [{ count: 0 }] });
+    await expect(runtimeRowCounts(harness.pool, "tenant-b")).resolves.toMatchObject({
+      executionCommands: 1,
+      executionSessions: 1,
+      mediaTokens: 1,
+      dispatches: 1,
+    });
+    await expect(
+      harness.repository.deleteConnection({
+        tenantId: "tenant-b",
+        connectionId: "connection-tenant-a-fallback",
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+  });
 });
 
 function webhookEvent(tenantId: string, eventSid: string) {
@@ -1072,6 +1269,40 @@ function callSetup(tenantId: string, suffix: string): CreateTelephonyCallSetupIn
       createdAt: "2026-07-23T12:00:00.000Z",
     },
   };
+}
+
+function setCallSetupTimestamps(
+  setup: CreateTelephonyCallSetupInput,
+  timestamp: string,
+) {
+  setup.dispatch.createdAt = timestamp;
+  setup.executionSession.createdAt = timestamp;
+  setup.executionSession.updatedAt = timestamp;
+  for (const command of setup.executionCommands) {
+    command.requestedAt = timestamp;
+    command.appliedAt = timestamp;
+  }
+  setup.mediaToken.createdAt = timestamp;
+  setup.mediaToken.expiresAt = new Date(Date.parse(timestamp) + 300_000).toISOString();
+}
+
+async function runtimeRowCounts(pool: Pool, tenantId: string) {
+  const result = await pool.query<{ table_name: string; count: number }>(
+    `select 'webhookEvents' as table_name, count(*)::int as count
+       from telephony_webhook_events where tenant_id = $1
+     union all select 'callControlEvents', count(*)::int
+       from telephony_call_control_events where tenant_id = $1
+     union all select 'executionCommands', count(*)::int
+       from telephony_execution_commands where tenant_id = $1
+     union all select 'executionSessions', count(*)::int
+       from telephony_execution_sessions where tenant_id = $1
+     union all select 'mediaTokens', count(*)::int
+       from telephony_media_stream_tokens where tenant_id = $1
+     union all select 'dispatches', count(*)::int
+       from telephony_dispatches where tenant_id = $1`,
+    [tenantId],
+  );
+  return Object.fromEntries(result.rows.map(({ table_name, count }) => [table_name, count]));
 }
 
 async function createHarness(

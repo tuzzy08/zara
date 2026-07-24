@@ -112,6 +112,50 @@ export type TelephonyOutboundAbuseBlockOutcome = {
   connectionCount: number;
 };
 
+export interface DeleteTelephonyRetainedCallDataInput {
+  tenantId: string;
+  retainAfter: string;
+}
+
+export interface TelephonyRuntimeDeletionCounts {
+  webhookEvents: number;
+  callControlEvents: number;
+  executionCommands: number;
+  executionSessions: number;
+  mediaTokens: number;
+  dispatches: number;
+}
+
+export interface DeleteTelephonyRetainedCallDataOutcome {
+  tenantId: string;
+  retainAfter: string;
+  deletedCounts: TelephonyRuntimeDeletionCounts;
+}
+
+export interface DeleteTelephonyConnectionInput {
+  tenantId: string;
+  connectionId: string;
+}
+
+export interface DeleteTelephonyPhoneNumberInput {
+  tenantId: string;
+  phoneNumberId: string;
+}
+
+export type DeleteTelephonyPhoneNumberOutcome =
+  | { outcome: "deleted" }
+  | { outcome: "not_found" };
+
+export interface TelephonyConnectionDeletionCounts extends TelephonyRuntimeDeletionCounts {
+  connections: number;
+  phoneNumbers: number;
+  phoneTestCheckpoints: number;
+}
+
+export type DeleteTelephonyConnectionOutcome =
+  | { outcome: "deleted"; deletedCounts: TelephonyConnectionDeletionCounts }
+  | { outcome: "not_found" };
+
 export interface TransitionTelephonyExecutionSessionInput {
   tenantId: string;
   callSessionId: string;
@@ -228,6 +272,15 @@ export interface TelephonyIncrementalRepository {
   recordOutboundAbuseBlock(
     input: RecordTelephonyOutboundAbuseBlockInput,
   ): Promise<TelephonyOutboundAbuseBlockOutcome>;
+  deleteRetainedCallData(
+    input: DeleteTelephonyRetainedCallDataInput,
+  ): Promise<DeleteTelephonyRetainedCallDataOutcome>;
+  deleteConnection(
+    input: DeleteTelephonyConnectionInput,
+  ): Promise<DeleteTelephonyConnectionOutcome>;
+  deletePhoneNumber(
+    input: DeleteTelephonyPhoneNumberInput,
+  ): Promise<DeleteTelephonyPhoneNumberOutcome>;
   transitionExecutionSession(
     input: TransitionTelephonyExecutionSessionInput,
   ): Promise<TelephonyTransitionOutcome>;

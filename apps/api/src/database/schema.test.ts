@@ -27,7 +27,6 @@ import {
   telephonyMediaStreamTokens,
   telephonyPhoneNumbers,
   telephonyPhoneTestCheckpoints,
-  telephonyProcessedWebhookEvents,
   telephonyProviderHeartbeats,
   telephonyWebhookEvents,
   memoryEmbeddings,
@@ -267,8 +266,30 @@ describe("database foundations", () => {
     expect(getTableName(telephonyWebhookEvents)).toBe("telephony_webhook_events");
     expect(getTableName(telephonyCallControlEvents)).toBe("telephony_call_control_events");
     expect(getTableName(telephonyCredentialEnvelopes)).toBe("telephony_credential_envelopes");
-    expect(getTableName(telephonyProcessedWebhookEvents)).toBe(
-      "telephony_processed_webhook_events",
+    const schemaSource = readFileSync(
+      resolve(repositoryRoot, "apps/api/src/database/schema.ts"),
+      "utf8",
+    );
+    expect(schemaSource).not.toContain("telephony_processed_webhook_events");
+    const obsoleteDedupeMigration = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0012_superb_stellaris.sql",
+      ),
+      "utf8",
+    );
+    expect(obsoleteDedupeMigration).toContain(
+      'DROP TABLE "telephony_processed_webhook_events"',
+    );
+    const obsoleteDedupeRollback = readFileSync(
+      resolve(
+        repositoryRoot,
+        "docs/Runbooks/rollback-0012-obsolete-webhook-dedupe.sql",
+      ),
+      "utf8",
+    );
+    expect(obsoleteDedupeRollback).toContain(
+      'CREATE TABLE "telephony_processed_webhook_events"',
     );
   });
 

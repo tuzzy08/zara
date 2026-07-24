@@ -84,11 +84,12 @@ describe("telephony persistence and secret storage", () => {
         workspaceId: "workspace-customer-success",
       },
     });
-    expect(restartedState.executionCommands[0]).toMatchObject({
-      action: "twilio.calls.answer",
-      target: "+14155557890",
-      status: "applied",
-    });
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: "CA-before-restart-1:telephony",
+      }),
+    ).resolves.toMatchObject({ outcome: "found" });
 
     expect(
       (await restartedService.validateConnection({
@@ -125,15 +126,16 @@ describe("telephony persistence and secret storage", () => {
         payload: webhookPayload,
       })).duplicate,
     ).toBe(true);
-    expect((await thirdService.getState(organizationId)).executionCommands[0]).toMatchObject({
-      action: "twilio.calls.answer",
-      target: "+14155557890",
-      status: "applied",
-    });
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: "CA-webhook-1:telephony",
+      }),
+    ).resolves.toMatchObject({ outcome: "found" });
   });
 
-  it("removes connection-owned snapshot execution state when deleting a connection", async () => {
-    const { service, storePath } = createHarness();
+  it("removes connection-owned durable execution state when deleting a connection", async () => {
+    const { service, storePath, incrementalRepository } = createHarness();
     const organizationId = "tenant-west-africa";
     const connection = await service.createConnection({
       organizationId,
@@ -168,19 +170,24 @@ describe("telephony persistence and secret storage", () => {
       },
     });
 
-    await service.dispatchInboundCall({
+    const dispatched = await service.dispatchInboundCall({
       organizationId,
       toPhoneNumber: phoneNumber.phoneNumber,
       fromPhoneNumber: "+233201110001",
       callSid: "CA-delete-connection-1",
     });
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: dispatched.dispatch.callSessionId!,
+      }),
+    ).resolves.toMatchObject({ outcome: "found" });
 
     const repository = new FileTelephonyStateRepository(storePath);
     const beforeDeletion = await repository.load(organizationId);
-    expect(beforeDeletion?.executionSessions).toHaveLength(1);
-    expect(beforeDeletion?.executionCommands?.length).toBeGreaterThan(0);
+    expect(beforeDeletion?.executionSessions).toEqual([]);
+    expect(beforeDeletion?.executionCommands).toEqual([]);
     expect(beforeDeletion?.webhookEvents).toEqual([]);
-    expect(beforeDeletion?.mediaStreamTokens).toEqual([]);
 
     await service.deleteConnection({ organizationId, connectionId: connection.connection.id });
 
@@ -189,8 +196,13 @@ describe("telephony persistence and secret storage", () => {
     expect(afterDeletion?.executionSessions).toEqual([]);
     expect(afterDeletion?.executionCommands).toEqual([]);
     expect(afterDeletion?.webhookEvents).toEqual([]);
-    expect(afterDeletion?.mediaStreamTokens).toEqual([]);
     expect(afterDeletion?.credentials).toEqual([]);
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: dispatched.dispatch.callSessionId!,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
   });
 
   it("encrypts stored provider secrets at rest and records key version metadata", async () => {
@@ -393,6 +405,10 @@ describe("telephony persistence and secret storage", () => {
       now: "2026-07-17T20:00:00.000Z",
       expiresAt: "2026-07-17T20:30:00.000Z",
     });
+    incrementalRepository.loadPhoneNumberProjections(
+      organizationId,
+      (await service.getState(organizationId)).phoneNumbers,
+    );
     const routed = await service.dispatchInboundCall({
       organizationId,
       toPhoneNumber: "+14155557890",
@@ -401,25 +417,6 @@ describe("telephony persistence and secret storage", () => {
       now: "2026-07-17T20:01:00.000Z",
     });
     expect(routed.dispatch.routeMode).toBe("test_route");
-    if (routed.session?.lifecycleState === undefined) {
-      throw new Error("Expected a routed execution session with lifecycle state.");
-    }
-    await incrementalRepository.createCallSetup({
-      dispatch: routed.dispatch,
-      executionSession: {
-        ...routed.session,
-        lifecycleState: routed.session.lifecycleState,
-      },
-      mediaToken: {
-        tenantId: organizationId,
-        callSessionId: routed.dispatch.callSessionId!,
-        dispatchId: routed.dispatch.id,
-        connectionId: routed.dispatch.connectionId!,
-        tokenHash: "incremental-checkpoint-test-token",
-        createdAt: "2026-07-17T20:01:00.000Z",
-        expiresAt: "2026-07-17T20:06:00.000Z",
-      },
-    });
     repository.delaySaves = true;
 
     await Promise.all([

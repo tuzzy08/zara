@@ -14,6 +14,9 @@ import type {
   ClaimTelephonyMediaTokenInput,
   CreateTelephonyCallExecutionInput,
   CreateTelephonyCallSetupInput,
+  DeleteTelephonyConnectionInput,
+  DeleteTelephonyPhoneNumberInput,
+  DeleteTelephonyRetainedCallDataInput,
   DeleteExpiredTelephonyMediaTokensInput,
   LoadLatestSuccessfulPhoneTestInput,
   LoadTelephonyCallMutationContextInput,
@@ -281,6 +284,10 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
   async recordCallControlMutation(input: RecordTelephonyCallControlMutationInput) {
     assertCallControlMutation(input);
     const client = await this.database.connect();
+    setInstrumentedTransactionContext(client, {
+      operation: "telephony_call_control_mutation",
+      retryCount: input.retryCount,
+    });
     try {
       await client.query("begin");
       const locked = await client.query<CallControlSessionRow>(
@@ -406,6 +413,18 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
     };
   }
 
+  async deletePhoneNumber(input: DeleteTelephonyPhoneNumberInput) {
+    const deleted = await this.database.query(
+      `delete from telephony_phone_numbers
+       where tenant_id = $1 and id = $2
+       returning id`,
+      [input.tenantId, input.phoneNumberId],
+    );
+    return {
+      outcome: deleted.rows.length > 0 ? ("deleted" as const) : ("not_found" as const),
+    };
+  }
+
   async recordOutboundAbuseBlock(input: RecordTelephonyOutboundAbuseBlockInput) {
     if (
       input.dispatch.direction !== "outbound" ||
@@ -476,6 +495,262 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       return {
         outcome,
         connectionCount: connectionIds.length,
+      };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteRetainedCallData(input: DeleteTelephonyRetainedCallDataInput) {
+    assertValidTimestamp(input.retainAfter, "Retention cutoff");
+    const client = await this.database.connect();
+    setInstrumentedTransactionContext(client, {
+      operation: "telephony_retention_delete",
+    });
+    try {
+      await client.query("begin");
+      const webhookEvents = await client.query(
+        `delete from telephony_webhook_events
+         where tenant_id = $1 and received_at < $2
+         returning id`,
+        [input.tenantId, input.retainAfter],
+      );
+      const callControlEvents = await client.query(
+        `delete from telephony_call_control_events
+         where tenant_id = $1
+           and (
+             at < $2
+             or dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and created_at < $2
+             )
+             or call_session_id in (
+               select call_session_id from telephony_execution_sessions
+               where tenant_id = $1
+                 and (
+                   created_at < $2
+                   or dispatch_id in (
+                     select id from telephony_dispatches
+                     where tenant_id = $1 and created_at < $2
+                   )
+                 )
+             )
+           )
+         returning id`,
+        [input.tenantId, input.retainAfter],
+      );
+      const executionCommands = await client.query(
+        `delete from telephony_execution_commands
+         where tenant_id = $1
+           and (
+             requested_at < $2
+             or dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and created_at < $2
+             )
+             or session_id in (
+               select id from telephony_execution_sessions
+               where tenant_id = $1
+                 and (
+                   created_at < $2
+                   or dispatch_id in (
+                     select id from telephony_dispatches
+                     where tenant_id = $1 and created_at < $2
+                   )
+                 )
+             )
+           )
+         returning id`,
+        [input.tenantId, input.retainAfter],
+      );
+      const mediaTokens = await client.query(
+        `delete from telephony_media_stream_tokens
+         where tenant_id = $1
+           and (
+             created_at < $2
+             or dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and created_at < $2
+             )
+             or call_session_id in (
+               select call_session_id from telephony_execution_sessions
+               where tenant_id = $1
+                 and (
+                   created_at < $2
+                   or dispatch_id in (
+                     select id from telephony_dispatches
+                     where tenant_id = $1 and created_at < $2
+                   )
+                 )
+             )
+           )
+         returning call_session_id`,
+        [input.tenantId, input.retainAfter],
+      );
+      const executionSessions = await client.query(
+        `delete from telephony_execution_sessions
+         where tenant_id = $1
+           and (
+             created_at < $2
+             or dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and created_at < $2
+             )
+           )
+         returning id`,
+        [input.tenantId, input.retainAfter],
+      );
+      const dispatches = await client.query(
+        `delete from telephony_dispatches
+         where tenant_id = $1 and created_at < $2
+         returning id`,
+        [input.tenantId, input.retainAfter],
+      );
+      await client.query("commit");
+      return {
+        tenantId: input.tenantId,
+        retainAfter: input.retainAfter,
+        deletedCounts: {
+          webhookEvents: webhookEvents.rows.length,
+          callControlEvents: callControlEvents.rows.length,
+          executionCommands: executionCommands.rows.length,
+          executionSessions: executionSessions.rows.length,
+          mediaTokens: mediaTokens.rows.length,
+          dispatches: dispatches.rows.length,
+        },
+      };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteConnection(input: DeleteTelephonyConnectionInput) {
+    const client = await this.database.connect();
+    setInstrumentedTransactionContext(client, {
+      operation: "telephony_connection_delete",
+    });
+    try {
+      await client.query("begin");
+      const owned = await client.query(
+        `select id from telephony_connections
+         where tenant_id = $1 and id = $2
+         for update`,
+        [input.tenantId, input.connectionId],
+      );
+      if (owned.rows.length === 0) {
+        await client.query("rollback");
+        return { outcome: "not_found" as const };
+      }
+      const phoneNumbers = await client.query(
+        `select id from telephony_phone_numbers
+         where tenant_id = $1 and connection_id = $2`,
+        [input.tenantId, input.connectionId],
+      );
+      const phoneTestCheckpoints = await client.query(
+        `select checkpoint.id
+         from telephony_phone_test_checkpoints checkpoint
+         inner join telephony_phone_numbers phone_number
+           on phone_number.id = checkpoint.phone_number_id
+          and phone_number.tenant_id = checkpoint.tenant_id
+         where checkpoint.tenant_id = $1 and phone_number.connection_id = $2`,
+        [input.tenantId, input.connectionId],
+      );
+      const callControlEvents = await client.query(
+        `delete from telephony_call_control_events
+         where tenant_id = $1
+           and (
+             dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and connection_id = $2
+             )
+             or call_session_id in (
+               select call_session_id from telephony_execution_sessions
+               where tenant_id = $1 and connection_id = $2
+             )
+           )
+         returning id`,
+        [input.tenantId, input.connectionId],
+      );
+      const executionCommands = await client.query(
+        `delete from telephony_execution_commands
+         where tenant_id = $1
+           and (
+             dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and connection_id = $2
+             )
+             or session_id in (
+               select id from telephony_execution_sessions
+               where tenant_id = $1 and connection_id = $2
+             )
+           )
+         returning id`,
+        [input.tenantId, input.connectionId],
+      );
+      const mediaTokens = await client.query(
+        `delete from telephony_media_stream_tokens
+         where tenant_id = $1
+           and (
+             connection_id = $2
+             or dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and connection_id = $2
+             )
+           )
+         returning call_session_id`,
+        [input.tenantId, input.connectionId],
+      );
+      const executionSessions = await client.query(
+        `delete from telephony_execution_sessions
+         where tenant_id = $1
+           and (
+             connection_id = $2
+             or dispatch_id in (
+               select id from telephony_dispatches
+               where tenant_id = $1 and connection_id = $2
+             )
+           )
+         returning id`,
+        [input.tenantId, input.connectionId],
+      );
+      const webhookEvents = await client.query(
+        `delete from telephony_webhook_events
+         where tenant_id = $1 and connection_id = $2
+         returning id`,
+        [input.tenantId, input.connectionId],
+      );
+      const dispatches = await client.query(
+        `delete from telephony_dispatches
+         where tenant_id = $1 and connection_id = $2
+         returning id`,
+        [input.tenantId, input.connectionId],
+      );
+      const connections = await client.query(
+        `delete from telephony_connections
+         where tenant_id = $1 and id = $2
+         returning id`,
+        [input.tenantId, input.connectionId],
+      );
+      await client.query("commit");
+      return {
+        outcome: "deleted" as const,
+        deletedCounts: {
+          connections: connections.rows.length,
+          phoneNumbers: phoneNumbers.rows.length,
+          phoneTestCheckpoints: phoneTestCheckpoints.rows.length,
+          webhookEvents: webhookEvents.rows.length,
+          callControlEvents: callControlEvents.rows.length,
+          executionCommands: executionCommands.rows.length,
+          executionSessions: executionSessions.rows.length,
+          mediaTokens: mediaTokens.rows.length,
+          dispatches: dispatches.rows.length,
+        },
       };
     } catch (error) {
       await rollbackQuietly(client);
@@ -1585,9 +1860,17 @@ function assertCallControlMutation(input: RecordTelephonyCallControlMutationInpu
         (command.appliedAt !== undefined && !isFiniteTimestamp(command.appliedAt)),
     ) ||
     !isFiniteTimestamp(input.event.at) ||
-    !isFiniteTimestamp(input.session.updatedAt)
+    !isFiniteTimestamp(input.session.updatedAt) ||
+    (input.retryCount !== undefined &&
+      (!Number.isSafeInteger(input.retryCount) || input.retryCount < 0))
   ) {
     throw new Error("Telephony call-control mutation identities are invalid.");
+  }
+}
+
+function assertValidTimestamp(value: string, label: string) {
+  if (!isFiniteTimestamp(value)) {
+    throw new Error(`${label} must be a valid timestamp.`);
   }
 }
 
@@ -1824,6 +2107,16 @@ function asLifecycleState(value: unknown): TelephonyCallLifecycleState {
 }
 
 type InstrumentedQuery = (...args: unknown[]) => Promise<unknown>;
+const setTransactionMetricsContext = Symbol("setTransactionMetricsContext");
+
+interface TransactionMetricsContext {
+  operation: PstnCapacityDatabaseOperation;
+  retryCount?: number | undefined;
+}
+
+type InstrumentedPoolClient = PoolClient & {
+  [setTransactionMetricsContext]?: (context: TransactionMetricsContext) => void;
+};
 
 function createInstrumentedDatabase(
   database: Queryable,
@@ -1845,8 +2138,6 @@ function createInstrumentedDatabase(
         rowLockWaitMs: isRowLockingQuery(sql)
           ? performance.now() - queryStartedAt
           : 0,
-        deadlockCount: 0,
-        retryCount: 0,
         pool: poolSnapshot(database),
       });
       return result;
@@ -1859,8 +2150,7 @@ function createInstrumentedDatabase(
         rowLockWaitMs: isRowLockingQuery(sql)
           ? performance.now() - queryStartedAt
           : 0,
-        deadlockCount: isDeadlock(error) ? 1 : 0,
-        retryCount: 0,
+        ...(isDeadlock(error) ? { deadlockCount: 1 } : {}),
         pool: poolSnapshot(database),
       });
       throw error;
@@ -1893,6 +2183,7 @@ function createInstrumentedClient(
   let transactionStartedAt: number | null = null;
   let rowLockWaitMs = 0;
   let acquisitionReported = false;
+  let metricsContext: TransactionMetricsContext | undefined;
   const transactionStatements: string[] = [];
   const query = async (...args: unknown[]) => {
     const sql = queryText(args[0]);
@@ -1911,8 +2202,6 @@ function createInstrumentedClient(
           queryDurationMs,
           ...(!acquisitionReported ? { poolAcquisitionWaitMs } : {}),
           rowLockWaitMs: isRowLockingQuery(sql) ? queryDurationMs : 0,
-          deadlockCount: 0,
-          retryCount: 0,
           pool: poolSnapshot(database),
         });
         acquisitionReported = true;
@@ -1922,14 +2211,18 @@ function createInstrumentedClient(
         transactionStartedAt !== null
       ) {
         safeRecordDatabaseOperation(observability, {
-          operation: inferTransactionOperation(transactionStatements),
+          operation:
+            metricsContext?.operation ?? inferTransactionOperation(transactionStatements),
           outcome: "success",
           queryDurationMs,
           transactionDurationMs: performance.now() - transactionStartedAt,
           poolAcquisitionWaitMs,
           rowLockWaitMs,
-          deadlockCount: 0,
-          retryCount: 0,
+          ...(normalized === "commit" &&
+            metricsContext?.retryCount !== undefined &&
+            metricsContext.retryCount > 0
+            ? { retryCount: metricsContext.retryCount }
+            : {}),
           pool: poolSnapshot(database),
         });
       }
@@ -1937,7 +2230,9 @@ function createInstrumentedClient(
     } catch (error) {
       const queryDurationMs = performance.now() - queryStartedAt;
       safeRecordDatabaseOperation(observability, {
-        operation: inferTransactionOperation([...transactionStatements, sql]),
+        operation:
+          metricsContext?.operation ??
+          inferTransactionOperation([...transactionStatements, sql]),
         outcome: "failure",
         queryDurationMs,
         ...(transactionStartedAt === null
@@ -1946,8 +2241,10 @@ function createInstrumentedClient(
         poolAcquisitionWaitMs,
         rowLockWaitMs:
           rowLockWaitMs + (isRowLockingQuery(sql) ? queryDurationMs : 0),
-        deadlockCount: isDeadlock(error) ? 1 : 0,
-        retryCount: 0,
+        ...(isDeadlock(error) ? { deadlockCount: 1 } : {}),
+        ...(metricsContext?.retryCount !== undefined && metricsContext.retryCount > 0
+          ? { retryCount: metricsContext.retryCount }
+          : {}),
         pool: poolSnapshot(database),
       });
       throw error;
@@ -1956,9 +2253,21 @@ function createInstrumentedClient(
   return new Proxy(client, {
     get(target, property, receiver) {
       if (property === "query") return query;
+      if (property === setTransactionMetricsContext) {
+        return (context: TransactionMetricsContext) => {
+          metricsContext = context;
+        };
+      }
       return Reflect.get(target, property, receiver);
     },
   });
+}
+
+function setInstrumentedTransactionContext(
+  client: PoolClient,
+  context: TransactionMetricsContext,
+) {
+  (client as InstrumentedPoolClient)[setTransactionMetricsContext]?.(context);
 }
 
 async function invokeQuery(
@@ -2024,6 +2333,11 @@ function inferQueryOperation(sql: string): PstnCapacityDatabaseOperation {
     (normalized.includes("test_route") || normalized.includes("phone_test_results"))
   ) {
     return "telephony_phone_test_projection_update";
+  }
+  if (
+    normalized.includes("delete from telephony_phone_numbers")
+  ) {
+    return "telephony_phone_number_delete";
   }
   if (normalized.includes("telephony_phone_test_checkpoints")) {
     return normalized.includes("test_route_session_id") &&

@@ -127,7 +127,10 @@ const safeCallbackMessage =
 @Injectable()
 export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   private readonly stateByOrganizationId = new Map<string, TelephonyStateStore>();
-  private readonly persistenceByOrganizationId = new Map<string, Promise<void>>();
+  private readonly configurationPersistenceByOrganizationId = new Map<
+    string,
+    Promise<void>
+  >();
   private readonly mediaStreamTokenSecret = resolveOneTimeStreamTokenSecret();
   private readonly logger = new Logger(TelephonyService.name);
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -225,7 +228,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       ...(input.username === undefined ? {} : { username: input.username }),
       ...(input.secret === undefined ? {} : { secret: input.secret }),
     });
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       state: cloneState(state),
@@ -260,11 +263,23 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   }) {
     const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
+    await this.incrementalRepository.deleteConnection({
+      tenantId: input.organizationId,
+      connectionId: connection.id,
+    });
     const connectionSessionIds = new Set(
       state.executionSessions
         .filter((session) => session.connectionId === connection.id)
         .map((session) => session.id),
     );
+    const connectionDispatchIds = new Set([
+      ...state.dispatches
+        .filter((dispatch) => dispatch.connectionId === connection.id)
+        .map((dispatch) => dispatch.id),
+      ...state.executionSessions
+        .filter((session) => session.connectionId === connection.id)
+        .map((session) => session.dispatchId),
+    ]);
 
     state.connections = state.connections.filter((candidate) => candidate.id !== connection.id);
     state.phoneNumbers = state.phoneNumbers.filter(
@@ -282,14 +297,17 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     state.executionCommands = state.executionCommands.filter(
       (command) => !connectionSessionIds.has(command.sessionId),
     );
+    state.dispatches = state.dispatches.filter(
+      (dispatch) => !connectionDispatchIds.has(dispatch.id),
+    );
+    state.callControlEvents = state.callControlEvents.filter(
+      (event) => !connectionDispatchIds.has(event.dispatchId),
+    );
     state.webhookEvents = state.webhookEvents.filter(
       (event) => event.connectionId !== connection.id,
     );
-    state.mediaStreamTokens = state.mediaStreamTokens.filter(
-      (token) => token.connectionId !== connection.id,
-    );
     state.credentialVault.delete(connection.id);
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     if (this.auditLogService !== undefined) {
       await this.auditLogService.record({
@@ -343,7 +361,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         : candidate,
     );
     state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       state: cloneState(state),
@@ -402,7 +420,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     );
     state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
     state.providerHeartbeats = [heartbeat, ...state.providerHeartbeats].slice(0, 30);
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
     await this.logTwilioProviderDiagnostics({
       organizationId: input.organizationId,
       connection,
@@ -455,7 +473,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.phoneNumbers = [...state.phoneNumbers, ...importedNumbers];
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       state: cloneState(state),
@@ -498,7 +516,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.phoneNumbers = [...state.phoneNumbers, phoneNumber];
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       state: cloneState(state),
@@ -513,13 +531,17 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   }) {
     const state = await this.getOrCreateState(input.organizationId);
     const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    await this.incrementalRepository.deletePhoneNumber({
+      tenantId: input.organizationId,
+      phoneNumberId: phoneNumber.id,
+    });
 
     state.phoneNumbers = deleteTelephonyPhoneNumber({
       phoneNumbers: state.phoneNumbers,
       tenantId: input.organizationId,
       numberId: input.numberId,
     });
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     if (this.auditLogService !== undefined) {
       await this.auditLogService.record({
@@ -572,7 +594,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       runtimeProfile: input.runtimeProfile,
       recordingPolicy: input.recordingPolicy,
     });
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       state: cloneState(state),
@@ -614,7 +636,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     }
 
     const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       state: cloneState(state),
@@ -666,7 +688,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         reason: `pstn_phone_test_${input.status}`,
       });
     }
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       state: cloneState(state),
@@ -723,7 +745,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
     state.phoneNumbers = activation.phoneNumbers;
     const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
     await this.auditLogService?.record({
       tenantId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -765,7 +787,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       pausedAt: now,
     });
     const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
     await this.auditLogService?.record({
       tenantId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -820,7 +842,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
 
     state.phoneNumbers = activation.phoneNumbers;
     const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
     await this.auditLogService?.record({
       tenantId: input.organizationId,
       actorUserId: input.actorUserId,
@@ -876,11 +898,16 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     testCall?: boolean | undefined;
     now?: string | undefined;
   }) {
-    const prepared = await this.prepareInboundCall(input);
-    await this.persistState(prepared.state);
+    const prepared = await this.prepareInboundCall({
+      ...input,
+      isolateState: true,
+    });
+    await this.persistPreparedCallExecution(prepared);
+    const state = await this.getOrCreateState(input.organizationId);
+    this.commitInboundProjection(state, prepared);
 
     return {
-      state: cloneState(prepared.state),
+      state: cloneState(state),
       dispatch: cloneDispatch(prepared.dispatch),
       ...(prepared.execution === null
         ? {}
@@ -900,6 +927,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   }) {
     const currentState = await this.getOrCreateState(input.organizationId);
     const state = input.isolateState === true ? structuredClone(currentState) : currentState;
+    const previousPhoneNumbers = currentState.phoneNumbers.map(clonePhoneNumber);
     const now = input.now ?? new Date().toISOString();
     const liveCallPolicy = await this.resolveLiveRoutePolicyPosture({
       organizationId: input.organizationId,
@@ -954,7 +982,51 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         execution.commands,
       );
     }
-    return { state, dispatch, execution };
+    return {
+      state,
+      dispatch,
+      execution,
+      phoneTestProjection: resolvePhoneTestProjectionUpdate(
+        previousPhoneNumbers,
+        state.phoneNumbers,
+      ),
+    };
+  }
+
+  private async persistPreparedCallExecution(
+    prepared: Awaited<ReturnType<TelephonyService["prepareInboundCall"]>>,
+  ) {
+    const callOutcome =
+      prepared.execution === null
+        ? await this.incrementalRepository.insertDispatch(prepared.dispatch)
+        : await this.incrementalRepository.createCallExecution({
+            dispatch: prepared.dispatch,
+            executionSession: requireLifecycleState(prepared.execution.session),
+            executionCommands: prepared.execution.commands,
+          });
+    if (callOutcome.outcome === "conflict") {
+      throw new ConflictException("Inbound call conflicts with an existing call.");
+    }
+
+    await this.persistPreparedPhoneTestProjection(prepared);
+  }
+
+  private async persistPreparedPhoneTestProjection(
+    prepared: Awaited<ReturnType<TelephonyService["prepareInboundCall"]>>,
+  ) {
+    if (prepared.phoneTestProjection === null) return;
+    const projectionOutcome = await this.incrementalRepository.updatePhoneTestProjection({
+      tenantId: prepared.dispatch.tenantId,
+      ...prepared.phoneTestProjection,
+    });
+    if (
+      projectionOutcome.outcome === "conflict" ||
+      projectionOutcome.outcome === "not_found"
+    ) {
+      throw new ConflictException(
+        "PSTN phone-test state changed while the inbound call was being recorded.",
+      );
+    }
   }
 
   async dispatchOutboundCall(input: {
@@ -1035,25 +1107,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         status: "disabled",
         healthStatus: "failed",
       }));
-      if (this.auditLogService !== undefined) {
-        await this.auditLogService.record({
-          tenantId: input.organizationId,
-          actorUserId: input.actorUserId,
-          action: "telephony.outbound_abuse_paused",
-          target: {
-            type: "tenant",
-            id: input.organizationId,
-          },
-          outcome: "failed",
-          metadata: {
-            callSid: input.callSid,
-            windowSeconds: input.abusePolicy.windowSeconds,
-            maxCallsPerWindow: input.abusePolicy.maxCallsPerWindow,
-            recentOutboundCallCount: abuseEvaluation.recentOutboundCallCount,
-          },
-          occurredAt: now,
-        });
-      }
     }
     if (execution !== null) {
       state.executionSessions = upsertExecutionSession(state.executionSessions, execution.session);
@@ -1061,6 +1114,51 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         state.executionCommands,
         execution.commands,
       );
+    }
+    if (execution === null) {
+      const outcome =
+        abuseEvaluation.allowed === false &&
+        input.abusePolicy?.pauseTenantOnViolation === true
+          ? await this.incrementalRepository.recordOutboundAbuseBlock({
+              dispatch,
+              connectionIds: state.connections.map(({ id }) => id),
+            })
+          : await this.incrementalRepository.insertDispatch(dispatch);
+      if (outcome.outcome === "conflict") {
+        throw new ConflictException("Outbound call dispatch conflicts with an existing call.");
+      }
+    } else {
+      const outcome = await this.incrementalRepository.createCallExecution({
+        dispatch,
+        executionSession: requireLifecycleState(execution.session),
+        executionCommands: execution.commands,
+      });
+      if (outcome.outcome === "conflict") {
+        throw new ConflictException("Outbound call execution conflicts with an existing call.");
+      }
+    }
+    if (
+      abuseEvaluation.allowed === false &&
+      input.abusePolicy?.pauseTenantOnViolation === true &&
+      this.auditLogService !== undefined
+    ) {
+      await this.auditLogService.record({
+        tenantId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "telephony.outbound_abuse_paused",
+        target: {
+          type: "tenant",
+          id: input.organizationId,
+        },
+        outcome: "failed",
+        metadata: {
+          callSid: input.callSid,
+          windowSeconds: input.abusePolicy.windowSeconds,
+          maxCallsPerWindow: input.abusePolicy.maxCallsPerWindow,
+          recentOutboundCallCount: abuseEvaluation.recentOutboundCallCount,
+        },
+        occurredAt: now,
+      });
     }
     if (
       resolution.disposition === "queued" &&
@@ -1087,7 +1185,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         occurredAt: now,
       });
     }
-    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -1149,7 +1246,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           }
         : connection,
     );
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
     if (this.auditLogService !== undefined) {
       await this.auditLogService.record({
         tenantId: input.organizationId,
@@ -1174,8 +1271,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
 
   async deleteRetainedCallData(input: { organizationId: string; retainAfter: string }) {
     const state = await this.getOrCreateState(input.organizationId);
-    const dispatchesBefore = state.dispatches.length;
-    const callControlEventsBefore = state.callControlEvents.length;
+    const durableDeletion = await this.incrementalRepository.deleteRetainedCallData({
+      tenantId: input.organizationId,
+      retainAfter: input.retainAfter,
+    });
 
     state.dispatches = state.dispatches.filter(
       (dispatch) => !isBeforeTimestamp(dispatch.createdAt, input.retainAfter),
@@ -1192,14 +1291,14 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     state.webhookEvents = state.webhookEvents.filter(
       (event) => !isBeforeTimestamp(event.receivedAt, input.retainAfter),
     );
-    await this.persistState(state);
+    await this.persistConfigurationState(state);
 
     return {
       organizationId: input.organizationId,
       retainAfter: input.retainAfter,
       deletedCounts: {
-        calls: dispatchesBefore - state.dispatches.length,
-        transcripts: callControlEventsBefore - state.callControlEvents.length,
+        calls: durableDeletion.deletedCounts.dispatches,
+        transcripts: durableDeletion.deletedCounts.callControlEvents,
       },
     };
   }
@@ -1476,20 +1575,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     callerMessage?: string | undefined;
     at?: string | undefined;
   }) {
-    const state = await this.getOrCreateState(input.organizationId);
-    const dispatch = state.dispatches.find(
-      (candidate) =>
-        candidate.id === input.dispatchId &&
-        candidate.callSessionId === input.callSessionId &&
-        candidate.tenantId === input.organizationId,
-    );
-
-    if (dispatch === undefined) {
-      throw new NotFoundException(
-        `Telephony dispatch '${input.dispatchId}' was not found for call '${input.callSessionId}'.`,
-      );
-    }
-
     const event = createTelephonyCallControlEvent({
       tenantId: input.organizationId,
       dispatchId: input.dispatchId,
@@ -1501,39 +1586,96 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       callbackNumber: input.callbackNumber,
       actorUserId: input.actorUserId,
       callerMessage: input.callerMessage,
-      at: input.at,
+      at: input.at ?? new Date().toISOString(),
     });
+    return this.persistCallControlEvent({
+      organizationId: input.organizationId,
+      callSessionId: input.callSessionId,
+      dispatchId: input.dispatchId,
+      event,
+    });
+  }
 
-    state.callControlEvents = [event, ...state.callControlEvents].slice(0, 60);
-    const existingSession = state.executionSessions.find(
-      (candidate) =>
-        candidate.callSessionId === input.callSessionId && candidate.dispatchId === input.dispatchId,
-    );
-    const session =
-      existingSession === undefined
-        ? null
-        : applyTelephonyCallControlEventToSession({
-            session: existingSession,
-            event,
-          });
-    const commands =
-      session === null
-        ? []
-        : createTelephonyCallControlCommands({
-            session,
-            event,
-          });
-    if (session !== null) {
+  private async persistCallControlEvent(input: {
+    organizationId: string;
+    callSessionId: string;
+    dispatchId: string;
+    event: TelephonyCallControlEvent;
+  }) {
+    for (let attempt = 0; attempt < pstnLifecycleTransitionMaxAttempts; attempt += 1) {
+      const loaded = await this.incrementalRepository.loadCallMutationContext({
+        tenantId: input.organizationId,
+        callSessionId: input.callSessionId,
+      });
+      if (loaded.outcome === "not_found") {
+        throw new NotFoundException(
+          `Telephony execution session for call '${input.callSessionId}' was not found.`,
+        );
+      }
+      if (loaded.context.dispatch.id !== input.dispatchId) {
+        throw new NotFoundException(
+          `Telephony dispatch '${input.dispatchId}' was not found for call '${input.callSessionId}'.`,
+        );
+      }
+      if (
+        loaded.context.executionSession.status === "terminated" ||
+        loaded.context.executionSession.status === "completed" ||
+        loaded.context.executionSession.status === "blocked"
+      ) {
+        throw new ConflictException(
+          `Telephony call '${input.callSessionId}' is already terminal.`,
+        );
+      }
+
+      const session = applyTelephonyCallControlEventToSession({
+        session: loaded.context.executionSession,
+        event: input.event,
+      });
+      const commands = createTelephonyCallControlCommands({
+        session,
+        event: input.event,
+      });
+      const outcome = await this.incrementalRepository.recordCallControlMutation({
+        tenantId: input.organizationId,
+        callSessionId: input.callSessionId,
+        dispatchId: input.dispatchId,
+        expectedVersion: loaded.context.version,
+        expectedStatus: loaded.context.executionSession.status,
+        session: {
+          status: session.status,
+          outageMode: session.outageMode ?? null,
+          fallbackTarget: session.fallbackTarget ?? null,
+          diagnostics: session.diagnostics,
+          updatedAt: session.updatedAt,
+        },
+        event: input.event,
+        executionCommands: commands,
+        retryCount: attempt,
+      });
+      if (outcome.outcome === "conflict") continue;
+      if (outcome.outcome === "not_found") {
+        throw new NotFoundException(
+          `Telephony execution session for call '${input.callSessionId}' was not found.`,
+        );
+      }
+
+      const state = await this.getOrCreateState(input.organizationId);
+      state.callControlEvents = [
+        input.event,
+        ...state.callControlEvents.filter(({ id }) => id !== input.event.id),
+      ].slice(0, 60);
       state.executionSessions = upsertExecutionSession(state.executionSessions, session);
       state.executionCommands = upsertExecutionCommands(state.executionCommands, commands);
+      return {
+        state: cloneState(state),
+        event: cloneCallControlEvent(input.event),
+        session: cloneExecutionSession(session),
+      };
     }
-    await this.persistState(state);
 
-    return {
-      state: cloneState(state),
-      event: cloneCallControlEvent(event),
-      ...(session === null ? {} : { session: cloneExecutionSession(session) }),
-    };
+    throw new ConflictException(
+      `Telephony call '${input.callSessionId}' changed too frequently to record the call-control event.`,
+    );
   }
 
   async applyCallRuntimePolicy(input: {
@@ -1546,19 +1688,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     budgetAction?: TelephonyBudgetPosture | undefined;
     budgetReasons?: string[] | undefined;
   }) {
-    const state = await this.getOrCreateState(input.organizationId);
-    const session = state.executionSessions.find(
-      (candidate) =>
-        candidate.callSessionId === input.callSessionId &&
-        candidate.tenantId === input.organizationId,
-    );
-
-    if (session === undefined) {
-      throw new NotFoundException(
-        `Telephony execution session for call '${input.callSessionId}' was not found.`,
-      );
-    }
-
     const defaultPolicy = await this.resolveLiveRoutePolicyPosture({
       organizationId: input.organizationId,
       tenantStatus: input.tenantStatus,
@@ -1569,28 +1698,76 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       budgetAction: input.budgetAction ?? defaultPolicy.budgetAction,
       budgetReasons: input.budgetReasons ?? defaultPolicy.budgetReasons,
     };
-    const updatedSession = applyTelephonyActiveCallPolicy({
-      session,
-      now: input.now ?? new Date().toISOString(),
-      graceUntil: input.graceUntil,
-      policy,
-    });
+    const now = input.now ?? new Date().toISOString();
 
-    state.executionSessions = upsertExecutionSession(state.executionSessions, updatedSession);
-    if (updatedSession.status === "terminated" && session.status !== "terminated") {
-      await this.terminateProviderCallForExecutionSession({
-        state,
-        organizationId: input.organizationId,
-        session: updatedSession,
-        reason: updatedSession.policyState?.state ?? "runtime_policy_terminated",
+    for (let attempt = 0; attempt < pstnLifecycleTransitionMaxAttempts; attempt += 1) {
+      const loaded = await this.incrementalRepository.loadCallMutationContext({
+        tenantId: input.organizationId,
+        callSessionId: input.callSessionId,
       });
-    }
-    await this.persistState(state);
+      if (loaded.outcome === "not_found") {
+        throw new NotFoundException(
+          `Telephony execution session for call '${input.callSessionId}' was not found.`,
+        );
+      }
+      const session = loaded.context.executionSession;
+      if (
+        session.status === "terminated" ||
+        session.status === "completed" ||
+        session.status === "blocked"
+      ) {
+        const state = await this.getOrCreateState(input.organizationId);
+        state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+        return {
+          state: cloneState(state),
+          session: cloneExecutionSession(session),
+        };
+      }
+      const updatedSession = applyTelephonyActiveCallPolicy({
+        session,
+        now,
+        graceUntil: input.graceUntil,
+        policy,
+      });
+      const outcome = await this.incrementalRepository.transitionExecutionSession({
+        tenantId: input.organizationId,
+        callSessionId: input.callSessionId,
+        expectedVersion: loaded.context.version,
+        expectedStatus: session.status,
+        nextStatus: updatedSession.status,
+        updatedAt: updatedSession.updatedAt,
+        diagnostics: updatedSession.diagnostics,
+        policyState: updatedSession.policyState ?? null,
+      });
+      if (outcome.outcome === "conflict") continue;
+      if (outcome.outcome === "not_found") {
+        throw new NotFoundException(
+          `Telephony execution session for call '${input.callSessionId}' was not found.`,
+        );
+      }
 
-    return {
-      state: cloneState(state),
-      session: cloneExecutionSession(updatedSession),
-    };
+      const state = await this.getOrCreateState(input.organizationId);
+      state.executionSessions = upsertExecutionSession(
+        state.executionSessions,
+        updatedSession,
+      );
+      if (updatedSession.status === "terminated") {
+        await this.terminateProviderCallForExecutionSession({
+          state,
+          organizationId: input.organizationId,
+          session: updatedSession,
+          reason: updatedSession.policyState?.state ?? "runtime_policy_terminated",
+        });
+      }
+      return {
+        state: cloneState(state),
+        session: cloneExecutionSession(updatedSession),
+      };
+    }
+
+    throw new ConflictException(
+      `Telephony call '${input.callSessionId}' changed too frequently to apply runtime policy.`,
+    );
   }
 
   private async terminateProviderCallForExecutionSession(input: {
@@ -1679,32 +1856,25 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     callbackNumber?: string | undefined;
     now?: string | undefined;
   }) {
-    const state = await this.getOrCreateState(input.organizationId);
-    const dispatch = state.dispatches.find(
-      (candidate) =>
-        candidate.id === input.dispatchId &&
-        candidate.callSessionId === input.callSessionId &&
-        candidate.tenantId === input.organizationId,
-    );
-
-    if (dispatch === undefined) {
+    const loaded = await this.incrementalRepository.loadCallMutationContext({
+      tenantId: input.organizationId,
+      callSessionId: input.callSessionId,
+    });
+    if (loaded.outcome === "not_found") {
+      throw new NotFoundException(
+        `Telephony execution session for call '${input.callSessionId}' was not found.`,
+      );
+    }
+    const { dispatch, executionSession } = loaded.context;
+    if (dispatch.id !== input.dispatchId) {
       throw new NotFoundException(
         `Telephony dispatch '${input.dispatchId}' was not found for call '${input.callSessionId}'.`,
       );
     }
 
-    const existingSession = state.executionSessions.find(
-      (candidate) =>
-        candidate.callSessionId === input.callSessionId && candidate.dispatchId === input.dispatchId,
-    );
-
-    if (existingSession === undefined) {
-      throw new NotFoundException(
-        `Telephony execution session for call '${input.callSessionId}' was not found.`,
-      );
-    }
-
-    const canTransfer = supportsLiveHumanTransfer(existingSession) && isValidE164PhoneNumber(input.transferTarget);
+    const canTransfer =
+      supportsLiveHumanTransfer(executionSession) &&
+      isValidE164PhoneNumber(input.transferTarget);
     const callbackNumber = resolveCallbackNumber(input.callbackNumber, dispatch.fromPhoneNumber);
 
     if (!canTransfer && !isValidE164PhoneNumber(callbackNumber)) {
@@ -1725,32 +1895,25 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       fallbackTarget,
       actorUserId: input.actorUserId,
       callerMessage,
-      at: input.now,
+      at: input.now ?? new Date().toISOString(),
     });
-    const session = applyTelephonyCallControlEventToSession({
-      session: existingSession,
+    const persisted = await this.persistCallControlEvent({
+      organizationId: input.organizationId,
+      callSessionId: input.callSessionId,
+      dispatchId: input.dispatchId,
       event,
     });
-    const commands = createTelephonyCallControlCommands({
-      session,
-      event,
-    });
-
-    state.callControlEvents = [event, ...state.callControlEvents].slice(0, 60);
-    state.executionSessions = upsertExecutionSession(state.executionSessions, session);
-    state.executionCommands = upsertExecutionCommands(state.executionCommands, commands);
-    await this.persistState(state);
 
     return {
-      state: cloneState(state),
+      state: persisted.state,
       fallback: {
         action,
         providerCapability,
         callerMessage,
         auditEventId: event.id,
       },
-      event: cloneCallControlEvent(event),
-      session: cloneExecutionSession(session),
+      event: persisted.event,
+      session: persisted.session,
     };
   }
 
@@ -1849,7 +2012,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         eventSid,
       });
     }
-    state.processedWebhookEventIds.add(eventSid);
     state.webhookEvents = [
       event,
       ...state.webhookEvents.filter(
@@ -1934,6 +2096,18 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             reasonCode: "dispatch_persistence_conflict",
           });
         }
+        try {
+          await this.persistPreparedPhoneTestProjection(dispatchResponse);
+        } catch (error) {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "phone_test_projection_persistence_failed",
+            error,
+          });
+        }
         this.commitInboundProjection(state, dispatchResponse);
       } else {
         const expiresAt = new Date(
@@ -1974,6 +2148,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           callSetupOutcome = await this.incrementalRepository.createCallSetup({
             dispatch: dispatchResponse.dispatch,
             executionSession: dispatchResponse.execution.session,
+            executionCommands: dispatchResponse.execution.commands,
             mediaToken: {
               tenantId: organizationId,
               ...tokenRecord,
@@ -2040,6 +2215,18 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           }
         }
 
+        try {
+          await this.persistPreparedPhoneTestProjection(dispatchResponse);
+        } catch (error) {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "phone_test_projection_persistence_failed",
+            error,
+          });
+        }
         this.commitInboundProjection(state, dispatchResponse);
         mediaStreamToken = {
           token: streamToken.token,
@@ -2147,12 +2334,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         prepared.execution.commands,
       );
     }
-    if (
-      prepared.dispatch.routeMode === "test_route" &&
-      prepared.dispatch.phoneNumberId !== undefined
-    ) {
+    if (prepared.phoneTestProjection !== null) {
       const preparedPhoneNumber = prepared.state.phoneNumbers.find(
-        (candidate) => candidate.id === prepared.dispatch.phoneNumberId,
+        (candidate) => candidate.id === prepared.phoneTestProjection?.phoneNumberId,
       );
       if (preparedPhoneNumber !== undefined) {
         state.phoneNumbers = state.phoneNumbers.map((candidate) =>
@@ -2580,26 +2764,29 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       webhookEvents: [],
       callControlEvents: [],
       credentialVault: new Map<string, TelephonyCredentialVaultEntry>(),
-      processedWebhookEventIds: new Set<string>(),
-      mediaStreamTokens: [],
     };
 
     this.stateByOrganizationId.set(organizationId, nextState);
     return nextState;
   }
 
-  private async persistState(state: TelephonyStateStore) {
-    const previous = this.persistenceByOrganizationId.get(state.organizationId) ?? Promise.resolve();
+  private async persistConfigurationState(state: TelephonyStateStore) {
+    const previous =
+      this.configurationPersistenceByOrganizationId.get(state.organizationId) ??
+      Promise.resolve();
     const current = previous
       .catch(() => undefined)
       .then(() => this.stateRepository.save(dehydrateState(state, this.secretVault)));
-    this.persistenceByOrganizationId.set(state.organizationId, current);
+    this.configurationPersistenceByOrganizationId.set(state.organizationId, current);
 
     try {
       await current;
     } finally {
-      if (this.persistenceByOrganizationId.get(state.organizationId) === current) {
-        this.persistenceByOrganizationId.delete(state.organizationId);
+      if (
+        this.configurationPersistenceByOrganizationId.get(state.organizationId) ===
+        current
+      ) {
+        this.configurationPersistenceByOrganizationId.delete(state.organizationId);
       }
     }
   }
@@ -3306,8 +3493,6 @@ function hydrateState(
     webhookEvents: persistedState.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: (persistedState.callControlEvents ?? []).map(cloneCallControlEvent),
     credentialVault,
-    processedWebhookEventIds: new Set(persistedState.processedWebhookEventIds),
-    mediaStreamTokens: (persistedState.mediaStreamTokens ?? []).map(cloneMediaStreamToken),
   };
 }
 
@@ -3327,12 +3512,10 @@ function dehydrateState(
     executionCommands: state.executionCommands.map(cloneExecutionCommand),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
-    mediaStreamTokens: state.mediaStreamTokens.map(cloneMediaStreamToken),
     credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
       connectionId,
       envelope: secretVault.seal(credential),
     })),
-    processedWebhookEventIds: [...state.processedWebhookEventIds.values()],
   };
 }
 
@@ -3385,6 +3568,46 @@ function clonePhoneNumber(phoneNumber: ImportedTelephonyPhoneNumber): ImportedTe
             ...phoneNumber.recordingPolicy,
           },
         }),
+  };
+}
+
+function resolvePhoneTestProjectionUpdate(
+  previousPhoneNumbers: ImportedTelephonyPhoneNumber[],
+  nextPhoneNumbers: ImportedTelephonyPhoneNumber[],
+) {
+  for (const next of nextPhoneNumbers) {
+    const previous = previousPhoneNumbers.find(({ id }) => id === next.id);
+    if (previous === undefined) continue;
+    const expectedTestRoute = previous.testRoute ?? null;
+    const expectedPhoneTestResults = previous.phoneTestResults ?? null;
+    const testRoute = next.testRoute ?? null;
+    const phoneTestResults = next.phoneTestResults ?? null;
+    if (
+      JSON.stringify(expectedTestRoute) === JSON.stringify(testRoute) &&
+      JSON.stringify(expectedPhoneTestResults) === JSON.stringify(phoneTestResults)
+    ) {
+      continue;
+    }
+    return {
+      phoneNumberId: next.id,
+      expectedTestRoute,
+      expectedPhoneTestResults,
+      testRoute,
+      phoneTestResults,
+    };
+  }
+  return null;
+}
+
+function requireLifecycleState(
+  session: TelephonyExecutionSession,
+): TelephonyExecutionSession & { lifecycleState: TelephonyCallLifecycleState } {
+  if (session.lifecycleState === undefined) {
+    throw new Error("New telephony execution sessions require an explicit lifecycle state.");
+  }
+  return {
+    ...session,
+    lifecycleState: session.lifecycleState,
   };
 }
 
@@ -3664,12 +3887,6 @@ function normalizePhoneNumber(value: string) {
 function cloneWebhookEvent(event: TelephonyWebhookEvent): TelephonyWebhookEvent {
   return {
     ...event,
-  };
-}
-
-function cloneMediaStreamToken(token: TelephonyMediaStreamTokenRecord): TelephonyMediaStreamTokenRecord {
-  return {
-    ...token,
   };
 }
 

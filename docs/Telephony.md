@@ -232,3 +232,15 @@ Optional local environment variables:
 - `ZARA_TWILIO_MEDIA_STREAM_BASE_URL`: optional explicit public `wss://` Twilio Media Streams base URL. Overrides `API_PUBLIC_URL` derivation.
 
 Operational persistence depends on the main `DATABASE_URL` and stores telephony state across normalized control-plane tables for connections, numbers, health checks, dispatches, execution sessions, execution commands, webhook events, and encrypted credential envelopes.
+
+## Persistence Ownership
+
+Telephony configuration and active-call runtime state have separate write contracts:
+
+- Configuration snapshots are limited to operator-owned provider connections, imported numbers, route configuration, health checks, provider heartbeats, and encrypted credential envelopes. The remaining per-tenant serialization queue is named and used as configuration persistence only.
+- Inbound and outbound dispatches, signed webhook deduplication, execution sessions and commands, media-token creation and claims, phone-test projections and checkpoints, call controls, lifecycle and policy transitions, handoffs, status callbacks, and termination are persisted with tenant-and-call scoped incremental repository methods.
+- Runtime rows are never deleted and recreated by a configuration save. Call workers do not fall back to whole-tenant snapshots or in-memory state when an incremental write conflicts or fails.
+- `telephony_webhook_events` is the sole durable webhook deduplication record. Migration `0012_superb_stellaris.sql` removes the obsolete `telephony_processed_webhook_events` fallback table; `docs/Runbooks/rollback-0012-obsolete-webhook-dedupe.sql` restores it only for release rollback.
+- Connection and imported-number deletion are explicit tenant-scoped operations. Their dependent runtime/checkpoint rows follow the declared foreign-key and transactional deletion policy instead of being inferred from a replacement snapshot.
+
+The Postgres qualification starts 50 concurrent calls for one tenant while 10 calls run for another tenant. It verifies unique call ownership, cross-tenant isolation, monotonic terminal lifecycle, idempotent replay, phone-number checkpoint cascade, and pool, transaction, row-lock, deadlock, and retry telemetry. This is a persistence-concurrency qualification, not a certified worker call-capacity number.

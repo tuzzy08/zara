@@ -1,6 +1,7 @@
 import { computeTwilioWebhookSignature } from "@zara/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AuditLogService } from "../compliance/audit-log.service";
 import type {
   TelephonyIncrementalRepository,
 } from "./telephony-incremental.repository";
@@ -53,6 +54,191 @@ describe("TelephonyService incremental inbound persistence", () => {
     expect(JSON.stringify(harness.incrementalRepository.callSetups[0])).not.toContain(
       extractStreamToken(response.twiml),
     );
+  });
+
+  it("creates manual and loopback calls through row-owned persistence", async () => {
+    const harness = await createReadyHarness();
+    harness.stateRepository.resetSaveCount();
+
+    const manual = await harness.service.dispatchInboundCall({
+      organizationId,
+      toPhoneNumber: "+14155557890",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-incremental-manual",
+      source: "manual",
+    });
+    const loopback = await harness.service.runConnectionTestCall({
+      organizationId,
+      connectionId: manual.dispatch.connectionId!,
+      phoneNumberId: manual.dispatch.phoneNumberId!,
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-incremental-loopback",
+    });
+
+    expect(harness.stateRepository.saveCount).toBe(0);
+    const repository = harness.incrementalRepository as unknown as TelephonyIncrementalRepository & {
+      loadCallMutationContext(input: {
+        tenantId: string;
+        callSessionId: string;
+      }): Promise<{ outcome: string }>;
+    };
+    await expect(repository.loadCallMutationContext({
+      tenantId: organizationId,
+      callSessionId: manual.dispatch.callSessionId!,
+    })).resolves.toMatchObject({ outcome: "found" });
+    await expect(repository.loadCallMutationContext({
+      tenantId: organizationId,
+      callSessionId: loopback.dispatch.callSessionId!,
+    })).resolves.toMatchObject({ outcome: "found" });
+  });
+
+  it("records call controls, runtime policy, and human fallback without a snapshot save", async () => {
+    const harness = await createReadyHarness();
+    const first = await harness.service.dispatchInboundCall({
+      organizationId,
+      toPhoneNumber: "+14155557890",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-incremental-controls",
+      source: "manual",
+    });
+    harness.stateRepository.resetSaveCount();
+
+    await harness.service.recordCallControlEvent({
+      organizationId,
+      callSessionId: first.dispatch.callSessionId!,
+      dispatchId: first.dispatch.id,
+      eventType: "dtmf.received",
+      digit: "4",
+      at: "2026-07-23T10:05:00.000Z",
+    });
+    await harness.service.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId: first.dispatch.callSessionId!,
+      subscriptionStatus: "past_due",
+      tenantStatus: "active",
+      budgetAction: "allow",
+      now: "2026-07-23T10:06:00.000Z",
+      graceUntil: "2026-07-23T10:36:00.000Z",
+    });
+
+    const second = await harness.service.dispatchInboundCall({
+      organizationId,
+      toPhoneNumber: "+14155557890",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-incremental-fallback",
+      source: "manual",
+    });
+    harness.stateRepository.resetSaveCount();
+    await harness.service.resolveHumanFallback({
+      organizationId,
+      callSessionId: second.dispatch.callSessionId!,
+      dispatchId: second.dispatch.id,
+      actorUserId: "operator-1",
+      transferTarget: "+14155550888",
+      callbackNumber: "+233201110001",
+      now: "2026-07-23T10:07:00.000Z",
+    });
+
+    expect(harness.stateRepository.saveCount).toBe(0);
+  });
+
+  it("deletes retained call rows through the incremental repository", async () => {
+    const harness = await createReadyHarness();
+    const response = await harness.service.dispatchInboundCall({
+      organizationId,
+      toPhoneNumber: "+14155557890",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-incremental-retention",
+      source: "manual",
+      now: "2026-07-20T10:00:00.000Z",
+    });
+
+    await harness.service.deleteRetainedCallData({
+      organizationId,
+      retainAfter: "2026-07-21T10:00:00.000Z",
+    });
+
+    await expect(
+      harness.incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: response.dispatch.callSessionId!,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("deletes an intentionally removed phone number through row-owned persistence", async () => {
+    const harness = await createReadyHarness();
+    const phoneNumber = (await harness.service.getState(organizationId)).phoneNumbers[0]!;
+
+    await harness.service.deletePhoneNumber({
+      organizationId,
+      numberId: phoneNumber.id,
+      actorUserId: "operator-1",
+    });
+
+    const repository = harness.incrementalRepository as unknown as {
+      updatePhoneTestProjection(input: {
+        tenantId: string;
+        phoneNumberId: string;
+        expectedTestRoute: null;
+        expectedPhoneTestResults: null;
+        testRoute: null;
+        phoneTestResults: null;
+      }): Promise<{ outcome: string }>;
+    };
+    await expect(
+      repository.updatePhoneTestProjection({
+        tenantId: organizationId,
+        phoneNumberId: phoneNumber.id,
+        expectedTestRoute: null,
+        expectedPhoneTestResults: null,
+        testRoute: null,
+        phoneTestResults: null,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("does not audit an outbound override before its atomic call write succeeds", async () => {
+    const record = vi.fn();
+    const harness = await createReadyHarness({
+      auditLogService: { record } as unknown as AuditLogService,
+    });
+    record.mockClear();
+    vi.spyOn(harness.incrementalRepository, "createCallExecution").mockResolvedValueOnce({
+      outcome: "conflict",
+    });
+
+    await expect(
+      harness.service.dispatchOutboundCall({
+        organizationId,
+        actorUserId: "operator-1",
+        fromPhoneNumber: "+14155557890",
+        toPhoneNumber: "+14155550996",
+        callSid: "CA-outbound-audit-conflict",
+        publishedVersionId: "workflow-v1",
+        workflowLabel: "Support",
+        workspaceId: "workspace-1",
+        consentGranted: true,
+        budgetRemainingUsd: 5,
+        estimatedCostUsd: 0.75,
+        localHour: 23,
+        callingWindow: {
+          startHour: 8,
+          endHour: 19,
+        },
+        compliancePolicy: {
+          dncPhoneNumbers: [],
+          timezone: "America/New_York",
+          localTime: "2026-07-23T23:00:00-04:00",
+          override: {
+            reason: "Caller requested an emergency callback.",
+            approvedByUserId: "platform-admin-1",
+          },
+        },
+      }),
+    ).rejects.toThrow("Outbound call execution conflicts with an existing call.");
+
+    expect(record).not.toHaveBeenCalled();
   });
 
   it("re-establishes duplicate delivery after restart without duplicating owned rows", async () => {
@@ -371,11 +557,19 @@ describe("TelephonyService incremental inbound persistence", () => {
 });
 
 async function createReadyHarness(
-  input: { activateRoute?: boolean; testRoute?: boolean } = {},
+  input: {
+    activateRoute?: boolean;
+    testRoute?: boolean;
+    auditLogService?: AuditLogService;
+  } = {},
 ) {
   const stateRepository = new MemoryTelephonyStateRepository();
   const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
-  const service = createService(stateRepository, incrementalRepository);
+  const service = createService(
+    stateRepository,
+    incrementalRepository,
+    input.auditLogService,
+  );
   const connection = await service.createConnection({
     organizationId,
     actorUserId: "operator-1",
@@ -425,12 +619,17 @@ async function createReadyHarness(
       },
     });
   }
+  incrementalRepository.loadPhoneNumberProjections(
+    organizationId,
+    (await service.getState(organizationId)).phoneNumbers,
+  );
   return { service, stateRepository, incrementalRepository };
 }
 
 function createService(
   stateRepository: TelephonyStateRepository,
   incrementalRepository: TelephonyIncrementalRepository,
+  auditLogService?: AuditLogService,
 ) {
   return new TelephonyService(
     stateRepository,
@@ -441,7 +640,7 @@ function createService(
     inventoryProvider(),
     routingProvider(),
     incrementalRepository,
-    undefined,
+    auditLogService,
     undefined,
     undefined,
   );

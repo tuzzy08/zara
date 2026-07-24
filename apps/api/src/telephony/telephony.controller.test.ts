@@ -2619,17 +2619,31 @@ async function createTestingApp(input: {
   installTenantAuth?: boolean | undefined;
   twilioRouting?: TwilioNumberRoutingProvider | undefined;
 } = {}) {
+  const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
+  const stateRepository = new FileTelephonyStateRepository(
+    join(tmpdir(), "zara-telephony-tests", randomUUID()),
+  );
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
-    .useValue(
-      new FileTelephonyStateRepository(
-        join(tmpdir(), "zara-telephony-tests", randomUUID()),
-      ),
-    )
+    .useValue({
+      listOrganizationIds: () => stateRepository.listOrganizationIds(),
+      load: (organizationId: string) => stateRepository.load(organizationId),
+      save: (record: Parameters<FileTelephonyStateRepository["save"]>[0]) => {
+        stateRepository.save(record);
+        incrementalRepository.loadConnections(
+          record.organizationId,
+          record.connections.map(({ id }) => id),
+        );
+        incrementalRepository.loadPhoneNumberProjections(
+          record.organizationId,
+          record.phoneNumbers,
+        );
+      },
+    })
     .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
-    .useValue(new InMemoryTelephonyIncrementalRepository())
+    .useValue(incrementalRepository)
     .overrideProvider(BILLING_STATE_REPOSITORY)
     .useValue(
       new FileBillingStateRepository(

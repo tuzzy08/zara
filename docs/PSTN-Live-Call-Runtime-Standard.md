@@ -461,6 +461,12 @@ Synthetic PSTN evals use a Twilio media harness with deterministic scenarios:
 - safe closeout after provider failure
 - premium realtime provider path with separate runtime path, model/provider metadata, and blocked fallback semantics
 
+### Qualified Runtime Persistence Posture
+
+Active-call durability is row-owned. Signed webhooks, dispatches, execution sessions and commands, one-time media tokens, phone-test checkpoints, call controls, lifecycle transitions, policy changes, handoffs, and terminal events use tenant-and-call scoped Postgres operations. Full tenant snapshots remain configuration-only and cannot replace runtime rows. `telephony_webhook_events` is the durable idempotency authority; the former processed-webhook fallback table is removed.
+
+The real-Postgres qualification creates 50 concurrent calls for one tenant plus 10 concurrent calls for a second tenant. It asserts no duplicate sessions, lost updates, cross-call mutation, or cross-tenant mutation; terminal calls cannot be revived by late events. The same repository emits bounded-cardinality pool acquisition wait, transaction duration, row-lock wait, deadlock, and accepted-retry metrics. These tests qualify persistence behavior under concurrency and do not certify total single-instance media capacity.
+
 ## Security And Policy Guards
 
 Required guards:
@@ -514,3 +520,4 @@ Required guards:
 | ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. Implemented. |
 | ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. Implemented. |
 | ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN provider slice. Implemented. |
+| ISSUE-228 | [ZAR-230](https://linear.app/zara-voice/issue/ZAR-230/pstn-capacity-712-contract-whole-tenant-persistence-out-of-the-live) | Contract whole-tenant snapshot persistence out of live-call execution and qualify row-owned Postgres concurrency. Implemented. |

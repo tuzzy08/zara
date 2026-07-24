@@ -299,16 +299,22 @@ describe("PostgresTelephonyStateRepository", () => {
           },
         },
       ],
-      processedWebhookEventIds: ["EVT-1"],
     };
 
     await repository.save(record);
 
     await expect(repository.listOrganizationIds()).resolves.toEqual(["tenant-west-africa"]);
-    await expect(repository.load("tenant-west-africa")).resolves.toEqual(record);
+    await expect(repository.load("tenant-west-africa")).resolves.toEqual({
+      ...record,
+      dispatches: [],
+      executionSessions: [],
+      executionCommands: [],
+      webhookEvents: [],
+      callControlEvents: [],
+    });
   });
 
-  it("uses a conservative lifecycle fallback for legacy snapshot sessions", async () => {
+  it("ignores legacy runtime rows supplied through the configuration snapshot contract", async () => {
     const { repository, pool } = await createHarness();
     lastPool = pool;
 
@@ -362,17 +368,11 @@ describe("PostgresTelephonyStateRepository", () => {
     await repository.save(record);
 
     await expect(repository.load(record.organizationId)).resolves.toMatchObject({
-      executionSessions: [{
-        id: "CA-legacy:telephony:execution",
-        lifecycleState: {
-          stage: "failed",
-          observedAt: "2026-05-15T16:05:00.000Z",
-        },
-      }],
+      executionSessions: [],
     });
   });
 
-  it("preserves incrementally owned calls when replacing a stale tenant snapshot", async () => {
+  it("never replaces runtime-owned rows from a configuration snapshot", async () => {
     const { repository, pool } = await createHarness();
     lastPool = pool;
 
@@ -439,6 +439,39 @@ describe("PostgresTelephonyStateRepository", () => {
         'test-route-row-owned', 'mediaConnected', '2026-05-15T16:03:00.000Z'
       )`,
       [organizationId, phoneNumberId, callSessionId],
+    );
+    await pool.query(
+      `insert into telephony_execution_commands (
+        id, tenant_id, session_id, dispatch_id, call_session_id, provider,
+        action, status, target, payload, requested_at, applied_at
+      ) values (
+        'command-row-owned', $1, $2, $3, $4, 'twilio',
+        'twilio.calls.observe-dtmf', 'applied', '+14155550100', '{}'::jsonb,
+        '2026-05-15T16:04:00.000Z', '2026-05-15T16:04:00.000Z'
+      )`,
+      [organizationId, sessionId, dispatchId, callSessionId],
+    );
+    await pool.query(
+      `insert into telephony_webhook_events (
+        id, tenant_id, connection_id, account_sid, call_sid, event_sid,
+        event_type, received_at, duplicate
+      ) values (
+        'webhook-row-owned', $1, $2, 'AC1234567890abcdef1234567890abcd',
+        'CA-row-owned', 'EV-row-owned', 'incoming.call',
+        '2026-05-15T16:02:00.000Z', false
+      )`,
+      [organizationId, connectionId],
+    );
+    await pool.query(
+      `insert into telephony_call_control_events (
+        id, tenant_id, dispatch_id, call_session_id, event_type, at,
+        summary, payload
+      ) values (
+        'control-row-owned', $1, $2, $3, 'dtmf.received',
+        '2026-05-15T16:04:00.000Z', 'DTMF 1 captured for live routing.',
+        '{"digit":"1"}'::jsonb
+      )`,
+      [organizationId, dispatchId, callSessionId],
     );
 
     await pool.query(
@@ -540,7 +573,6 @@ describe("PostgresTelephonyStateRepository", () => {
       webhookEvents: [],
       callControlEvents: [],
       credentials: [],
-      processedWebhookEventIds: [],
     });
     await saveStaleSnapshot();
 
@@ -593,14 +625,35 @@ describe("PostgresTelephonyStateRepository", () => {
          where tenant_id = $1 and id = 'CA-legacy:manual'`,
         [organizationId],
       ),
-    ).resolves.toMatchObject({ rows: [] });
+    ).resolves.toMatchObject({ rows: [{ id: "CA-legacy:manual" }] });
     await expect(
       pool.query(
         `select id from telephony_execution_sessions
          where tenant_id = $1 and id = 'CA-legacy:telephony:execution'`,
         [organizationId],
       ),
-    ).resolves.toMatchObject({ rows: [] });
+    ).resolves.toMatchObject({ rows: [{ id: "CA-legacy:telephony:execution" }] });
+    await expect(
+      pool.query(
+        `select id from telephony_execution_commands
+         where tenant_id = $1 and id = 'command-row-owned'`,
+        [organizationId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ id: "command-row-owned" }] });
+    await expect(
+      pool.query(
+        `select id from telephony_webhook_events
+         where tenant_id = $1 and id = 'webhook-row-owned'`,
+        [organizationId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ id: "webhook-row-owned" }] });
+    await expect(
+      pool.query(
+        `select id from telephony_call_control_events
+         where tenant_id = $1 and id = 'control-row-owned'`,
+        [organizationId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ id: "control-row-owned" }] });
 
     await pool.query(
       `delete from telephony_media_stream_tokens
@@ -711,7 +764,6 @@ describe("PostgresTelephonyStateRepository", () => {
       webhookEvents: [],
       callControlEvents: [],
       credentials: [],
-      processedWebhookEventIds: [],
     });
 
     const lockIndex = queries.findIndex(({ sql }) => sql.includes("pg_advisory_xact_lock"));
@@ -814,7 +866,6 @@ function createTwilioImportRecord(input: {
     webhookEvents: [],
     callControlEvents: [],
     credentials: [],
-    processedWebhookEventIds: [],
   };
 }
 

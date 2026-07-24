@@ -1,0 +1,1 @@
+DROP TABLE "telephony_processed_webhook_events" CASCADE;

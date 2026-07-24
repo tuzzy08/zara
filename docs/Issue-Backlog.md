@@ -5211,3 +5211,23 @@ Implementation summary:
 - Added durable one-time media claims, versioned row-owned lifecycle transitions, restart-safe premium context loading, idempotent provider callbacks, and a single classified terminal authority for clean, abnormal, provider, and shutdown paths.
 - Added independent per-call phone-test checkpoints with nonblocking retry and protected incremental call state from stale whole-tenant snapshot replacement.
 - Added backward-safe lifecycle/index migration coverage and verified 206 scoped tests, including 10 real-PostgreSQL concurrency and constraint tests, plus Core/API typechecks, focused lint, schema drift, and diff hygiene.
+
+### ISSUE-228: Contract live-call snapshot persistence
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-225, ISSUE-226, ISSUE-227
+- Handover: [docs/Handovers/ISSUE-228-contract-live-call-snapshot-persistence.md](../docs/Handovers/ISSUE-228-contract-live-call-snapshot-persistence.md)
+- External: [Linear ZAR-230](https://linear.app/zara-voice/issue/ZAR-230/pstn-capacity-712-contract-whole-tenant-persistence-out-of-the-live)
+
+Acceptance criteria:
+- No inbound webhook, media authorization, lifecycle, status callback, checkpoint, handoff, policy, or termination path invokes whole-tenant snapshot replacement.
+- Live-call writes use explicit tenant-and-call row ownership with atomic incremental repository operations and no compatibility fallback.
+- Full-snapshot persistence remains only for documented configuration workflows that intentionally own the complete tenant aggregate.
+- Real PostgreSQL qualification starts at least 50 concurrent calls for one tenant plus concurrent calls across tenants without lost updates, duplicate sessions, or cross-call mutation.
+- Concurrent lifecycle and terminal events remain monotonic and cannot revive completed calls.
+- Qualification evidence includes database pool wait, transaction latency, lock wait, deadlock, and retry metrics.
+- Migration, backfill, deployment, rollback, dependency, telephony regression, runtime, persistence, and tenant-isolation gates pass.

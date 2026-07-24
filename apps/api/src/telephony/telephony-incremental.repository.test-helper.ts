@@ -1,3 +1,5 @@
+import type { ImportedTelephonyPhoneNumber } from "@zara/core";
+
 import type {
   CreateTelephonyCallExecutionInput,
   CreateTelephonyCallSetupInput,
@@ -19,6 +21,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
   readonly phoneTestProjections: Array<{
     tenantId: string;
     phoneNumberId: string;
+    connectionId: string;
     testRoute: UpdateTelephonyPhoneTestProjectionInput["testRoute"];
     phoneTestResults: UpdateTelephonyPhoneTestProjectionInput["phoneTestResults"];
   }> = [];
@@ -35,6 +38,36 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
   failCallSetup = false;
   failPhoneTestCheckpoint = false;
   callLifecycleConflictsRemaining = 0;
+
+  loadPhoneNumberProjections(
+    tenantId: string,
+    phoneNumbers: readonly ImportedTelephonyPhoneNumber[],
+  ) {
+    for (const phoneNumber of phoneNumbers) {
+      const projection = {
+        tenantId,
+        phoneNumberId: phoneNumber.id,
+        connectionId: phoneNumber.connectionId,
+        testRoute: structuredClone(phoneNumber.testRoute ?? null),
+        phoneTestResults: structuredClone(phoneNumber.phoneTestResults ?? null),
+      };
+      const existingIndex = this.phoneTestProjections.findIndex(
+        (candidate) =>
+          candidate.tenantId === tenantId && candidate.phoneNumberId === phoneNumber.id,
+      );
+      if (existingIndex === -1) {
+        this.phoneTestProjections.push(projection);
+      } else {
+        this.phoneTestProjections[existingIndex] = projection;
+      }
+    }
+  }
+
+  loadConnections(tenantId: string, connectionIds: readonly string[]) {
+    for (const connectionId of connectionIds) {
+      this.connectionTenants.set(connectionId, tenantId);
+    }
+  }
 
   async insertWebhookEvent(event: Parameters<TelephonyIncrementalRepository["insertWebhookEvent"]>[0]) {
     const existing = this.webhookEvents.find(
@@ -67,9 +100,18 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
         candidate.executionSession.callSessionId === input.executionSession.callSessionId,
     );
     if (existing !== undefined) {
-      return sameJson(existing, input)
-        ? { outcome: "existing" as const, mediaToken: "retained" as const }
-        : { outcome: "conflict" as const };
+      if (
+        !callSetupExecutionMatches(existing, input) ||
+        !mediaTokenOwnershipMatches(existing.mediaToken, input.mediaToken) ||
+        existing.mediaToken.consumedAt !== undefined
+      ) {
+        return { outcome: "conflict" as const };
+      }
+      if (mediaTokenMatches(existing.mediaToken, input.mediaToken)) {
+        return { outcome: "existing" as const, mediaToken: "retained" as const };
+      }
+      existing.mediaToken = structuredClone(input.mediaToken);
+      return { outcome: "existing" as const, mediaToken: "rotated" as const };
     }
     this.callSetups.push(structuredClone(input));
     return { outcome: "inserted" as const, mediaToken: "created" as const };
@@ -172,6 +214,25 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     return { outcome: "updated" as const };
   }
 
+  async deletePhoneNumber(
+    input: Parameters<TelephonyIncrementalRepository["deletePhoneNumber"]>[0],
+  ) {
+    const deleted = removeMatching(
+      this.phoneTestProjections,
+      (projection) =>
+        projection.tenantId === input.tenantId &&
+        projection.phoneNumberId === input.phoneNumberId,
+    );
+    if (deleted === 0) return { outcome: "not_found" as const };
+    removeMatching(
+      this.phoneTestCheckpoints,
+      (checkpoint) =>
+        checkpoint.tenantId === input.tenantId &&
+        checkpoint.phoneNumberId === input.phoneNumberId,
+    );
+    return { outcome: "deleted" as const };
+  }
+
   async recordOutboundAbuseBlock(
     input: Parameters<TelephonyIncrementalRepository["recordOutboundAbuseBlock"]>[0],
   ) {
@@ -204,15 +265,224 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     return { outcome: "inserted" as const, connectionCount: connectionIds.length };
   }
 
+  async deleteRetainedCallData(
+    input: Parameters<TelephonyIncrementalRepository["deleteRetainedCallData"]>[0],
+  ) {
+    const cutoff = Date.parse(input.retainAfter);
+    if (!Number.isFinite(cutoff)) throw new Error("Retention cutoff must be a valid timestamp.");
+    const executions = this.allCallExecutions();
+    const expiredDispatchIds = new Set(
+      [
+        ...executions.map(({ dispatch }) => dispatch),
+        ...this.dispatches,
+      ]
+        .filter(
+          (dispatch) =>
+            dispatch.tenantId === input.tenantId &&
+            Date.parse(dispatch.createdAt) < cutoff,
+        )
+        .map(({ id }) => id),
+    );
+    const expiredSessionIds = new Set(
+      executions
+        .filter(
+          ({ dispatch, executionSession }) =>
+            dispatch.tenantId === input.tenantId &&
+            (expiredDispatchIds.has(dispatch.id) ||
+              Date.parse(executionSession.createdAt) < cutoff),
+        )
+        .map(({ executionSession }) => executionSession.id),
+    );
+    const expiredCallSessionIds = new Set(
+      executions
+        .filter(({ executionSession }) => expiredSessionIds.has(executionSession.id))
+        .map(({ executionSession }) => executionSession.callSessionId),
+    );
+    const webhookEvents = removeMatching(
+      this.webhookEvents,
+      (event) =>
+        event.tenantId === input.tenantId && Date.parse(event.receivedAt) < cutoff,
+    );
+    let executionCommands = 0;
+    for (const execution of executions) {
+      executionCommands += removeMatching(
+        execution.executionCommands,
+        (command) =>
+          command.tenantId === input.tenantId &&
+          (Date.parse(command.requestedAt) < cutoff ||
+            expiredDispatchIds.has(command.dispatchId) ||
+            expiredSessionIds.has(command.sessionId)),
+      );
+    }
+    for (const mutation of this.callControlMutations) {
+      executionCommands += removeMatching(
+        mutation.executionCommands,
+        (command) =>
+          command.tenantId === input.tenantId &&
+          (Date.parse(command.requestedAt) < cutoff ||
+            expiredDispatchIds.has(command.dispatchId) ||
+            expiredSessionIds.has(command.sessionId)),
+      );
+    }
+    const callControlEvents = removeMatching(
+      this.callControlMutations,
+      ({ event }) =>
+        event.tenantId === input.tenantId &&
+        (Date.parse(event.at) < cutoff ||
+          expiredDispatchIds.has(event.dispatchId) ||
+          expiredCallSessionIds.has(event.callSessionId)),
+    );
+    const mediaTokens = removeMatching(
+      this.callSetups,
+      ({ dispatch, executionSession, mediaToken }) =>
+        dispatch.tenantId === input.tenantId &&
+        (Date.parse(mediaToken.createdAt) < cutoff ||
+          expiredDispatchIds.has(dispatch.id) ||
+          expiredSessionIds.has(executionSession.id)),
+    );
+    const executionSessions =
+      removeMatching(
+        this.callExecutions,
+        ({ dispatch, executionSession }) =>
+          dispatch.tenantId === input.tenantId &&
+          (expiredDispatchIds.has(dispatch.id) ||
+            expiredSessionIds.has(executionSession.id)),
+      ) + mediaTokens;
+    const standaloneDispatches = removeMatching(
+      this.dispatches,
+      (dispatch) =>
+        dispatch.tenantId === input.tenantId && expiredDispatchIds.has(dispatch.id),
+    );
+    return {
+      tenantId: input.tenantId,
+      retainAfter: input.retainAfter,
+      deletedCounts: {
+        webhookEvents,
+        callControlEvents,
+        executionCommands,
+        executionSessions,
+        mediaTokens,
+        dispatches: executionSessions + standaloneDispatches,
+      },
+    };
+  }
+
+  async deleteConnection(
+    input: Parameters<TelephonyIncrementalRepository["deleteConnection"]>[0],
+  ) {
+    const executions = this.allCallExecutions();
+    const owned =
+      this.connectionTenants.get(input.connectionId) === input.tenantId ||
+      executions.some(
+        ({ dispatch, executionSession }) =>
+          dispatch.tenantId === input.tenantId &&
+          executionSession.connectionId === input.connectionId,
+      ) ||
+      this.phoneTestProjections.some(
+        (projection) =>
+          projection.tenantId === input.tenantId &&
+          projection.connectionId === input.connectionId,
+      );
+    if (!owned) return { outcome: "not_found" as const };
+    const targetExecutions = executions.filter(
+      ({ dispatch, executionSession }) =>
+        dispatch.tenantId === input.tenantId &&
+        (dispatch.connectionId === input.connectionId ||
+          executionSession.connectionId === input.connectionId),
+    );
+    const dispatchIds = new Set(targetExecutions.map(({ dispatch }) => dispatch.id));
+    const sessionIds = new Set(
+      targetExecutions.map(({ executionSession }) => executionSession.id),
+    );
+    const callSessionIds = new Set(
+      targetExecutions.map(({ executionSession }) => executionSession.callSessionId),
+    );
+    const phoneNumberIds = new Set(
+      this.phoneTestProjections
+        .filter(
+          (projection) =>
+            projection.tenantId === input.tenantId &&
+            projection.connectionId === input.connectionId,
+        )
+        .map(({ phoneNumberId }) => phoneNumberId),
+    );
+    const phoneTestCheckpoints = removeMatching(
+      this.phoneTestCheckpoints,
+      (checkpoint) =>
+        checkpoint.tenantId === input.tenantId &&
+        phoneNumberIds.has(checkpoint.phoneNumberId),
+    );
+    const phoneNumbers = removeMatching(
+      this.phoneTestProjections,
+      (projection) =>
+        projection.tenantId === input.tenantId &&
+        projection.connectionId === input.connectionId,
+    );
+    const webhookEvents = removeMatching(
+      this.webhookEvents,
+      (event) =>
+        event.tenantId === input.tenantId &&
+        event.connectionId === input.connectionId,
+    );
+    const callControlCommandCount = this.callControlMutations
+      .filter(
+        ({ event }) =>
+          event.tenantId === input.tenantId &&
+          (dispatchIds.has(event.dispatchId) || callSessionIds.has(event.callSessionId)),
+      )
+      .reduce((count, mutation) => count + mutation.executionCommands.length, 0);
+    const callControlEvents = removeMatching(
+      this.callControlMutations,
+      ({ event }) =>
+        event.tenantId === input.tenantId &&
+        (dispatchIds.has(event.dispatchId) || callSessionIds.has(event.callSessionId)),
+    );
+    const executionCommands =
+      callControlCommandCount +
+      targetExecutions.reduce(
+        (count, execution) => count + execution.executionCommands.length,
+        0,
+      );
+    const mediaTokens = removeMatching(
+      this.callSetups,
+      ({ dispatch, executionSession }) =>
+        dispatch.tenantId === input.tenantId &&
+        (dispatchIds.has(dispatch.id) || sessionIds.has(executionSession.id)),
+    );
+    const tokenlessSessions = removeMatching(
+      this.callExecutions,
+      ({ dispatch, executionSession }) =>
+        dispatch.tenantId === input.tenantId &&
+        (dispatchIds.has(dispatch.id) || sessionIds.has(executionSession.id)),
+    );
+    const standaloneDispatches = removeMatching(
+      this.dispatches,
+      (dispatch) =>
+        dispatch.tenantId === input.tenantId &&
+        dispatch.connectionId === input.connectionId,
+    );
+    this.connectionTenants.delete(input.connectionId);
+    return {
+      outcome: "deleted" as const,
+      deletedCounts: {
+        connections: 1,
+        phoneNumbers,
+        phoneTestCheckpoints,
+        webhookEvents,
+        callControlEvents,
+        executionCommands,
+        executionSessions: mediaTokens + tokenlessSessions,
+        mediaTokens,
+        dispatches: mediaTokens + tokenlessSessions + standaloneDispatches,
+      },
+    };
+  }
+
   async transitionExecutionSession(
     input: Parameters<TelephonyIncrementalRepository["transitionExecutionSession"]>[0],
   ) {
     this.executionSessionTransitions.push(structuredClone(input));
-    const setup = this.callSetups.find(
-      (candidate) =>
-        candidate.executionSession.tenantId === input.tenantId &&
-        candidate.executionSession.callSessionId === input.callSessionId,
-    );
+    const setup = this.findCallExecution(input.tenantId, input.callSessionId);
     if (setup === undefined || setup.dispatch.runtimePath === undefined) {
       return { outcome: "not_found" as const };
     }
@@ -390,11 +660,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
   async recordPhoneTestCheckpointByCall(
     input: Parameters<TelephonyIncrementalRepository["recordPhoneTestCheckpointByCall"]>[0],
   ) {
-    const setup = this.callSetups.find(
-      (candidate) =>
-        candidate.dispatch.tenantId === input.tenantId &&
-        candidate.executionSession.callSessionId === input.callSessionId,
-    );
+    const setup = this.findCallExecution(input.tenantId, input.callSessionId);
     if (setup === undefined) return { outcome: "not_found" as const };
     if (
       setup.dispatch.routeMode !== "test_route" ||
@@ -484,8 +750,77 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
       )
     );
   }
+
+  private allCallExecutions(): CreateTelephonyCallExecutionInput[] {
+    return [...this.callSetups, ...this.callExecutions];
+  }
 }
 
 function sameJson(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function callSetupExecutionMatches(
+  existing: CreateTelephonyCallSetupInput,
+  input: CreateTelephonyCallSetupInput,
+) {
+  const existingCommands = [...existing.executionCommands].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+  const inputCommands = [...input.executionCommands].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+  return (
+    sameJson(
+      { ...existing.dispatch, createdAt: undefined },
+      { ...input.dispatch, createdAt: undefined },
+    ) &&
+    sameJson(
+      {
+        ...existing.executionSession,
+        createdAt: undefined,
+        updatedAt: undefined,
+        diagnostics: undefined,
+        policyState: undefined,
+      },
+      {
+        ...input.executionSession,
+        createdAt: undefined,
+        updatedAt: undefined,
+        diagnostics: undefined,
+        policyState: undefined,
+      },
+    ) &&
+    sameJson(existingCommands, inputCommands)
+  );
+}
+
+function mediaTokenOwnershipMatches(
+  existing: CreateTelephonyCallSetupInput["mediaToken"],
+  input: CreateTelephonyCallSetupInput["mediaToken"],
+) {
+  return (
+    existing.tenantId === input.tenantId &&
+    existing.callSessionId === input.callSessionId &&
+    existing.dispatchId === input.dispatchId &&
+    existing.connectionId === input.connectionId
+  );
+}
+
+function mediaTokenMatches(
+  existing: CreateTelephonyCallSetupInput["mediaToken"],
+  input: CreateTelephonyCallSetupInput["mediaToken"],
+) {
+  return (
+    existing.tokenHash === input.tokenHash &&
+    existing.expiresAt === input.expiresAt &&
+    existing.createdAt === input.createdAt
+  );
+}
+
+function removeMatching<T>(items: T[], predicate: (item: T) => boolean) {
+  const retained = items.filter((item) => !predicate(item));
+  const removed = items.length - retained.length;
+  items.splice(0, items.length, ...retained);
+  return removed;
 }

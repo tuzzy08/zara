@@ -85,6 +85,13 @@
       "when": 1784865697510,
       "tag": "0011_telephony_tenant_composite_identities",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784891904151,
+      "tag": "0012_superb_stellaris",
+      "breakpoints": true
     }
   ]
 }

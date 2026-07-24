@@ -164,6 +164,47 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
     ]);
   });
 
+  it("deletes one tenant-owned tested number and cascades only its checkpoints", async () => {
+    const phoneNumberId = `number-${tenantA}`;
+    await pool.query(
+      `insert into telephony_phone_test_checkpoints (
+         id, tenant_id, phone_number_id, call_session_id, test_route_session_id,
+         checkpoint, observed_at
+       ) values ($1, $2, $3, $4, $5, 'verifiedWebhook', current_timestamp)`,
+      [
+        `checkpoint-delete-${suffix}`,
+        tenantA,
+        phoneNumberId,
+        `delete-number-call-${suffix}`,
+        `delete-number-route-${suffix}`,
+      ],
+    );
+
+    await expect(
+      repository.deletePhoneNumber({
+        tenantId: tenantA,
+        phoneNumberId,
+      }),
+    ).resolves.toEqual({ outcome: "deleted" });
+
+    const deletedRows = await pool.query(
+      `select
+         (select count(*)::int from telephony_phone_numbers
+          where tenant_id = $1 and id = $2) as phone_numbers,
+         (select count(*)::int from telephony_phone_test_checkpoints
+          where tenant_id = $1 and phone_number_id = $2) as checkpoints,
+         (select count(*)::int from telephony_phone_numbers
+          where tenant_id = $3 and id = $4) as other_tenant_numbers`,
+      [tenantA, phoneNumberId, tenantB, `number-${tenantB}`],
+    );
+    expect(deletedRows.rows[0]).toEqual({
+      phone_numbers: 0,
+      checkpoints: 0,
+      other_tenant_numbers: 1,
+    });
+    await seedPhoneNumber(pool, tenantA);
+  });
+
   it("qualifies 50 same-tenant setups with concurrent cross-tenant isolation and metrics", async () => {
     const metricPoints: PstnCapacityMetricPoint[] = [];
     const observedRepository = new PostgresTelephonyIncrementalRepository(
@@ -245,15 +286,27 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
         "zara.pstn.database.pool_acquisition_wait",
         "zara.pstn.database.transaction_duration",
         "zara.pstn.database.row_lock_wait",
-        "zara.pstn.database.deadlocks",
-        "zara.pstn.database.retries",
       ]),
     );
+    expect(
+      metricPoints.filter(
+        ({ name }) =>
+          name === "zara.pstn.database.deadlocks" ||
+          name === "zara.pstn.database.retries",
+      ),
+    ).toEqual([]);
   }, 30_000);
 
   it("keeps call-control terminal state monotonic under fresh-version retries", async () => {
+    const metricPoints: PstnCapacityMetricPoint[] = [];
+    const observedRepository = new PostgresTelephonyIncrementalRepository(
+      pool,
+      new PstnCapacityRecorder({
+        metricSink: { emit: (point) => metricPoints.push(point) },
+      }),
+    );
     const setup = callSetup(tenantA, `terminal-control-${suffix}`);
-    await repository.createCallSetup(setup);
+    await observedRepository.createCallSetup(setup);
     const at = new Date().toISOString();
     const event = {
       id: `terminal-event-${suffix}`,
@@ -294,15 +347,29 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       },
       event,
       executionCommands: [command],
+      retryCount: 2,
     };
 
-    await expect(repository.recordCallControlMutation(mutation)).resolves.toEqual({
+    await expect(observedRepository.recordCallControlMutation(mutation)).resolves.toEqual({
       outcome: "updated",
       version: 1,
     });
+    expect(
+      metricPoints.filter(({ name }) => name === "zara.pstn.database.retries"),
+    ).toEqual([
+      expect.objectContaining({
+        name: "zara.pstn.database.retries",
+        value: 2,
+        attributes: {
+          operation: "telephony_call_control_mutation",
+          outcome: "success",
+        },
+      }),
+    ]);
     await expect(
-      repository.recordCallControlMutation({
+      observedRepository.recordCallControlMutation({
         ...mutation,
+        retryCount: 0,
         expectedVersion: 1,
         expectedStatus: "completed",
         session: {
@@ -312,8 +379,9 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       }),
     ).resolves.toEqual({ outcome: "existing", version: 1 });
     await expect(
-      repository.recordCallControlMutation({
+      observedRepository.recordCallControlMutation({
         ...mutation,
+        retryCount: 0,
         expectedVersion: 1,
         expectedStatus: "completed",
         event: { ...event, id: `late-event-${suffix}` },
@@ -321,7 +389,7 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       }),
     ).resolves.toEqual({ outcome: "conflict", version: 1 });
     await expect(
-      repository.loadCallMutationContext({
+      observedRepository.loadCallMutationContext({
         tenantId: tenantA,
         callSessionId: setup.executionSession.callSessionId,
       }),
@@ -400,6 +468,10 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
     await repository.createCallSetup(existing);
     const conflicting = callSetup(tenantA, `rollback-conflict-${suffix}`);
     conflicting.executionSession.id = existing.executionSession.id;
+    conflicting.executionCommands = conflicting.executionCommands.map((command) => ({
+      ...command,
+      sessionId: existing.executionSession.id,
+    }));
 
     await expect(repository.createCallSetup(conflicting)).resolves.toEqual({ outcome: "conflict" });
     const dispatch = await pool.query("select id from telephony_dispatches where id = $1", [

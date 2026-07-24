@@ -35,7 +35,10 @@ export type PstnCapacityDatabaseOperation =
   | "telephony_call_mutation_context_load"
   | "telephony_call_control_mutation"
   | "telephony_phone_test_projection_update"
+  | "telephony_phone_number_delete"
   | "telephony_outbound_abuse_block"
+  | "telephony_retention_delete"
+  | "telephony_connection_delete"
   | "telephony_execution_session_transition"
   | "telephony_call_runtime_context_load"
   | "telephony_call_lifecycle_transition"
@@ -455,6 +458,9 @@ export class PstnCapacityRecorder {
     retryCount?: number | undefined;
     pool: DatabaseSnapshot["pool"];
   }) {
+    const deadlockCount =
+      input.deadlockCount === undefined ? undefined : nonNegative(input.deadlockCount);
+    const retryCount = input.retryCount === undefined ? undefined : nonNegative(input.retryCount);
     this.database = {
       observed: true,
       pool: {
@@ -479,11 +485,11 @@ export class PstnCapacityRecorder {
         ...(input.rowLockWaitMs !== undefined
           ? { rowLockWaitMs: nonNegative(input.rowLockWaitMs) }
           : {}),
-        ...(input.deadlockCount !== undefined
-          ? { deadlockCount: nonNegative(input.deadlockCount) }
+        ...(deadlockCount !== undefined && deadlockCount > 0
+          ? { deadlockCount }
           : {}),
-        ...(input.retryCount !== undefined
-          ? { retryCount: nonNegative(input.retryCount) }
+        ...(retryCount !== undefined && retryCount > 0
+          ? { retryCount }
           : {}),
       },
     };
@@ -511,11 +517,11 @@ export class PstnCapacityRecorder {
         attributes,
       );
     }
-    if (input.deadlockCount !== undefined) {
-      this.emit("zara.pstn.database.deadlocks", "counter", input.deadlockCount, attributes);
+    if (deadlockCount !== undefined && deadlockCount > 0) {
+      this.emit("zara.pstn.database.deadlocks", "counter", deadlockCount, attributes);
     }
-    if (input.retryCount !== undefined) {
-      this.emit("zara.pstn.database.retries", "counter", input.retryCount, attributes);
+    if (retryCount !== undefined && retryCount > 0) {
+      this.emit("zara.pstn.database.retries", "counter", retryCount, attributes);
     }
     this.emit("zara.pstn.database.pool_active", "gauge", this.database.pool.active, {});
     this.emit("zara.pstn.database.pool_idle", "gauge", this.database.pool.idle, {});

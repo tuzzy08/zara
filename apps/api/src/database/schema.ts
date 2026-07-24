@@ -727,26 +727,6 @@ export const telephonyCredentialEnvelopes = pgTable(
   }),
 );
 
-export const telephonyProcessedWebhookEvents = pgTable(
-  "telephony_processed_webhook_events",
-  {
-    id: text("id").primaryKey(),
-    tenantId: text("tenant_id")
-      .notNull()
-      .references(() => tenants.id, {
-        onDelete: "cascade",
-        onUpdate: "cascade",
-      }),
-    eventSid: text("event_sid").notNull(),
-    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => ({
-    tenantEventSidIndex: uniqueIndex(
-      "telephony_processed_webhook_events_tenant_event_sid_unique_idx",
-    ).on(table.tenantId, table.eventSid),
-  }),
-);
-
 export const telephonyPhoneTestCheckpoints = pgTable(
   "telephony_phone_test_checkpoints",
   {
