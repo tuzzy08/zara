@@ -14,12 +14,15 @@
 - Persisted phone-test checkpoints independently and idempotently per call, with nonblocking bounded retry from premium provider events.
 - Protected incrementally managed calls, lifecycle versions, media tokens, checkpoints, numbers, dispatches, and parent connections from stale whole-tenant snapshot replacement.
 - Added migration 0010 for lifecycle backfill and per-call checkpoint uniqueness; legacy `terminated` and `blocked` sessions backfill as failed.
+- Corrected the real-PostgreSQL token-rotation fixture so concurrent retries reuse the exact durable setup and vary only token fields.
 
 ## Tests Run
 
 - `npm.cmd exec -- vitest run apps/api/src/telephony packages/core/src/telephony.test.ts apps/api/src/database/schema.test.ts apps/api/src/security/one-time-stream-token.test.ts`
-  - 20 files passed, 1 PostgreSQL integration file skipped.
-  - 196 tests passed, 10 skipped.
+  - 21 files passed against migrated PostgreSQL 16 with pgvector.
+  - 206 tests passed with no skips.
+- `npm.cmd exec -- vitest run apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts`
+  - 10 real-PostgreSQL integration tests passed.
 - `npm.cmd run typecheck:core`
 - `npm.cmd run typecheck --workspace=@zara/api`
 - Focused ESLint across all changed Core, API schema, security, repository, service, premium execution, and WebSocket files.
@@ -28,11 +31,10 @@
 
 ## Pending Work
 
-- Run the real-PostgreSQL integration suite in an environment with `ZARA_TEST_POSTGRES_URL`; it is intentionally skipped when that variable is absent.
+- None for ISSUE-227.
 
 ## Risks
 
-- Local verification used the pg-mem repository harness; PostgreSQL-specific locking and constraint behavior remains gated by the existing real-database CI suite.
 - The legacy snapshot repository remains for non-migrated telephony management paths, but it can no longer overwrite rows owned by this incremental lifecycle.
 
 ## Decisions
@@ -46,4 +48,4 @@
 
 ## Next Recommended Step
 
-Run the real-PostgreSQL gate in CI, then continue the capacity program with post-migration load qualification.
+Keep the real-PostgreSQL gate enabled in CI, then continue the capacity program with post-migration load qualification.

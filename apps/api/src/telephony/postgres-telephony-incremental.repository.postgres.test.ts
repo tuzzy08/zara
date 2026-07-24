@@ -74,8 +74,8 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
     const setup = callSetup(tenantA, `token-race-${suffix}`);
     await repository.createCallSetup(setup);
     const retries = [
-      callSetup(tenantA, `token-race-${suffix}`),
-      callSetup(tenantA, `token-race-${suffix}`),
+      structuredClone(setup),
+      structuredClone(setup),
     ];
     retries[0]!.mediaToken.tokenHash = createHash("sha256")
       .update(`rotation-a-${suffix}`)

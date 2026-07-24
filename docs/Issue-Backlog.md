@@ -5210,4 +5210,4 @@ Acceptance criteria:
 Implementation summary:
 - Added durable one-time media claims, versioned row-owned lifecycle transitions, restart-safe premium context loading, idempotent provider callbacks, and a single classified terminal authority for clean, abnormal, provider, and shutdown paths.
 - Added independent per-call phone-test checkpoints with nonblocking retry and protected incremental call state from stale whole-tenant snapshot replacement.
-- Added backward-safe lifecycle/index migration coverage and verified 196 scoped tests plus Core/API typechecks, focused lint, schema drift, and diff hygiene.
+- Added backward-safe lifecycle/index migration coverage and verified 206 scoped tests, including 10 real-PostgreSQL concurrency and constraint tests, plus Core/API typechecks, focused lint, schema drift, and diff hygiene.
