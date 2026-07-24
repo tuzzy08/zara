@@ -544,6 +544,9 @@ export const telephonyExecutionSessions = pgTable(
     recordingConsent: jsonb("recording_consent").$type<TelephonyRecordingConsentState>(),
     diagnostics: jsonb("diagnostics").$type<string[]>().notNull(),
     policyState: jsonb("policy_state").$type<TelephonyExecutionSession["policyState"] | null>(),
+    lifecycleState: jsonb("lifecycle_state")
+      .$type<NonNullable<TelephonyExecutionSession["lifecycleState"]>>()
+      .notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
@@ -759,8 +762,8 @@ export const telephonyPhoneTestCheckpoints = pgTable(
   },
   (table) => ({
     primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
-    tenantTestCheckpointUniqueIndex: uniqueIndex(
-      "telephony_phone_test_checkpoints_tenant_test_checkpoint_unique_idx",
-    ).on(table.tenantId, table.testRouteSessionId, table.checkpoint),
+    tenantCallCheckpointUniqueIndex: uniqueIndex(
+      "telephony_phone_test_checkpoints_tenant_call_checkpoint_unique_idx",
+    ).on(table.tenantId, table.callSessionId, table.checkpoint),
   }),
 );

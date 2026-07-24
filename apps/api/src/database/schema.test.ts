@@ -231,12 +231,36 @@ describe("database foundations", () => {
       "recordingConsent",
       "diagnostics",
       "policyState",
+      "lifecycleState",
       "createdAt",
       "updatedAt",
     ]);
     expect(getTableName(telephonyMediaStreamTokens)).toBe("telephony_media_stream_tokens");
     expect(getTableName(telephonyPhoneTestCheckpoints)).toBe(
       "telephony_phone_test_checkpoints",
+    );
+    const lifecycleMigration = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0010_bitter_pretty_boy.sql",
+      ),
+      "utf8",
+    );
+    expect(lifecycleMigration).toContain(
+      'ALTER TABLE "telephony_execution_sessions"',
+    );
+    expect(lifecycleMigration).toContain('"lifecycle_state" jsonb');
+    expect(lifecycleMigration).toContain(
+      `WHEN "status" = 'completed' THEN 'completed'`,
+    );
+    expect(lifecycleMigration).toContain(
+      `WHEN "status" IN ('terminated', 'blocked') THEN 'failed'`,
+    );
+    expect(lifecycleMigration).toContain(
+      'DROP INDEX IF EXISTS "telephony_phone_test_checkpoints_tenant_test_checkpoint_unique_idx"',
+    );
+    expect(lifecycleMigration).toContain(
+      'CREATE UNIQUE INDEX "telephony_phone_test_checkpoints_tenant_call_checkpoint_unique_idx"',
     );
     expect(getTableName(telephonyExecutionCommands)).toBe("telephony_execution_commands");
     expect(getTableName(telephonyWebhookEvents)).toBe("telephony_webhook_events");

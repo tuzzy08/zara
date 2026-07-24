@@ -5187,3 +5187,27 @@ Acceptance criteria:
 - Deterministic concurrent-burst evidence records webhook response p95 and fails the answer-path SLO above 1,000 ms.
 - Existing route, workflow, runtime, subscription, budget, caller, and non-live telephony management behavior remains unchanged.
 - The synchronous Twilio answer path no longer invokes whole-tenant snapshot persistence.
+
+### ISSUE-227: Incremental active-call lifecycle and checkpoints
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-225, ISSUE-226
+- Handover: [docs/Handovers/ISSUE-227-incremental-active-call-lifecycle.md](../docs/Handovers/ISSUE-227-incremental-active-call-lifecycle.md)
+- External: [Linear ZAR-229](https://linear.app/zara-voice/issue/ZAR-229/pstn-capacity-612-migrate-active-call-lifecycle-and-checkpoint)
+
+Acceptance criteria:
+- Media authorization atomically claims the durable one-time token after restart and rejects expired, reused, mismatched, and cross-tenant credentials.
+- Active-call lifecycle transitions use versioned row-owned persistence, tolerate duplicate and reordered provider events, and never revive a terminal session.
+- Twilio status callbacks and every termination source are idempotent and update only the intended tenant call.
+- Phone-test checkpoints are atomic, isolated, and independent of whole-tenant snapshot persistence.
+- Nonessential observability remains bounded and cannot block call execution.
+- Tests cover concurrent calls, duplicate and reordered callbacks, restart, expired tokens, and each terminal path while preserving all runtime-provider behavior.
+
+Implementation summary:
+- Added durable one-time media claims, versioned row-owned lifecycle transitions, restart-safe premium context loading, idempotent provider callbacks, and a single classified terminal authority for clean, abnormal, provider, and shutdown paths.
+- Added independent per-call phone-test checkpoints with nonblocking retry and protected incremental call state from stale whole-tenant snapshot replacement.
+- Added backward-safe lifecycle/index migration coverage and verified 196 scoped tests plus Core/API typechecks, focused lint, schema drift, and diff hygiene.

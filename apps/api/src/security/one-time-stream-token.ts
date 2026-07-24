@@ -42,27 +42,54 @@ export function verifyOneTimeStreamToken(input: {
   expectedScope: Record<string, string>;
   now?: string | undefined;
 }) {
-  const [payload, signature] = input.token.split(".");
-  if (payload === undefined || signature === undefined || payload.length === 0 || signature.length === 0) {
+  const claims = readVerifiedOneTimeStreamToken(input);
+  if (claims === undefined) {
     return false;
   }
 
-  if (!safeEqual(signature, signPayload(input.secret, payload))) {
-    return false;
-  }
+  return JSON.stringify(sortScope(claims.scope)) === JSON.stringify(sortScope(input.expectedScope));
+}
 
-  const claims = parseClaims(payload);
-  if (claims === undefined || claims.subject !== input.expectedSubject) {
-    return false;
+export function readVerifiedOneTimeStreamToken(input: {
+  secret: Buffer;
+  token: string;
+  expectedSubject: string;
+  now?: string | undefined;
+}) {
+  const claims = readSignedOneTimeStreamToken(input);
+  if (claims === undefined) {
+    return undefined;
   }
 
   const nowMs = Date.parse(input.now ?? new Date().toISOString());
   const expiresAtMs = Date.parse(claims.expiresAt);
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
-    return false;
+    return undefined;
   }
 
-  return JSON.stringify(sortScope(claims.scope)) === JSON.stringify(sortScope(input.expectedScope));
+  return claims;
+}
+
+export function readSignedOneTimeStreamToken(input: {
+  secret: Buffer;
+  token: string;
+  expectedSubject: string;
+}) {
+  const [payload, signature] = input.token.split(".");
+  if (payload === undefined || signature === undefined || payload.length === 0 || signature.length === 0) {
+    return undefined;
+  }
+
+  if (!safeEqual(signature, signPayload(input.secret, payload))) {
+    return undefined;
+  }
+
+  const claims = parseClaims(payload);
+  if (claims === undefined || claims.subject !== input.expectedSubject) {
+    return undefined;
+  }
+
+  return claims;
 }
 
 export function resolveOneTimeStreamTokenSecret() {

@@ -384,6 +384,26 @@ export const telephonyExecutionSessionStatuses = [
 export type TelephonyExecutionSessionStatus =
   (typeof telephonyExecutionSessionStatuses)[number];
 
+export const telephonyCallLifecycleStages = [
+  "ringing",
+  "media-connected",
+  "provider-ready",
+  "active",
+  "handoff",
+  "draining",
+  "completed",
+  "failed",
+  "expired",
+] as const;
+export type TelephonyCallLifecycleStage = (typeof telephonyCallLifecycleStages)[number];
+
+export interface TelephonyCallLifecycleState {
+  stage: TelephonyCallLifecycleStage;
+  observedAt: string;
+  reasonCode?: string | undefined;
+  providerSequence?: number | undefined;
+}
+
 export const telephonyExecutionBridgeKinds = [
   "platform-edge",
   "twilio-programmable-voice",
@@ -418,6 +438,7 @@ export interface TelephonyExecutionSession {
   fallbackTarget?: string | undefined;
   recordingConsent?: TelephonyRecordingConsentState | undefined;
   policyState?: TelephonyActiveCallPolicyState | undefined;
+  lifecycleState?: TelephonyCallLifecycleState | undefined;
   diagnostics: string[];
   createdAt: string;
   updatedAt: string;
@@ -1543,7 +1564,7 @@ export function createTelephonyExecutionSession(input: {
   outageMode?: "provider-fallback" | undefined;
   recordingConsent?: TelephonyRecordingConsentState | undefined;
   now: string;
-}): TelephonyExecutionSession {
+}): TelephonyExecutionSession & { lifecycleState: TelephonyCallLifecycleState } {
   return {
     id: `${input.callSessionId}:execution`,
     tenantId: input.tenantId,
@@ -1554,6 +1575,10 @@ export function createTelephonyExecutionSession(input: {
     ownershipMode: input.connection.ownershipMode,
     direction: input.direction,
     status: input.disposition === "blocked" ? "blocked" : "ringing",
+    lifecycleState: {
+      stage: input.disposition === "blocked" ? "failed" : "ringing",
+      observedAt: input.now,
+    },
     toPhoneNumber: normalizePhoneNumber(input.toPhoneNumber),
     fromPhoneNumber: normalizePhoneNumber(input.fromPhoneNumber),
     ...(input.workflowLabel === undefined ? {} : { workflowLabel: input.workflowLabel }),

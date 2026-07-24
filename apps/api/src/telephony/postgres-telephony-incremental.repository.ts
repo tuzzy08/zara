@@ -1,14 +1,28 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type {
+  TelephonyCallLifecycleState,
+  TelephonyExecutionSessionStatus,
+  TelephonyPhoneTestResult,
+  PstnRuntimePath,
+} from "@zara/core";
 
 import type {
   ClaimTelephonyMediaTokenInput,
   CreateTelephonyCallSetupInput,
   DeleteExpiredTelephonyMediaTokensInput,
+  LoadLatestSuccessfulPhoneTestInput,
+  LoadTelephonyCallRuntimeContextInput,
+  RecordTelephonyPhoneTestCheckpointByCallInput,
+  TelephonyCallRuntimeContext,
   TelephonyIncrementalRepository,
   TelephonyMediaTokenClaimOutcome,
   TelephonyPhoneTestCheckpointRecord,
   TelephonyTransitionOutcome,
+  TransitionTelephonyCallLifecycleInput,
   TransitionTelephonyExecutionSessionInput,
+} from "./telephony-incremental.repository";
+import {
+  createSuccessfulPhoneTestChecklist,
 } from "./telephony-incremental.repository";
 import type { TelephonyDispatchRecord, TelephonyWebhookEvent } from "./telephony.models";
 
@@ -233,6 +247,117 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
     return { outcome: "conflict", version: row.version };
   }
 
+  async loadCallRuntimeContext(input: LoadTelephonyCallRuntimeContextInput) {
+    const result = await this.database.query<{
+      tenant_id: string;
+      call_session_id: string;
+      dispatch_id: string;
+      connection_id: string;
+      disposition: string;
+      phone_number_id: string | null;
+      published_version_id: string | null;
+      workspace_id: string | null;
+      workflow_label: string | null;
+      route_mode: string | null;
+      runtime_profile: string | null;
+      runtime_path: string | null;
+      test_route_session_id: string | null;
+      status: string;
+      version: number;
+      lifecycle_state: unknown;
+    }>(
+      `select
+         s.tenant_id, s.call_session_id, s.dispatch_id, s.connection_id,
+         d.disposition, d.phone_number_id, d.published_version_id, d.workspace_id,
+         d.workflow_label, d.route_mode, d.runtime_profile, d.runtime_path,
+         d.test_route_session_id, s.status, s.version, s.lifecycle_state
+       from telephony_execution_sessions s
+       join telephony_dispatches d
+         on d.tenant_id = s.tenant_id and d.id = s.dispatch_id
+       where s.tenant_id = $1 and s.call_session_id = $2
+         and d.runtime_path in ('pstn-sandwich', 'pstn-premium-realtime')`,
+      [input.tenantId, input.callSessionId],
+    );
+    const row = result.rows[0];
+    if (row === undefined) return { outcome: "not_found" as const };
+    return {
+      outcome: "found" as const,
+      context: {
+        tenantId: row.tenant_id,
+        callSessionId: row.call_session_id,
+        dispatchId: row.dispatch_id,
+        connectionId: row.connection_id,
+        disposition: row.disposition as TelephonyCallRuntimeContext["disposition"],
+        ...(row.phone_number_id === null ? {} : { phoneNumberId: row.phone_number_id }),
+        ...(row.published_version_id === null
+          ? {}
+          : { publishedVersionId: row.published_version_id }),
+        ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
+        ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
+        ...(row.route_mode === null ? {} : { routeMode: row.route_mode }),
+        ...(row.runtime_profile === null ? {} : { runtimeProfile: row.runtime_profile }),
+        runtimePath: row.runtime_path as PstnRuntimePath,
+        ...(row.test_route_session_id === null
+          ? {}
+          : { testRouteSessionId: row.test_route_session_id }),
+        status: row.status as TelephonyExecutionSessionStatus,
+        version: row.version,
+        lifecycleState: asLifecycleState(row.lifecycle_state),
+      },
+    };
+  }
+
+  async transitionCallLifecycle(
+    input: TransitionTelephonyCallLifecycleInput,
+  ): Promise<TelephonyTransitionOutcome> {
+    const updated = await this.database.query<{ version: number }>(
+      `update telephony_execution_sessions
+       set lifecycle_state = $1::jsonb,
+           status = coalesce($2::text, status),
+           version = version + 1,
+           updated_at = $3
+       where tenant_id = $4 and call_session_id = $5
+         and version = $6
+         and lifecycle_state->>'stage' = $7
+         and lifecycle_state->>'stage' not in ('completed', 'failed', 'expired')
+       returning version`,
+      [
+        JSON.stringify(input.nextState),
+        input.nextStatus ?? null,
+        input.nextState.observedAt,
+        input.tenantId,
+        input.callSessionId,
+        input.expectedVersion,
+        input.expectedStage,
+      ],
+    );
+    const updatedRow = updated.rows[0];
+    if (updatedRow !== undefined) {
+      return { outcome: "updated", version: updatedRow.version };
+    }
+
+    const current = await this.database.query<{
+      status: string;
+      version: number;
+      lifecycle_state: unknown;
+    }>(
+      `select status, version, lifecycle_state
+       from telephony_execution_sessions
+       where tenant_id = $1 and call_session_id = $2`,
+      [input.tenantId, input.callSessionId],
+    );
+    const row = current.rows[0];
+    if (row === undefined) return { outcome: "not_found" };
+    if (
+      row.version === input.expectedVersion + 1 &&
+      jsonMatches(row.lifecycle_state, input.nextState) &&
+      (input.nextStatus === undefined || row.status === input.nextStatus)
+    ) {
+      return { outcome: "existing", version: row.version };
+    }
+    return { outcome: "conflict", version: row.version };
+  }
+
   async claimMediaToken(
     input: ClaimTelephonyMediaTokenInput,
   ): Promise<TelephonyMediaTokenClaimOutcome> {
@@ -240,24 +365,81 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       return { outcome: "conflict" };
     }
 
-    const claimed = await this.database.query(
+    const authorization = await this.database.query<{
+      tenant_id: string;
+      call_session_id: string;
+      dispatch_id: string;
+      connection_id: string;
+      runtime_path: string | null;
+    }>(
+      `select
+         t.tenant_id, t.call_session_id, t.dispatch_id, t.connection_id,
+         d.runtime_path
+       from telephony_media_stream_tokens t
+       join telephony_execution_sessions s
+         on s.tenant_id = t.tenant_id and s.call_session_id = t.call_session_id
+       join telephony_dispatches d
+         on d.tenant_id = t.tenant_id and d.id = t.dispatch_id
+       where t.tenant_id = $1 and t.call_session_id = $2
+         and t.dispatch_id = $3 and t.connection_id = $4 and t.token_hash = $5
+         and d.runtime_path is not null
+         and s.lifecycle_state->>'stage' not in ('completed', 'failed', 'expired')`,
+      [
+        input.tenantId,
+        input.callSessionId,
+        input.dispatchId,
+        input.connectionId,
+        input.tokenHash,
+      ],
+    );
+    const authorizationRow = authorization.rows.find((row) => isPstnRuntimePath(row.runtime_path));
+    const claimed =
+      authorizationRow === undefined
+        ? { rows: [] }
+        : await this.database.query(
       `update telephony_media_stream_tokens
        set claimed_at = current_timestamp
-       where tenant_id = $1 and call_session_id = $2 and token_hash = $3
+       where tenant_id = $1 and call_session_id = $2
+         and dispatch_id = $3 and connection_id = $4 and token_hash = $5
          and claimed_at is null and expires_at > current_timestamp
+         and exists (
+           select 1
+           from telephony_execution_sessions s
+           where s.tenant_id = $1
+             and s.call_session_id = $2
+             and s.lifecycle_state->>'stage' not in ('completed', 'failed', 'expired')
+         )
        returning call_session_id`,
-      [input.tenantId, input.callSessionId, input.tokenHash],
+      [
+        input.tenantId,
+        input.callSessionId,
+        input.dispatchId,
+        input.connectionId,
+        input.tokenHash,
+      ],
     );
-    if (claimed.rows.length > 0) {
-      return { outcome: "claimed" };
+    if (claimed.rows.length > 0 && authorizationRow !== undefined) {
+      return {
+        outcome: "claimed",
+        authorization: {
+          tenantId: authorizationRow.tenant_id,
+          callSessionId: authorizationRow.call_session_id,
+          dispatchId: authorizationRow.dispatch_id,
+          connectionId: authorizationRow.connection_id,
+          runtimePath: authorizationRow.runtime_path as PstnRuntimePath,
+        },
+      };
     }
 
     const current = await this.database.query<{
       token_hash: string;
+      dispatch_id: string;
+      connection_id: string;
       claimed_at: unknown | null;
       expired: boolean;
     }>(
-      `select token_hash, claimed_at, (expires_at <= current_timestamp) as expired
+      `select token_hash, dispatch_id, connection_id, claimed_at,
+         (expires_at <= current_timestamp) as expired
        from telephony_media_stream_tokens
        where tenant_id = $1 and call_session_id = $2`,
       [input.tenantId, input.callSessionId],
@@ -267,6 +449,9 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       return { outcome: "not_found" };
     }
     if (row.token_hash !== input.tokenHash) {
+      return { outcome: "conflict" };
+    }
+    if (row.dispatch_id !== input.dispatchId || row.connection_id !== input.connectionId) {
       return { outcome: "conflict" };
     }
     if (row.claimed_at !== null) {
@@ -324,8 +509,8 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
     }>(
       `select id, phone_number_id, call_session_id, observed_at
        from telephony_phone_test_checkpoints
-       where tenant_id = $1 and test_route_session_id = $2 and checkpoint = $3`,
-      [checkpoint.tenantId, checkpoint.testRouteSessionId, checkpoint.checkpoint],
+       where tenant_id = $1 and call_session_id = $2 and checkpoint = $3`,
+      [checkpoint.tenantId, checkpoint.callSessionId, checkpoint.checkpoint],
     );
     const row = current.rows[0];
     const matches =
@@ -335,6 +520,84 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       row.call_session_id === checkpoint.callSessionId &&
       normalizeTimestamp(row.observed_at) === normalizeTimestamp(checkpoint.observedAt);
     return { outcome: matches ? ("existing" as const) : ("conflict" as const) };
+  }
+
+  async recordPhoneTestCheckpointByCall(
+    input: RecordTelephonyPhoneTestCheckpointByCallInput,
+  ) {
+    const id = `${input.callSessionId}:${input.checkpoint}`;
+    const inserted = await this.database.query(
+      `insert into telephony_phone_test_checkpoints (
+         id, tenant_id, phone_number_id, call_session_id,
+         test_route_session_id, checkpoint, observed_at
+       )
+       select $1, d.tenant_id, d.phone_number_id, d.call_session_id,
+         d.test_route_session_id, $4, $5::timestamptz
+       from telephony_dispatches d
+       where d.tenant_id = $2 and d.call_session_id = $3
+         and d.route_mode = 'test_route'
+         and d.phone_number_id is not null
+         and d.test_route_session_id is not null
+       on conflict do nothing
+       returning id`,
+      [id, input.tenantId, input.callSessionId, input.checkpoint, input.observedAt],
+    );
+    if (inserted.rows.length > 0) return { outcome: "inserted" as const };
+
+    const dispatch = await this.database.query<{
+      route_mode: string | null;
+      phone_number_id: string | null;
+      test_route_session_id: string | null;
+    }>(
+      `select route_mode, phone_number_id, test_route_session_id
+       from telephony_dispatches
+       where tenant_id = $1 and call_session_id = $2`,
+      [input.tenantId, input.callSessionId],
+    );
+    const row = dispatch.rows[0];
+    if (row === undefined) return { outcome: "not_found" as const };
+    if (
+      row.route_mode !== "test_route" ||
+      row.phone_number_id === null ||
+      row.test_route_session_id === null
+    ) {
+      return { outcome: "not_applicable" as const };
+    }
+    return { outcome: "existing" as const };
+  }
+
+  async loadLatestSuccessfulPhoneTest(input: LoadLatestSuccessfulPhoneTestInput) {
+    const result = await this.database.query<SuccessfulPhoneTestCheckpointRow>(
+      `select
+         d.call_session_id, d.test_route_session_id, d.created_at,
+         max(c.observed_at) as completed_at
+       from telephony_dispatches d
+       join telephony_phone_test_checkpoints c
+         on c.tenant_id = d.tenant_id and c.call_session_id = d.call_session_id
+       where d.tenant_id = $1
+         and d.phone_number_id = $2
+         and d.published_version_id = $3
+         and d.runtime_profile = $4
+         and d.route_mode = 'test_route'
+         and d.test_route_session_id is not null
+         and c.checkpoint in (
+           'verifiedWebhook', 'allowedCallerMatched', 'mediaWebSocketConnected',
+           'inboundFrameReceived', 'transcriptCreated', 'agentResponseGenerated',
+           'outboundAudioSent', 'cleanEnd', 'noFatalError'
+         )
+       group by
+         d.call_session_id, d.test_route_session_id, d.created_at
+       having count(distinct c.checkpoint) = 9
+       order by max(c.observed_at) desc
+       limit 1`,
+      [
+        input.tenantId,
+        input.phoneNumberId,
+        input.publishedVersionId,
+        input.runtimeProfile,
+      ],
+    );
+    return deriveLatestSuccessfulPhoneTest(input, result.rows[0]);
   }
 
   private async loadWebhookEvent(event: TelephonyWebhookEvent) {
@@ -355,6 +618,34 @@ interface WebhookEventRow extends QueryResultRow {
   event_type: string;
   received_at: unknown;
   duplicate: boolean;
+}
+
+interface SuccessfulPhoneTestCheckpointRow extends QueryResultRow {
+  call_session_id: string;
+  test_route_session_id: string;
+  created_at: unknown;
+  completed_at: unknown;
+}
+
+function deriveLatestSuccessfulPhoneTest(
+  input: LoadLatestSuccessfulPhoneTestInput,
+  row: SuccessfulPhoneTestCheckpointRow | undefined,
+): TelephonyPhoneTestResult | null {
+  if (row === undefined) return null;
+
+  return {
+    id: `${row.test_route_session_id}:passed`,
+    tenantId: input.tenantId,
+    numberId: input.phoneNumberId,
+    sessionId: row.test_route_session_id,
+    status: "passed",
+    reason: "PSTN phone test completed every required checkpoint.",
+    checklist: createSuccessfulPhoneTestChecklist(),
+    publishedVersionId: input.publishedVersionId,
+    runtimeProfile: input.runtimeProfile,
+    createdAt: normalizeTimestamp(row.created_at),
+    completedAt: normalizeTimestamp(row.completed_at),
+  };
 }
 
 interface CallSetupRow extends QueryResultRow {
@@ -401,6 +692,7 @@ interface CallSetupRow extends QueryResultRow {
   session_recording_consent: unknown;
   diagnostics: unknown;
   policy_state: unknown;
+  lifecycle_state: unknown;
   session_created_at: unknown;
   session_updated_at: unknown;
   token_dispatch_id: string | null;
@@ -479,7 +771,7 @@ async function loadCallSetup(database: Pick<PoolClient, "query">, input: CreateT
        s.media_path, s.test_call, s.workflow_label as session_workflow_label,
        s.workspace_id as session_workspace_id, s.outage_mode as session_outage_mode,
        s.fallback_target, s.recording_consent as session_recording_consent,
-       s.diagnostics, s.policy_state,
+        s.diagnostics, s.policy_state, s.lifecycle_state,
        s.created_at as session_created_at, s.updated_at as session_updated_at,
        t.dispatch_id as token_dispatch_id, t.connection_id as token_connection_id,
        t.token_hash, t.expires_at, t.created_at as token_created_at, t.claimed_at
@@ -600,11 +892,12 @@ async function insertExecutionSession(client: PoolClient, input: CreateTelephony
       id, tenant_id, dispatch_id, call_session_id, connection_id, provider,
       ownership_mode, direction, status, version, to_phone_number, from_phone_number,
       workflow_label, workspace_id, test_call, bridge_kind, bridge_target, media_path,
-      outage_mode, fallback_target, recording_consent, diagnostics, policy_state, created_at, updated_at
+      outage_mode, fallback_target, recording_consent, diagnostics, policy_state,
+      lifecycle_state, created_at, updated_at
     ) values (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, $11,
       $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21::jsonb,
-      $22::jsonb, $23, $24
+      $22::jsonb, $23::jsonb, $24, $25
     )`,
     [
       session.id,
@@ -629,6 +922,7 @@ async function insertExecutionSession(client: PoolClient, input: CreateTelephony
       session.recordingConsent === undefined ? null : JSON.stringify(session.recordingConsent),
       JSON.stringify(session.diagnostics),
       session.policyState === undefined ? null : JSON.stringify(session.policyState),
+      JSON.stringify(session.lifecycleState),
       session.createdAt,
       session.updatedAt,
     ],
@@ -722,6 +1016,7 @@ function callSetupMatches(row: CallSetupRow | undefined, input: CreateTelephonyC
     row.session_outage_mode === (session.outageMode ?? null) &&
     row.fallback_target === (session.fallbackTarget ?? null) &&
     jsonMatches(row.session_recording_consent, session.recordingConsent ?? null) &&
+    jsonMatches(row.lifecycle_state, session.lifecycleState) &&
     row.token_dispatch_id === token.dispatchId &&
     row.token_connection_id === token.connectionId &&
     row.token_hash !== null &&
@@ -788,6 +1083,10 @@ function isFiniteTimestamp(value: string) {
   return Number.isFinite(Date.parse(value));
 }
 
+function isPstnRuntimePath(value: string | null): value is PstnRuntimePath {
+  return value === "pstn-sandwich" || value === "pstn-premium-realtime";
+}
+
 function jsonMatches(value: unknown, expected: unknown) {
   return JSON.stringify(canonicalizeJson(value)) === JSON.stringify(canonicalizeJson(expected));
 }
@@ -804,4 +1103,18 @@ function canonicalizeJson(value: unknown): unknown {
 
 function normalizeTimestamp(value: unknown) {
   return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
+}
+
+function asLifecycleState(value: unknown): TelephonyCallLifecycleState {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("stage" in value) ||
+    typeof value.stage !== "string" ||
+    !("observedAt" in value) ||
+    typeof value.observedAt !== "string"
+  ) {
+    throw new Error("Stored telephony lifecycle state is invalid.");
+  }
+  return value as TelephonyCallLifecycleState;
 }

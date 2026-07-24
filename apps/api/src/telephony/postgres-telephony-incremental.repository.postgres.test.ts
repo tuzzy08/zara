@@ -101,9 +101,11 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       repository.claimMediaToken({
         tenantId: tenantA,
         callSessionId: setup.executionSession.callSessionId,
+        dispatchId: setup.executionSession.dispatchId,
+        connectionId: setup.executionSession.connectionId,
         tokenHash: retries[winnerIndex]!.mediaToken.tokenHash,
       }),
-    ).resolves.toEqual({ outcome: "claimed" });
+    ).resolves.toMatchObject({ outcome: "claimed" });
   });
 
   it("allows only one concurrent claim and uses the database clock for expiry", async () => {
@@ -114,16 +116,20 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       repository.claimMediaToken({
         tenantId: tenantA,
         callSessionId: active.executionSession.callSessionId,
+        dispatchId: active.executionSession.dispatchId,
+        connectionId: active.executionSession.connectionId,
         tokenHash: active.mediaToken.tokenHash,
       }),
       repository.claimMediaToken({
         tenantId: tenantA,
         callSessionId: active.executionSession.callSessionId,
+        dispatchId: active.executionSession.dispatchId,
+        connectionId: active.executionSession.connectionId,
         tokenHash: active.mediaToken.tokenHash,
       }),
     ]);
-    expect(claims).toEqual(
-      expect.arrayContaining([{ outcome: "claimed" }, { outcome: "already_claimed" }]),
+    expect(claims.map((claim) => claim.outcome)).toEqual(
+      expect.arrayContaining(["claimed", "already_claimed"]),
     );
 
     const expired = callSetup(tenantA, `expired-${suffix}`);
@@ -134,6 +140,8 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       repository.claimMediaToken({
         tenantId: tenantA,
         callSessionId: expired.executionSession.callSessionId,
+        dispatchId: expired.executionSession.dispatchId,
+        connectionId: expired.executionSession.connectionId,
         tokenHash: expired.mediaToken.tokenHash,
       }),
     ).resolves.toEqual({ outcome: "expired" });
@@ -326,6 +334,10 @@ function callSetup(tenantId: string, identity: string): CreateTelephonyCallSetup
       ownershipMode: "byo_provider_account",
       direction: "inbound",
       status: "ringing",
+      lifecycleState: {
+        stage: "ringing",
+        observedAt: now,
+      },
       toPhoneNumber: "+15550001000",
       fromPhoneNumber: "+15550002000",
       workflowLabel: "Support",

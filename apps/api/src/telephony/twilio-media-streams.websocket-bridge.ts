@@ -67,6 +67,7 @@ interface TwilioMediaStreamAttachment {
   capacityOpenedAtMs: number;
   capacityHandshakeRecorded: boolean;
   capacityCloseInitiator: "local" | "remote";
+  premiumExecutionStopped: boolean;
   recordedPhoneTestCheckpoints: Set<"inboundFrameReceived" | "outboundAudioSent">;
 }
 
@@ -196,6 +197,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         capacityOpenedAtMs: Date.now(),
         capacityHandshakeRecorded: false,
         capacityCloseInitiator: "remote",
+        premiumExecutionStopped: false,
         recordedPhoneTestCheckpoints: new Set(),
       };
       this.capacityObservability?.openSocket({
@@ -227,8 +229,28 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
             outcome: code === 1000 ? "completed" : "failed",
           });
         }
-        if (attachment.authorization?.runtimePath === "pstn-premium-realtime") {
-          void this.premiumCallExecution.stop({ callSessionId });
+        if (
+          attachment.authorization?.runtimePath === "pstn-premium-realtime"
+          && !attachment.premiumExecutionStopped
+        ) {
+          void this.premiumCallExecution.stop({
+            callSessionId,
+            outcome: code === 1000 ? "completed" : "failed",
+            reasonCode:
+              code === 1000
+                ? "twilio_media_socket_closed_clean"
+                : `twilio_media_socket_closed_${code}`,
+          });
+        } else if (attachment.authorization !== undefined) {
+          void this.telephonyService.recordPstnCallLifecycle({
+            organizationId: attachment.authorization.organizationId,
+            callSessionId: attachment.authorization.callSessionId,
+            stage: code === 1000 ? "completed" : "failed",
+            reasonCode:
+              code === 1000
+                ? "twilio_media_socket_closed_clean"
+                : `twilio_media_socket_closed_${code}`,
+          }).catch(() => undefined);
         }
         logTwilioPstnDiagnostic(this.logger, "media_socket_closed", {
           callSessionId,
@@ -369,11 +391,10 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
           provider: "twilio",
         },
       });
-      await this.telephonyService.recordTwilioMediaStreamLifecycle({
+      await this.telephonyService.recordPstnCallLifecycle({
         organizationId: attachment.authorization.organizationId,
         callSessionId: attachment.authorization.callSessionId,
-        streamSid: result.event.streamSid,
-        status: "active",
+        stage: "media-connected",
         at: result.event.receivedAt,
       });
       if (attachment.authorization.runtimePath === "pstn-premium-realtime") {
@@ -398,6 +419,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
           },
         });
       } else {
+        await this.telephonyService.recordTwilioMediaStreamLifecycle({
+          organizationId: attachment.authorization.organizationId,
+          callSessionId: attachment.authorization.callSessionId,
+          streamSid: result.event.streamSid,
+          status: "active",
+          at: result.event.receivedAt,
+        });
         this.capacityObservability?.trackCall({
           callId: attachment.authorization.callSessionId,
           state: "active",
@@ -487,16 +515,34 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
           stopReason: "completed",
         },
       });
-      await this.telephonyService.recordTwilioMediaStreamLifecycle({
-        organizationId: attachment.authorization.organizationId,
-        callSessionId: attachment.authorization.callSessionId,
-        streamSid: result.event.streamSid,
-        status: "completed",
-        at: result.event.receivedAt,
-      });
       if (attachment.authorization.runtimePath === "pstn-premium-realtime") {
         await this.premiumCallExecution.stop({
           callSessionId: attachment.authorization.callSessionId,
+          outcome: "completed",
+          reasonCode: "twilio_stop",
+        });
+        attachment.premiumExecutionStopped = true;
+        for (const checkpoint of ["cleanEnd", "noFatalError"] as const) {
+          await this.telephonyService.recordPstnPhoneTestCheckpoint({
+            organizationId: attachment.authorization.organizationId,
+            callSessionId: attachment.authorization.callSessionId,
+            checkpoint,
+            at: result.event.receivedAt,
+          });
+        }
+      } else {
+        await this.telephonyService.recordPstnCallLifecycle({
+          organizationId: attachment.authorization.organizationId,
+          callSessionId: attachment.authorization.callSessionId,
+          stage: "draining",
+          at: result.event.receivedAt,
+        });
+        await this.telephonyService.recordTwilioMediaStreamLifecycle({
+          organizationId: attachment.authorization.organizationId,
+          callSessionId: attachment.authorization.callSessionId,
+          streamSid: result.event.streamSid,
+          status: "completed",
+          at: result.event.receivedAt,
         });
       }
       this.closeAttachment(attachment, 1000, "twilio_stop");

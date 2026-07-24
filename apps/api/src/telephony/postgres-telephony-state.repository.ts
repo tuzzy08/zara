@@ -135,10 +135,18 @@ export class PostgresTelephonyStateRepository {
             id, tenant_id, label, ownership_mode, provider, region, status, health_status,
             recording_policy, block_routing_on_health_failure, credential_reference,
             external_reference, sip, webhook_base_url, webhook_status, created_by
-          ) values (
+          ) select
             $1, $2, $3, $4, $5, $6, $7, $8,
             $9::jsonb, $10, $11::jsonb,
             $12, $13::jsonb, $14, $15, $16
+          where not exists (
+            select 1
+            from telephony_media_stream_tokens
+            where tenant_id = $2 and connection_id = $1
+          ) and not exists (
+            select 1
+            from telephony_execution_sessions
+            where tenant_id = $2 and connection_id = $1 and version > 0
           )`,
           [
             connection.id,
@@ -167,10 +175,14 @@ export class PostgresTelephonyStateRepository {
             id, tenant_id, connection_id, provider, provision_source, external_number_id,
             phone_number, friendly_name, voice_capable, caller_id_eligible, status,
             webhook_status, live_route, test_route, phone_test_results, recording_policy
-          ) values (
+          ) select
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
             $12, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb
+          where not exists (
+            select 1
+            from telephony_phone_test_checkpoints
+            where tenant_id = $2 and phone_number_id = $1
           )`,
           [
             phoneNumber.id,
@@ -252,11 +264,19 @@ export class PostgresTelephonyStateRepository {
             workflow_label, route_mode, runtime_profile, runtime_path, test_route_session_id, outage_mode,
             recording, recording_consent, to_phone_number, from_phone_number,
             created_at, source, policy_checks
-          ) values (
+          ) select
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11,
             $12, $13, $14, $15, $16, $17,
-            $18::jsonb, $19::jsonb, $20, $21, $22, $23, $24::jsonb
+            $18::jsonb, $19::jsonb, $20, $21, $22::timestamptz, $23, $24::jsonb
+          where not exists (
+            select 1
+            from telephony_media_stream_tokens
+            where tenant_id = $2 and dispatch_id = $1
+          ) and not exists (
+            select 1
+            from telephony_execution_sessions
+            where tenant_id = $2 and dispatch_id = $1 and version > 0
           )`,
           [
             dispatch.id,
@@ -294,12 +314,21 @@ export class PostgresTelephonyStateRepository {
             ownership_mode, direction, status, to_phone_number, from_phone_number,
             workflow_label, workspace_id, test_call, bridge_kind, bridge_target, media_path,
             outage_mode, fallback_target, recording_consent, diagnostics, policy_state,
-            created_at, updated_at
-          ) values (
+            lifecycle_state, created_at, updated_at
+          ) select
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
             $12, $13, $14, $15, $16, $17,
-            $18, $19, $20::jsonb, $21::jsonb, $22::jsonb, $23, $24
+            $18, $19, $20::jsonb, $21::jsonb, $22::jsonb, $23::jsonb,
+            $24::timestamptz, $25::timestamptz
+          where not exists (
+            select 1
+            from telephony_media_stream_tokens
+            where tenant_id = $2 and call_session_id = $4
+          ) and not exists (
+            select 1
+            from telephony_execution_sessions
+            where tenant_id = $2 and call_session_id = $4 and version > 0
           )`,
           [
             session.id,
@@ -324,6 +353,7 @@ export class PostgresTelephonyStateRepository {
             jsonOrNull(session.recordingConsent),
             JSON.stringify(session.diagnostics),
             jsonOrNull(session.policyState),
+            JSON.stringify(resolveSnapshotLifecycleState(session)),
             session.createdAt,
             session.updatedAt,
           ],
@@ -513,19 +543,64 @@ async function clearTenantState(client: PoolClient, organizationId: string) {
   await client.query("delete from telephony_processed_webhook_events where tenant_id = $1", [
     organizationId,
   ]);
-  await client.query("delete from telephony_execution_sessions where tenant_id = $1", [
-    organizationId,
-  ]);
-  await client.query("delete from telephony_dispatches where tenant_id = $1", [organizationId]);
+  await client.query(
+    `delete from telephony_execution_sessions
+     where tenant_id = $1
+       and version = 0
+       and call_session_id not in (
+         select call_session_id
+         from telephony_media_stream_tokens
+         where tenant_id = $1
+       )`,
+    [organizationId],
+  );
+  await client.query(
+    `delete from telephony_dispatches
+     where tenant_id = $1
+       and id not in (
+         select dispatch_id
+         from telephony_media_stream_tokens
+         where tenant_id = $1
+       )
+       and id not in (
+         select dispatch_id
+         from telephony_execution_sessions
+         where tenant_id = $1 and version > 0
+       )`,
+    [organizationId],
+  );
   await client.query("delete from telephony_provider_heartbeats where tenant_id = $1", [
     organizationId,
   ]);
   await client.query("delete from telephony_health_checks where tenant_id = $1", [organizationId]);
-  await client.query("delete from telephony_phone_numbers where tenant_id = $1", [organizationId]);
+  await client.query(
+    `delete from telephony_phone_numbers
+     where tenant_id = $1
+       and id not in (
+         select phone_number_id
+         from telephony_phone_test_checkpoints
+         where tenant_id = $1
+       )`,
+    [organizationId],
+  );
   await client.query("delete from telephony_credential_envelopes where tenant_id = $1", [
     organizationId,
   ]);
-  await client.query("delete from telephony_connections where tenant_id = $1", [organizationId]);
+  await client.query(
+    `delete from telephony_connections
+     where tenant_id = $1
+       and id not in (
+         select connection_id
+         from telephony_media_stream_tokens
+         where tenant_id = $1
+       )
+       and id not in (
+         select connection_id
+         from telephony_execution_sessions
+         where tenant_id = $1 and version > 0
+       )`,
+    [organizationId],
+  );
 }
 
 function mapConnectionRow(row: QueryResultRow) {
@@ -665,8 +740,40 @@ function mapExecutionSessionRow(row: QueryResultRow) {
     ...(row.recording_consent === null ? {} : { recordingConsent: row.recording_consent }),
     diagnostics: row.diagnostics as string[],
     ...(row.policy_state === null ? {} : { policyState: row.policy_state }),
+    lifecycleState: row.lifecycle_state,
     createdAt,
     updatedAt: normalizeTimestamp(row.updated_at),
+  };
+}
+
+function resolveSnapshotLifecycleState(
+  session: NonNullable<PersistedTelephonyStateRecord["executionSessions"]>[number],
+) {
+  if (session.lifecycleState !== undefined) return session.lifecycleState;
+
+  const stage = (() => {
+    switch (session.status) {
+      case "active":
+      case "grace-active":
+      case "failover-active":
+        return "active";
+      case "transfer-pending":
+        return "handoff";
+      case "closeout-pending":
+        return "draining";
+      case "completed":
+        return "completed";
+      case "blocked":
+      case "terminated":
+        return "failed";
+      default:
+        return "ringing";
+    }
+  })();
+
+  return {
+    stage,
+    observedAt: session.updatedAt,
   };
 }
 

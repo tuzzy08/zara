@@ -1219,6 +1219,7 @@ describe("TelephonyController", () => {
       .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/pstn-test-checkpoints`)
       .send({ checkpoint: "mediaWebSocketConnected", at: "2026-05-14T17:00:01.000Z" });
     expect(checkpointResponse.status).toBe(201);
+    expect(checkpointResponse.body).toEqual({ outcome: "inserted" });
 
     for (const checkpoint of [
       "inboundFrameReceived",
@@ -1232,28 +1233,11 @@ describe("TelephonyController", () => {
         .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/pstn-test-checkpoints`)
         .send({ checkpoint, at: "2026-05-14T17:00:02.000Z" });
       expect(checkpointResponse.status).toBe(201);
+      expect(checkpointResponse.body).toEqual({ outcome: "inserted" });
     }
 
-    const successfulNumber = checkpointResponse.body.state.phoneNumbers.find(
-      (candidate: { id: string }) => candidate.id === secondPhoneNumberId,
-    );
-    expect(successfulNumber.phoneTestResults[0]).toMatchObject({
-      status: "passed",
-      numberId: secondPhoneNumberId,
-      publishedVersionId: "workflow-success-v1",
-      runtimeProfile: "cost-optimized",
-      checklist: {
-        verifiedWebhook: true,
-        allowedCallerMatched: true,
-        mediaWebSocketConnected: true,
-        inboundFrameReceived: true,
-        transcriptCreated: true,
-        agentResponseGenerated: true,
-        outboundAudioSent: true,
-        cleanEnd: true,
-        noFatalError: true,
-      },
-    });
+    const successfulTestResultId =
+      `${successRouteResponse.body.phoneNumber.testRoute.waitingSession.id}:passed`;
 
     const activationResponse = await request(app.getHttpServer())
       .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/live-route/activate`)
@@ -1276,7 +1260,7 @@ describe("TelephonyController", () => {
     });
     expect(activationResponse.body.phoneNumber.liveRoute).toMatchObject({
       activationStatus: "active",
-      activationTestResultId: successfulNumber.phoneTestResults[0].id,
+      activationTestResultId: successfulTestResultId,
     });
 
     const crossTenantActivationResponse = await request(app.getHttpServer())

@@ -210,6 +210,10 @@ describe("PostgresTelephonyStateRepository", () => {
           ownershipMode: "byo_provider_account",
           direction: "inbound",
           status: "ringing",
+          lifecycleState: {
+            stage: "ringing",
+            observedAt: "2026-05-15T16:02:00.000Z",
+          },
           toPhoneNumber: "+14155550100",
           fromPhoneNumber: "+233201110001",
           workflowLabel: "Support triage",
@@ -302,6 +306,329 @@ describe("PostgresTelephonyStateRepository", () => {
 
     await expect(repository.listOrganizationIds()).resolves.toEqual(["tenant-west-africa"]);
     await expect(repository.load("tenant-west-africa")).resolves.toEqual(record);
+  });
+
+  it("uses a conservative lifecycle fallback for legacy snapshot sessions", async () => {
+    const { repository, pool } = await createHarness();
+    lastPool = pool;
+
+    const record = createTwilioImportRecord({
+      organizationId: "tenant-west-africa",
+      connectionId: "telephony-tenant-west-africa-1",
+    });
+    record.dispatches = [{
+      id: "CA-legacy:manual",
+      tenantId: record.organizationId,
+      direction: "inbound",
+      disposition: "routed",
+      reason: "Legacy route.",
+      callSessionId: "CA-legacy:telephony",
+      connectionId: record.connections[0]!.id,
+      recording: defaultRecordingPolicy(),
+      recordingConsent: {
+        state: "not_required",
+        noticeRequired: false,
+        consentMode: "disabled",
+        message: "",
+        recordedAt: "2026-05-15T16:02:00.000Z",
+        reason: "Recording is disabled.",
+      },
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110001",
+      createdAt: "2026-05-15T16:02:00.000Z",
+      source: "manual",
+    }];
+    record.executionSessions = [{
+      id: "CA-legacy:telephony:execution",
+      tenantId: record.organizationId,
+      dispatchId: "CA-legacy:manual",
+      callSessionId: "CA-legacy:telephony",
+      connectionId: record.connections[0]!.id,
+      provider: "twilio",
+      ownershipMode: "byo_provider_account",
+      direction: "inbound",
+      status: "terminated",
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110001",
+      testCall: false,
+      bridgeKind: "twilio-programmable-voice",
+      bridgeTarget: "+14155550100",
+      mediaPath: "provider-native",
+      diagnostics: [],
+      createdAt: "2026-05-15T16:02:00.000Z",
+      updatedAt: "2026-05-15T16:05:00.000Z",
+    }];
+
+    await repository.save(record);
+
+    await expect(repository.load(record.organizationId)).resolves.toMatchObject({
+      executionSessions: [{
+        id: "CA-legacy:telephony:execution",
+        lifecycleState: {
+          stage: "failed",
+          observedAt: "2026-05-15T16:05:00.000Z",
+        },
+      }],
+    });
+  });
+
+  it("preserves incrementally owned calls when replacing a stale tenant snapshot", async () => {
+    const { repository, pool } = await createHarness();
+    lastPool = pool;
+
+    const organizationId = "tenant-west-africa";
+    const connectionId = "telephony-tenant-west-africa-1";
+    const dispatchId = "CA-row-owned:manual";
+    const callSessionId = "CA-row-owned:telephony";
+    const sessionId = `${callSessionId}:execution`;
+    const currentLifecycle = {
+      stage: "active",
+      observedAt: "2026-05-15T16:04:00.000Z",
+      providerSequence: 7,
+    };
+
+    const initialRecord = createTwilioImportRecord({ organizationId, connectionId });
+    const phoneNumberId = initialRecord.phoneNumbers[0]!.id;
+    await repository.save(initialRecord);
+    await pool.query(
+      `insert into telephony_dispatches (
+        id, tenant_id, direction, disposition, reason, call_session_id, connection_id,
+        published_version_id, workspace_id, workflow_label, route_mode, runtime_profile,
+        runtime_path, recording, recording_consent, to_phone_number, from_phone_number,
+        created_at, source
+      ) values (
+        $1, $2, 'inbound', 'routed', 'Current durable route.', $3, $4,
+        'workflow-current-v1', 'workspace-current', 'Current workflow', 'live_route',
+        'premium-realtime', 'pstn-premium-realtime', '{}'::jsonb, '{}'::jsonb,
+        '+14155550100', '+233201110001', '2026-05-15T16:02:00.000Z', 'twilio'
+      )`,
+      [dispatchId, organizationId, callSessionId, connectionId],
+    );
+    await pool.query(
+      `insert into telephony_execution_sessions (
+        id, tenant_id, dispatch_id, call_session_id, connection_id, provider,
+        ownership_mode, direction, status, version, lifecycle_state,
+        to_phone_number, from_phone_number, test_call, bridge_kind, bridge_target,
+        media_path, diagnostics, created_at, updated_at
+      ) values (
+        $1, $2, $3, $4, $5, 'twilio',
+        'byo_provider_account', 'inbound', 'active', 7, $6::jsonb,
+        '+14155550100', '+233201110001', false, 'twilio-programmable-voice',
+        '+14155550100', 'provider-native', '[]'::jsonb,
+        '2026-05-15T16:02:00.000Z', '2026-05-15T16:04:00.000Z'
+      )`,
+      [sessionId, organizationId, dispatchId, callSessionId, connectionId, JSON.stringify(currentLifecycle)],
+    );
+    await pool.query(
+      `insert into telephony_media_stream_tokens (
+        tenant_id, call_session_id, dispatch_id, connection_id,
+        token_hash, expires_at, created_at, claimed_at
+      ) values (
+        $1, $2, $3, $4, $5,
+        '2026-05-15T16:12:00.000Z', '2026-05-15T16:02:00.000Z',
+        '2026-05-15T16:03:00.000Z'
+      )`,
+      [organizationId, callSessionId, dispatchId, connectionId, "a".repeat(43)],
+    );
+    await pool.query(
+      `insert into telephony_phone_test_checkpoints (
+        id, tenant_id, phone_number_id, call_session_id,
+        test_route_session_id, checkpoint, observed_at
+      ) values (
+        'checkpoint-row-owned', $1, $2, $3,
+        'test-route-row-owned', 'mediaConnected', '2026-05-15T16:03:00.000Z'
+      )`,
+      [organizationId, phoneNumberId, callSessionId],
+    );
+
+    await pool.query(
+      `insert into telephony_dispatches (
+        id, tenant_id, direction, disposition, reason, call_session_id, connection_id,
+        recording, recording_consent, to_phone_number, from_phone_number, created_at, source
+      ) values (
+        'CA-legacy:manual', $1, 'inbound', 'routed', 'Legacy route.',
+        'CA-legacy:telephony', $2, '{}'::jsonb, '{}'::jsonb,
+        '+14155550100', '+233201110001', '2026-05-15T15:00:00.000Z', 'manual'
+      )`,
+      [organizationId, connectionId],
+    );
+    await pool.query(
+      `insert into telephony_execution_sessions (
+        id, tenant_id, dispatch_id, call_session_id, connection_id, provider,
+        ownership_mode, direction, status, version, lifecycle_state,
+        to_phone_number, from_phone_number, test_call, bridge_kind, bridge_target,
+        media_path, diagnostics, created_at, updated_at
+      ) values (
+        'CA-legacy:telephony:execution', $1, 'CA-legacy:manual', 'CA-legacy:telephony',
+        $2, 'twilio', 'byo_provider_account', 'inbound', 'ringing', 0,
+        '{"stage":"ringing","observedAt":"2026-05-15T15:00:00.000Z"}'::jsonb,
+        '+14155550100', '+233201110001', false, 'twilio-programmable-voice',
+        '+14155550100', 'provider-native', '[]'::jsonb,
+        '2026-05-15T15:00:00.000Z', '2026-05-15T15:00:00.000Z'
+      )`,
+      [organizationId, connectionId],
+    );
+
+    const saveStaleSnapshot = () => repository.save({
+      schemaVersion: 1,
+      organizationId,
+      connections: [],
+      phoneNumbers: [],
+      healthChecks: [],
+      providerHeartbeats: [],
+      dispatches: [
+        {
+          id: dispatchId,
+          tenantId: organizationId,
+          direction: "inbound",
+          disposition: "routed",
+          reason: "Stale route copy.",
+          callSessionId,
+          connectionId,
+          publishedVersionId: "workflow-stale-v1",
+          workspaceId: "workspace-stale",
+          workflowLabel: "Stale workflow",
+          routeMode: "live_route",
+          runtimeProfile: "premium-realtime",
+          runtimePath: "pstn-premium-realtime",
+          recording: {
+            enabled: false,
+            consentMode: "disabled",
+            consentMessage: "",
+          },
+          recordingConsent: {
+            state: "not_required",
+            noticeRequired: false,
+            consentMode: "disabled",
+            message: "",
+            recordedAt: "2026-05-15T16:02:00.000Z",
+            reason: "Recording is disabled.",
+          },
+          toPhoneNumber: "+14155550100",
+          fromPhoneNumber: "+233201110001",
+          createdAt: "2026-05-15T16:02:00.000Z",
+          source: "manual",
+        },
+      ],
+      executionSessions: [
+        {
+          id: sessionId,
+          tenantId: organizationId,
+          dispatchId,
+          callSessionId,
+          connectionId,
+          provider: "twilio",
+          ownershipMode: "byo_provider_account",
+          direction: "inbound",
+          status: "ringing",
+          lifecycleState: {
+            stage: "ringing",
+            observedAt: "2026-05-15T16:02:00.000Z",
+          },
+          toPhoneNumber: "+14155550100",
+          fromPhoneNumber: "+233201110001",
+          testCall: false,
+          bridgeKind: "twilio-programmable-voice",
+          bridgeTarget: "+14155550100",
+          mediaPath: "provider-native",
+          diagnostics: [],
+          createdAt: "2026-05-15T16:02:00.000Z",
+          updatedAt: "2026-05-15T16:02:00.000Z",
+        },
+      ],
+      executionCommands: [],
+      webhookEvents: [],
+      callControlEvents: [],
+      credentials: [],
+      processedWebhookEventIds: [],
+    });
+    await saveStaleSnapshot();
+
+    await expect(
+      pool.query(
+        `select reason, published_version_id
+         from telephony_dispatches
+         where tenant_id = $1 and id = $2`,
+        [organizationId, dispatchId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ reason: "Current durable route.", published_version_id: "workflow-current-v1" }],
+    });
+    await expect(
+      pool.query(
+        `select status, version, lifecycle_state
+         from telephony_execution_sessions
+         where tenant_id = $1 and call_session_id = $2`,
+        [organizationId, callSessionId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ status: "active", version: 7, lifecycle_state: currentLifecycle }],
+    });
+    await expect(
+      pool.query(
+        `select token_hash, claimed_at
+         from telephony_media_stream_tokens
+         where tenant_id = $1 and call_session_id = $2`,
+        [organizationId, callSessionId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{
+        token_hash: "a".repeat(43),
+        claimed_at: new Date("2026-05-15T16:03:00.000Z"),
+      }],
+    });
+    await expect(
+      pool.query(
+        `select id from telephony_phone_test_checkpoints
+         where tenant_id = $1 and call_session_id = $2`,
+        [organizationId, callSessionId],
+      ),
+    ).resolves.toMatchObject({ rows: [{ id: "checkpoint-row-owned" }] });
+    await expect(
+      pool.query("select id from telephony_connections where tenant_id = $1", [organizationId]),
+    ).resolves.toMatchObject({ rows: [{ id: connectionId }] });
+    await expect(
+      pool.query(
+        `select id from telephony_dispatches
+         where tenant_id = $1 and id = 'CA-legacy:manual'`,
+        [organizationId],
+      ),
+    ).resolves.toMatchObject({ rows: [] });
+    await expect(
+      pool.query(
+        `select id from telephony_execution_sessions
+         where tenant_id = $1 and id = 'CA-legacy:telephony:execution'`,
+        [organizationId],
+      ),
+    ).resolves.toMatchObject({ rows: [] });
+
+    await pool.query(
+      `delete from telephony_media_stream_tokens
+       where tenant_id = $1 and call_session_id = $2`,
+      [organizationId, callSessionId],
+    );
+    await saveStaleSnapshot();
+
+    await expect(
+      pool.query(
+        `select status, version, lifecycle_state
+         from telephony_execution_sessions
+         where tenant_id = $1 and call_session_id = $2`,
+        [organizationId, callSessionId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ status: "active", version: 7, lifecycle_state: currentLifecycle }],
+    });
+    await expect(
+      pool.query(
+        `select reason, published_version_id
+         from telephony_dispatches
+         where tenant_id = $1 and id = $2`,
+        [organizationId, dispatchId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ reason: "Current durable route.", published_version_id: "workflow-current-v1" }],
+    });
   });
 
   it("returns null for organizations with no telephony state", async () => {
@@ -611,6 +938,8 @@ async function applySchema(pool: Pool) {
       ownership_mode text NOT NULL,
       direction text NOT NULL,
       status text NOT NULL,
+      version integer NOT NULL DEFAULT 0,
+      lifecycle_state jsonb NOT NULL,
       to_phone_number text NOT NULL,
       from_phone_number text NOT NULL,
       workflow_label text,
@@ -626,6 +955,37 @@ async function applySchema(pool: Pool) {
       policy_state jsonb,
       created_at timestamptz NOT NULL,
       updated_at timestamptz NOT NULL
+    );
+
+    CREATE UNIQUE INDEX telephony_execution_sessions_tenant_call_session_unique_idx
+      ON telephony_execution_sessions (tenant_id, call_session_id);
+
+    CREATE TABLE telephony_media_stream_tokens (
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      call_session_id text NOT NULL,
+      dispatch_id text NOT NULL REFERENCES telephony_dispatches(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      connection_id text NOT NULL REFERENCES telephony_connections(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      token_hash text NOT NULL,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL,
+      claimed_at timestamptz,
+      PRIMARY KEY (tenant_id, call_session_id),
+      FOREIGN KEY (tenant_id, call_session_id)
+        REFERENCES telephony_execution_sessions(tenant_id, call_session_id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+    );
+
+    CREATE TABLE telephony_phone_test_checkpoints (
+      id text NOT NULL,
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      phone_number_id text NOT NULL REFERENCES telephony_phone_numbers(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+      call_session_id text NOT NULL,
+      test_route_session_id text NOT NULL,
+      checkpoint text NOT NULL,
+      observed_at timestamptz NOT NULL,
+      PRIMARY KEY (tenant_id, id),
+      UNIQUE (tenant_id, call_session_id, checkpoint)
     );
 
     CREATE TABLE telephony_execution_commands (

@@ -54,45 +54,10 @@ describe("PstnPremiumCallExecution", () => {
     };
     const execution = new PstnPremiumCallExecution(
       {
-        async getState() {
+        async loadPstnCallRuntimeContext() {
           return {
-            organizationId: "tenant-west-africa",
-            connections: [],
-            phoneNumbers: [],
-            healthChecks: [],
-            providerHeartbeats: [],
-            dispatches: [
-              {
-                id: "dispatch-premium-1",
-                tenantId: "tenant-west-africa",
-                direction: "inbound",
-                disposition: "routed",
-                reason: "Live premium route.",
-                callSessionId: "CA-premium:telephony",
-                connectionId: "connection-1",
-                publishedVersionId: "workflow-premium-v1",
-                workspaceId: "workspace-support",
-                workflowLabel: "Premium support",
-                runtimeProfile: "premium-realtime",
-                runtimePath: "pstn-premium-realtime",
-                recording: { enabled: false, consentMode: "disabled", consentMessage: "" },
-                recordingConsent: {
-                  state: "not-required",
-                  consentMode: "disabled",
-                  message: "",
-                  noticeRequired: false,
-                  updatedAt: "2026-07-11T10:00:00.000Z",
-                },
-                toPhoneNumber: "+14155557890",
-                fromPhoneNumber: "+233201110001",
-                createdAt: "2026-07-11T10:00:00.000Z",
-                source: "webhook",
-              },
-            ],
-            executionSessions: [],
-            executionCommands: [],
-            webhookEvents: [],
-            callControlEvents: [],
+            outcome: "found",
+            context: createPremiumCallRuntimeContext(),
           };
         },
         async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
@@ -521,8 +486,16 @@ describe("PstnPremiumCallExecution", () => {
       mediaProfile: "pstn",
     });
     expect(JSON.stringify(observed)).not.toMatch(/prompt|transcript|credential|token|apiKey/i);
+    await waitFor(() => harness.lifecycleStages.length === 2);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active"]);
 
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+    expect(harness.lifecycleStages).toEqual([
+      "provider-ready",
+      "active",
+      "draining",
+      "completed",
+    ]);
   });
 
   it("accounts for the actual resident Gemini provider payload while startup is pending", async () => {
@@ -659,7 +632,7 @@ describe("PstnPremiumCallExecution", () => {
   it("removes the runtime session when the provider connection cannot start", async () => {
     const terminatedSessionIds: string[] = [];
     const failedHandshakes: string[] = [];
-    const { execution } = createMinimalExecutionHarness("openai-realtime", {
+    const harness = createMinimalExecutionHarness("openai-realtime", {
       connectError: new Error("provider unavailable"),
       onTerminate(sessionId) {
         terminatedSessionIds.push(sessionId);
@@ -671,7 +644,7 @@ describe("PstnPremiumCallExecution", () => {
       },
     });
 
-    await expect(execution.start({
+    await expect(harness.execution.start({
       organizationId: "tenant-west-africa",
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
@@ -680,6 +653,7 @@ describe("PstnPremiumCallExecution", () => {
     })).rejects.toThrow("provider unavailable");
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(failedHandshakes).toEqual(["failed"]);
+    expect(harness.lifecycleStages).toEqual(["failed"]);
   });
 
   it("never writes provider-controlled startup error text to logs", async () => {
@@ -1128,6 +1102,8 @@ describe("PstnPremiumCallExecution", () => {
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(callerCloses).toEqual(["premium_provider_closed"]);
     expect(providerCloses).toEqual(["premium_provider_closed"]);
+    await waitFor(() => harness.lifecycleStages.length === 3);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
   });
 
   it("stops every active actor once during application shutdown", async () => {
@@ -1155,6 +1131,26 @@ describe("PstnPremiumCallExecution", () => {
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(callerCloses).toEqual(["app_shutdown"]);
     expect(providerCloses).toEqual(["app_shutdown"]);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
+  });
+
+  it("classifies an abnormal Twilio media close as failed", async () => {
+    const harness = createMinimalExecutionHarness("openai-realtime");
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+      outcome: "failed",
+      reasonCode: "twilio_media_socket_closed_1006",
+    });
+
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
   });
 
   it("does not install an execution when Twilio closes during provider startup", async () => {
@@ -1390,7 +1386,7 @@ describe("PstnPremiumCallExecution", () => {
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
   });
 
-  it("does not terminate premium media when a phone-test checkpoint cannot be persisted", async () => {
+  it("retries phone-test checkpoints without terminating or blocking premium media", async () => {
     const terminations: string[] = [];
     const providerCloses: string[] = [];
     const checkpointAttempts: string[] = [];
@@ -1400,7 +1396,9 @@ describe("PstnPremiumCallExecution", () => {
       onProviderClose: (reason) => providerCloses.push(reason),
       async recordCheckpoint(checkpoint) {
         checkpointAttempts.push(checkpoint);
-        throw new Error("duplicate key value violates unique constraint");
+        if (checkpointAttempts.length === 1) {
+          throw new Error("checkpoint database temporarily unavailable");
+        }
       },
     });
     await harness.execution.start({
@@ -1438,11 +1436,13 @@ describe("PstnPremiumCallExecution", () => {
       transcript: "Hello from the configured assistant.",
     }));
 
-    await waitFor(() => checkpointAttempts.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await waitFor(() => checkpointAttempts.length === 2);
 
     expect(sentMediaFrames).toBe(1);
-    expect(checkpointAttempts).toEqual(["agentResponseGenerated"]);
+    expect(checkpointAttempts).toEqual([
+      "agentResponseGenerated",
+      "agentResponseGenerated",
+    ]);
     expect(terminations).toEqual([]);
     expect(providerCloses).toEqual([]);
 
@@ -1557,6 +1557,12 @@ describe("PstnPremiumCallExecution", () => {
     ]);
     expect(harness.connections[0]!.closedReasons).toEqual(["provider_agent_handoff"]);
     expect(handoffLog).toHaveBeenCalledWith(expect.stringContaining("agent.handoff.completed"));
+    expect(harness.lifecycleStages).toEqual([
+      "provider-ready",
+      "active",
+      "handoff",
+      "active",
+    ]);
     handoffLog.mockRestore();
   });
 
@@ -1846,6 +1852,27 @@ function createPremiumManifest() {
   } as unknown as CompiledRuntimeManifest;
 }
 
+function createPremiumCallRuntimeContext() {
+  return {
+    tenantId: "tenant-west-africa",
+    callSessionId: "CA-premium:telephony",
+    dispatchId: "dispatch-premium-1",
+    connectionId: "connection-1",
+    disposition: "routed" as const,
+    publishedVersionId: "workflow-premium-v1",
+    workspaceId: "workspace-support",
+    workflowLabel: "Premium support",
+    runtimeProfile: "premium-realtime",
+    runtimePath: "pstn-premium-realtime" as const,
+    status: "ringing" as const,
+    version: 0,
+    lifecycleState: {
+      stage: "media-connected" as const,
+      observedAt: "2026-07-11T10:00:00.000Z",
+    },
+  };
+}
+
 function createMinimalExecutionHarness(
   runtime: "openai-realtime" | "gemini-live",
   options: {
@@ -1860,11 +1887,13 @@ function createMinimalExecutionHarness(
     onUpdate?: (() => void) | undefined;
     onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
     recordCheckpoint?: ((checkpoint: string) => Promise<void>) | undefined;
+    recordLifecycle?: ((stage: string) => Promise<void>) | undefined;
     capacityObservability?: Partial<PstnCapacityObservability> | undefined;
   } = {},
 ) {
   const manifest = options.manifest ?? createPremiumManifest();
   const sentProviderMessages: Record<string, unknown>[] = [];
+  const lifecycleStages: string[] = [];
   const registered = {
     organizationId: "tenant-west-africa",
     workspaceId: "workspace-support",
@@ -1906,36 +1935,15 @@ function createMinimalExecutionHarness(
       } as PstnCapacityObservability;
   const execution = new PstnPremiumCallExecution(
     {
-      async getState() {
-        return {
-          organizationId: "tenant-west-africa",
-          connections: [], phoneNumbers: [], healthChecks: [], providerHeartbeats: [],
-          dispatches: [{
-            id: "dispatch-premium-1",
-            tenantId: "tenant-west-africa",
-            direction: "inbound",
-            disposition: "routed",
-            reason: "Live premium route.",
-            callSessionId: "CA-premium:telephony",
-            publishedVersionId: "workflow-premium-v1",
-            workspaceId: "workspace-support",
-            runtimeProfile: "premium-realtime",
-            runtimePath: "pstn-premium-realtime",
-            recording: { enabled: false, consentMode: "disabled", consentMessage: "" },
-            recordingConsent: {
-              state: "not-required", consentMode: "disabled", message: "",
-              noticeRequired: false, updatedAt: "2026-07-11T10:00:00.000Z",
-            },
-            toPhoneNumber: "+14155557890",
-            fromPhoneNumber: "+233201110001",
-            createdAt: "2026-07-11T10:00:00.000Z",
-            source: "webhook",
-          }],
-          executionSessions: [], executionCommands: [], webhookEvents: [], callControlEvents: [],
-        };
+      async loadPstnCallRuntimeContext() {
+        return { outcome: "found", context: createPremiumCallRuntimeContext() };
       },
       async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
         await options.recordCheckpoint?.(input.checkpoint);
+      },
+      async recordPstnCallLifecycle(input: { stage: string }) {
+        lifecycleStages.push(input.stage);
+        await options.recordLifecycle?.(input.stage);
       },
     } as never,
     { async getPublishedManifest() { return manifest; } } as never,
@@ -1992,6 +2000,7 @@ function createMinimalExecutionHarness(
   return {
     execution,
     sentProviderMessages,
+    lifecycleStages,
     emitProviderMessage(message: string) {
       providerMessageHandler?.(message);
     },
@@ -2030,37 +2039,16 @@ function createHandoffExecutionHarness(input: {
   const connections: ReturnType<typeof createFakeProviderConnection>[] = [];
   const marks: string[] = [];
   const callerCloses: string[] = [];
+  const lifecycleStages: string[] = [];
   const execution = new PstnPremiumCallExecution(
     {
-      async getState() {
-        return {
-          organizationId: "tenant-west-africa",
-          connections: [], phoneNumbers: [], healthChecks: [], providerHeartbeats: [],
-          dispatches: [{
-            id: "dispatch-premium-1",
-            tenantId: "tenant-west-africa",
-            direction: "inbound",
-            disposition: "routed",
-            reason: "Live premium route.",
-            callSessionId: "CA-premium:telephony",
-            publishedVersionId: "workflow-premium-v1",
-            workspaceId: "workspace-support",
-            runtimeProfile: "premium-realtime",
-            runtimePath: "pstn-premium-realtime",
-            recording: { enabled: false, consentMode: "disabled", consentMessage: "" },
-            recordingConsent: {
-              state: "not-required", consentMode: "disabled", message: "",
-              noticeRequired: false, updatedAt: "2026-07-11T10:00:00.000Z",
-            },
-            toPhoneNumber: "+14155557890",
-            fromPhoneNumber: "+233201110001",
-            createdAt: "2026-07-11T10:00:00.000Z",
-            source: "webhook",
-          }],
-          executionSessions: [], executionCommands: [], webhookEvents: [], callControlEvents: [],
-        };
+      async loadPstnCallRuntimeContext() {
+        return { outcome: "found", context: createPremiumCallRuntimeContext() };
       },
       async recordPstnPhoneTestCheckpoint() {},
+      async recordPstnCallLifecycle(input: { stage: string }) {
+        lifecycleStages.push(input.stage);
+      },
     } as never,
     { async getPublishedManifest() { return manifest; } } as never,
     {
@@ -2108,6 +2096,7 @@ function createHandoffExecutionHarness(input: {
     connections,
     marks,
     callerCloses,
+    lifecycleStages,
     start: () => execution.start({
       organizationId: "tenant-west-africa",
       dispatchId: "dispatch-premium-1",

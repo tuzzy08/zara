@@ -105,6 +105,7 @@ interface ActivePremiumCallExecution {
   observabilityFailureLogged: boolean;
   cleanupRecorded: boolean;
   recordedPhoneTestCheckpoints: Set<"transcriptCreated" | "agentResponseGenerated" | "outboundAudioSent">;
+  pendingPhoneTestCheckpoints: Set<"transcriptCreated" | "agentResponseGenerated" | "outboundAudioSent">;
 }
 
 interface PremiumProviderFailureContext {
@@ -165,7 +166,9 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     @Inject(TelephonyService)
     private readonly telephonyService: Pick<
       TelephonyService,
-      "getState" | "recordPstnPhoneTestCheckpoint"
+      | "loadPstnCallRuntimeContext"
+      | "recordPstnPhoneTestCheckpoint"
+      | "recordPstnCallLifecycle"
     >,
     @Inject(WorkflowsService)
     private readonly workflowsService: Pick<WorkflowsService, "getPublishedManifest">,
@@ -204,6 +207,25 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       await this.startExecution(input);
     } catch (error) {
       this.capacityObservability?.endCall({ callId: input.callSessionId, outcome: "failed" });
+      if (!this.terminalCallSessionIds.has(input.callSessionId)) {
+        const failure = classifyPremiumCallStartupFailure(error);
+        try {
+          await this.telephonyService.recordPstnCallLifecycle({
+            organizationId: input.organizationId,
+            callSessionId: input.callSessionId,
+            stage: "failed",
+            reasonCode: failure.failureCode,
+          });
+        } catch {
+          this.logger.warn(`[twilio-pstn] lifecycle_persistence_failed ${JSON.stringify({
+            organizationId: input.organizationId,
+            dispatchId: input.dispatchId,
+            callSessionId: input.callSessionId,
+            stage: "failed",
+            failureCode: "call_lifecycle_persistence_failed",
+          })}`);
+        }
+      }
       throw error;
     } finally {
       this.startingCallSessionIds.delete(input.callSessionId);
@@ -212,16 +234,18 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
   }
 
   private async startExecution(input: StartPremiumCallExecutionInput) {
-    const state = await runPremiumStartupStage(
-      "state_load",
+    const loaded = await runPremiumStartupStage(
+      "runtime_context_load",
       "premium_state_unavailable",
-      () => this.telephonyService.getState(input.organizationId),
+      () => this.telephonyService.loadPstnCallRuntimeContext({
+        organizationId: input.organizationId,
+        callSessionId: input.callSessionId,
+      }),
     );
-    const dispatch = state.dispatches.find(
-      (candidate) => candidate.id === input.dispatchId && candidate.callSessionId === input.callSessionId,
-    );
+    const dispatch = loaded.outcome === "found" ? loaded.context : undefined;
     if (
       dispatch === undefined
+      || dispatch.dispatchId !== input.dispatchId
       || dispatch.disposition !== "routed"
       || dispatch.runtimePath !== "pstn-premium-realtime"
       || dispatch.publishedVersionId === undefined
@@ -247,8 +271,8 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     if (
       manifest === null
       || manifest.tenantId !== input.organizationId
-      || manifest.workspaceId !== dispatch.workspaceId
-      || manifest.publishedVersionId !== dispatch.publishedVersionId
+      || manifest.workspaceId !== workspaceId
+      || manifest.publishedVersionId !== publishedVersionId
       || manifest.runtimeProfile !== "premium-realtime"
       || manifest.entryAgentId === undefined
     ) {
@@ -399,6 +423,8 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       closeCaller: (code, reason) => input.output.close(code, reason),
       onReady: () => {
         readinessRecorded = true;
+        this.recordLifecycle(execution, "provider-ready");
+        this.recordLifecycle(execution, "active");
         this.capacityObservability?.recordSocketHandshake({
           socketId: providerSocketId(input.callSessionId, execution.providerEpoch),
           latencyMs: Math.max(0, Date.now() - readinessStartedAt),
@@ -452,6 +478,11 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       onTerminal: (state) => {
         const installed = this.executions.get(input.callSessionId);
         if (installed?.actor === actor) {
+          this.recordLifecycle(
+            installed,
+            state === "failed" ? "failed" : "completed",
+            installed.terminalFailureCode,
+          );
           this.clearExpectedProviderResponse(installed);
           installed.playback.dispose();
           this.recordCleanup(installed, actor.getState());
@@ -515,6 +546,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       observabilityFailureLogged: false,
       cleanupRecorded: false,
       recordedPhoneTestCheckpoints: new Set(),
+      pendingPhoneTestCheckpoints: new Set(),
     };
     this.executions.set(input.callSessionId, execution);
     this.bindProviderConnection(execution, providerConnection, execution.providerEpoch);
@@ -721,12 +753,26 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     }
   }
 
-  async stop(input: { callSessionId: string }) {
+  async stop(input: {
+    callSessionId: string;
+    outcome?: "completed" | "failed" | undefined;
+    reasonCode?: string | undefined;
+  }) {
+    const outcome = input.outcome ?? "completed";
+    const reasonCode =
+      input.reasonCode ?? (outcome === "failed" ? "premium_call_failed" : "pstn_stream_stopped");
     const execution = this.executions.get(input.callSessionId);
     if (execution === undefined) {
       if (this.startingCallSessionIds.has(input.callSessionId)) {
-        this.cancelledCallSessions.set(input.callSessionId, "pstn_stream_stopped");
+        this.cancelledCallSessions.set(input.callSessionId, reasonCode);
       }
+      return;
+    }
+
+    if (outcome === "failed") {
+      execution.terminalFailureCode = reasonCode;
+      execution.actor.fail(reasonCode);
+      await execution.providerLifecycleMessages;
       return;
     }
 
@@ -736,8 +782,10 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       runtimePath: "pstn-premium-realtime",
       provider: execution.registered.session.runtime,
     });
-    await execution.actor.stop("pstn_stream_stopped");
-    this.clearProviderTransition(execution, "pstn_stream_stopped");
+    this.recordLifecycle(execution, "draining");
+    await execution.actor.stop(reasonCode);
+    await execution.providerLifecycleMessages;
+    this.clearProviderTransition(execution, reasonCode);
     if (this.executions.get(input.callSessionId) === execution) {
       this.executions.delete(input.callSessionId);
     }
@@ -748,9 +796,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     for (const callSessionId of this.startingCallSessionIds) {
       this.cancelledCallSessions.set(callSessionId, "app_shutdown");
     }
-    await Promise.all(
-      [...this.executions.values()].map((execution) => execution.actor.stop("app_shutdown")),
-    );
+    const executions = [...this.executions.values()];
+    for (const execution of executions) {
+      execution.terminalFailureCode = "app_shutdown";
+      execution.actor.fail("app_shutdown");
+    }
+    await Promise.all(executions.map((execution) => execution.providerLifecycleMessages));
     this.executions.clear();
   }
 
@@ -847,6 +898,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     }
     this.clearExpectedProviderResponse(execution);
     execution.actor.beginHandoff();
+    this.recordLifecycle(execution, "handoff");
     this.capacityObservability?.trackCall({
       callId: execution.callSessionId,
       state: "handing_off",
@@ -1015,6 +1067,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
           });
         },
       }));
+      this.recordLifecycle(execution, "active");
       this.expectProviderResponse(execution, "handoff_continuation");
       this.clearProviderTransition(execution);
       execution.pendingProviderTransition = undefined;
@@ -1229,12 +1282,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     }
 
     if (event.type === "input_transcript" && event.text.trim().length > 0) {
-      await this.recordCheckpoint(execution, "transcriptCreated");
+      this.recordCheckpoint(execution, "transcriptCreated");
       return;
     }
 
     if (event.type === "output_transcript" && event.text.trim().length > 0) {
-      await this.recordCheckpoint(execution, "agentResponseGenerated");
+      this.recordCheckpoint(execution, "agentResponseGenerated");
       return;
     }
 
@@ -1562,31 +1615,75 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     return responseId;
   }
 
-  private async recordCheckpoint(
+  private recordCheckpoint(
     execution: ActivePremiumCallExecution,
     checkpoint: "transcriptCreated" | "agentResponseGenerated" | "outboundAudioSent",
   ) {
-    if (execution.recordedPhoneTestCheckpoints.has(checkpoint)) {
+    if (
+      execution.recordedPhoneTestCheckpoints.has(checkpoint)
+      || execution.pendingPhoneTestCheckpoints.has(checkpoint)
+    ) {
       return;
     }
-    execution.recordedPhoneTestCheckpoints.add(checkpoint);
+    execution.pendingPhoneTestCheckpoints.add(checkpoint);
+    void this.persistCheckpoint(execution, checkpoint);
+  }
 
+  private async persistCheckpoint(
+    execution: ActivePremiumCallExecution,
+    checkpoint: "transcriptCreated" | "agentResponseGenerated" | "outboundAudioSent",
+  ) {
     try {
-      await this.telephonyService.recordPstnPhoneTestCheckpoint({
-        organizationId: execution.organizationId,
-        callSessionId: execution.callSessionId,
-        checkpoint,
-      });
-    } catch {
-      this.logger.warn(`[twilio-pstn] phone_test_checkpoint_failed ${JSON.stringify({
-        organizationId: execution.organizationId,
-        dispatchId: execution.dispatchId,
-        callSessionId: execution.callSessionId,
-        runtime: execution.registered.session.runtime,
-        checkpoint,
-        failureCode: "phone_test_checkpoint_persistence_failed",
-      })}`);
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await this.telephonyService.recordPstnPhoneTestCheckpoint({
+            organizationId: execution.organizationId,
+            callSessionId: execution.callSessionId,
+            checkpoint,
+          });
+          execution.recordedPhoneTestCheckpoints.add(checkpoint);
+          return;
+        } catch {
+          if (attempt < 2) continue;
+          this.logger.warn(`[twilio-pstn] phone_test_checkpoint_failed ${JSON.stringify({
+            organizationId: execution.organizationId,
+            dispatchId: execution.dispatchId,
+            callSessionId: execution.callSessionId,
+            runtime: execution.registered.session.runtime,
+            checkpoint,
+            failureCode: "phone_test_checkpoint_persistence_failed",
+          })}`);
+        }
+      }
+    } finally {
+      execution.pendingPhoneTestCheckpoints.delete(checkpoint);
     }
+  }
+
+  private recordLifecycle(
+    execution: ActivePremiumCallExecution,
+    stage: "provider-ready" | "active" | "handoff" | "draining" | "completed" | "failed",
+    reasonCode?: string,
+  ) {
+    execution.providerLifecycleMessages = execution.providerLifecycleMessages
+      .then(() =>
+        this.telephonyService.recordPstnCallLifecycle({
+          organizationId: execution.organizationId,
+          callSessionId: execution.callSessionId,
+          stage,
+          ...(reasonCode === undefined ? {} : { reasonCode }),
+        }),
+      )
+      .then(() => undefined)
+      .catch(() => {
+        this.logger.warn(`[twilio-pstn] lifecycle_persistence_failed ${JSON.stringify({
+          organizationId: execution.organizationId,
+          dispatchId: execution.dispatchId,
+          callSessionId: execution.callSessionId,
+          stage,
+          failureCode: "call_lifecycle_persistence_failed",
+        })}`);
+      });
   }
 
   private rememberTerminalCallSession(callSessionId: string) {

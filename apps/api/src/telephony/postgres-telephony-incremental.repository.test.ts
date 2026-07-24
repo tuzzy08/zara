@@ -301,6 +301,13 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     pool = harness.pool;
     const active = callSetup("tenant-a", "call-token");
     active.mediaToken.expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+    const terminal = callSetup("tenant-a", "call-terminal-token");
+    terminal.mediaToken.expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+    terminal.executionSession.status = "completed";
+    terminal.executionSession.lifecycleState = {
+      stage: "completed",
+      observedAt: "2026-07-23T12:01:00.000Z",
+    };
     const expired = callSetup("tenant-a", "call-expired");
     const otherTenantExpired = callSetup("tenant-b", "call-expired-b");
     expired.mediaToken.createdAt = "2026-07-23T11:55:00.000Z";
@@ -309,16 +316,26 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     otherTenantExpired.mediaToken.createdAt = new Date(Date.now() - 60_000).toISOString();
     otherTenantExpired.mediaToken.expiresAt = new Date(Date.now() - 1_000).toISOString();
     await harness.repository.createCallSetup(active);
+    await harness.repository.createCallSetup(terminal);
     await harness.repository.createCallSetup(expired);
     await harness.repository.createCallSetup(otherTenantExpired);
 
     const claim = {
       tenantId: "tenant-a",
       callSessionId: active.executionSession.callSessionId,
+      dispatchId: active.executionSession.dispatchId,
+      connectionId: active.executionSession.connectionId,
       tokenHash: active.mediaToken.tokenHash,
     };
-    await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
+    await expect(harness.repository.claimMediaToken(claim)).resolves.toMatchObject({
       outcome: "claimed",
+      authorization: {
+        tenantId: "tenant-a",
+        callSessionId: active.executionSession.callSessionId,
+        dispatchId: active.executionSession.dispatchId,
+        connectionId: active.executionSession.connectionId,
+        runtimePath: "pstn-premium-realtime",
+      },
     });
     await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
       outcome: "already_claimed",
@@ -344,12 +361,24 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       harness.repository.claimMediaToken({ ...claim, tokenHash: "b".repeat(64) }),
     ).resolves.toEqual({ outcome: "conflict" });
     await expect(
+      harness.repository.claimMediaToken({ ...claim, dispatchId: "dispatch-forged" }),
+    ).resolves.toEqual({ outcome: "conflict" });
+    await expect(
       harness.repository.claimMediaToken({ ...claim, tenantId: "tenant-b" }),
     ).resolves.toEqual({ outcome: "not_found" });
     await expect(
       harness.repository.claimMediaToken({
         ...claim,
+        callSessionId: terminal.executionSession.callSessionId,
+        dispatchId: terminal.executionSession.dispatchId,
+        tokenHash: terminal.mediaToken.tokenHash,
+      }),
+    ).resolves.toEqual({ outcome: "conflict" });
+    await expect(
+      harness.repository.claimMediaToken({
+        ...claim,
         callSessionId: expired.executionSession.callSessionId,
+        dispatchId: expired.executionSession.dispatchId,
         tokenHash: expired.mediaToken.tokenHash,
       }),
     ).resolves.toEqual({ outcome: "expired" });
@@ -363,6 +392,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       harness.repository.claimMediaToken({
         ...claim,
         callSessionId: expired.executionSession.callSessionId,
+        dispatchId: expired.executionSession.dispatchId,
         tokenHash: expired.mediaToken.tokenHash,
       }),
     ).resolves.toEqual({ outcome: "not_found" });
@@ -371,6 +401,8 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         ...claim,
         tenantId: "tenant-b",
         callSessionId: otherTenantExpired.executionSession.callSessionId,
+        dispatchId: otherTenantExpired.executionSession.dispatchId,
+        connectionId: otherTenantExpired.executionSession.connectionId,
         tokenHash: otherTenantExpired.mediaToken.tokenHash,
       }),
     ).resolves.toEqual({ outcome: "expired" });
@@ -404,6 +436,214 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     await expect(
       harness.repository.recordPhoneTestCheckpoint({ ...checkpoint, tenantId: "tenant-b" }),
     ).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("records the same checkpoint for separate calls in one waiting session", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const first = callSetup("tenant-a", "phone-test-retry-a");
+    const second = callSetup("tenant-a", "phone-test-retry-b");
+    for (const setup of [first, second]) {
+      setup.dispatch.routeMode = "test_route";
+      setup.dispatch.testRouteSessionId = "shared-waiting-session";
+      await harness.repository.createCallSetup(setup);
+    }
+
+    await expect(
+      harness.repository.recordPhoneTestCheckpointByCall({
+        tenantId: "tenant-a",
+        callSessionId: first.executionSession.callSessionId,
+        checkpoint: "verifiedWebhook",
+        observedAt: "2026-07-23T12:00:01.000Z",
+      }),
+    ).resolves.toEqual({ outcome: "inserted" });
+    await expect(
+      harness.repository.recordPhoneTestCheckpointByCall({
+        tenantId: "tenant-a",
+        callSessionId: second.executionSession.callSessionId,
+        checkpoint: "verifiedWebhook",
+        observedAt: "2026-07-23T12:00:02.000Z",
+      }),
+    ).resolves.toEqual({ outcome: "inserted" });
+  });
+
+  it("loads runtime context and advances only the owned lifecycle row", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const first = callSetup("tenant-a", "call-lifecycle-a");
+    const second = callSetup("tenant-a", "call-lifecycle-b");
+    await harness.repository.createCallSetup(first);
+    await harness.repository.createCallSetup(second);
+
+    await expect(
+      harness.repository.loadCallRuntimeContext({
+        tenantId: "tenant-a",
+        callSessionId: first.executionSession.callSessionId,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "found",
+      context: {
+        version: 0,
+        lifecycleState: {
+          stage: "ringing",
+        },
+        runtimePath: "pstn-premium-realtime",
+      },
+    });
+
+    const transition = {
+      tenantId: "tenant-a",
+      callSessionId: first.executionSession.callSessionId,
+      expectedVersion: 0,
+      expectedStage: "ringing" as const,
+      nextState: {
+        stage: "media-connected" as const,
+        observedAt: "2026-07-23T12:00:01.000Z",
+      },
+    };
+    await expect(
+      harness.repository.transitionCallLifecycle(transition),
+    ).resolves.toEqual({ outcome: "updated", version: 1 });
+    await expect(
+      harness.repository.transitionCallLifecycle(transition),
+    ).resolves.toEqual({ outcome: "existing", version: 1 });
+    await expect(
+      harness.repository.transitionCallLifecycle({
+        ...transition,
+        expectedVersion: 1,
+        expectedStage: "media-connected",
+        nextState: {
+          stage: "completed",
+          observedAt: "2026-07-23T12:00:02.000Z",
+        },
+        nextStatus: "completed",
+      }),
+    ).resolves.toEqual({ outcome: "updated", version: 2 });
+    await expect(
+      harness.repository.transitionCallLifecycle({
+        ...transition,
+        expectedVersion: 2,
+        expectedStage: "completed",
+        nextState: {
+          stage: "active",
+          observedAt: "2026-07-23T12:00:03.000Z",
+        },
+        nextStatus: "active",
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 2 });
+    await expect(
+      harness.repository.loadCallRuntimeContext({
+        tenantId: "tenant-a",
+        callSessionId: second.executionSession.callSessionId,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "found",
+      context: {
+        version: 0,
+        lifecycleState: { stage: "ringing" },
+      },
+    });
+    await expect(
+      harness.repository.loadCallRuntimeContext({
+        tenantId: "tenant-b",
+        callSessionId: first.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("resolves a phone-test checkpoint from the durable call without snapshot state", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "call-checkpoint-by-call");
+    setup.dispatch.routeMode = "test_route";
+    setup.dispatch.testRouteSessionId = "test-route-by-call";
+    await harness.repository.createCallSetup(setup);
+
+    const checkpoint = {
+      tenantId: "tenant-a",
+      callSessionId: setup.executionSession.callSessionId,
+      checkpoint: "inboundFrameReceived",
+      observedAt: "2026-07-23T12:00:01.000Z",
+    };
+    await expect(
+      harness.repository.recordPhoneTestCheckpointByCall(checkpoint),
+    ).resolves.toEqual({ outcome: "inserted" });
+    await expect(
+      harness.repository.recordPhoneTestCheckpointByCall({
+        ...checkpoint,
+        observedAt: "2026-07-23T12:00:02.000Z",
+      }),
+    ).resolves.toEqual({ outcome: "existing" });
+    await expect(
+      harness.repository.recordPhoneTestCheckpointByCall({
+        ...checkpoint,
+        tenantId: "tenant-b",
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+
+    const liveSetup = callSetup("tenant-a", "call-live-no-checkpoint");
+    await harness.repository.createCallSetup(liveSetup);
+    await expect(
+      harness.repository.recordPhoneTestCheckpointByCall({
+        ...checkpoint,
+        callSessionId: liveSetup.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({ outcome: "not_applicable" });
+  });
+
+  it("derives only a complete tenant-owned phone test as successful", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "call-successful-phone-test");
+    setup.dispatch.routeMode = "test_route";
+    setup.dispatch.testRouteSessionId = "test-route-successful";
+    setup.dispatch.runtimeProfile = "cost-optimized";
+    await harness.repository.createCallSetup(setup);
+
+    const query = {
+      tenantId: "tenant-a",
+      phoneNumberId: setup.dispatch.phoneNumberId!,
+      publishedVersionId: setup.dispatch.publishedVersionId!,
+      runtimeProfile: "cost-optimized" as const,
+    };
+    await expect(harness.repository.loadLatestSuccessfulPhoneTest(query)).resolves.toBeNull();
+
+    const checkpoints = [
+      "verifiedWebhook",
+      "allowedCallerMatched",
+      "mediaWebSocketConnected",
+      "inboundFrameReceived",
+      "transcriptCreated",
+      "agentResponseGenerated",
+      "outboundAudioSent",
+      "cleanEnd",
+      "noFatalError",
+    ];
+    for (const [index, checkpoint] of checkpoints.entries()) {
+      await harness.repository.recordPhoneTestCheckpointByCall({
+        tenantId: query.tenantId,
+        callSessionId: setup.executionSession.callSessionId,
+        checkpoint,
+        observedAt: `2026-07-23T12:00:${String(index).padStart(2, "0")}.000Z`,
+      });
+    }
+
+    await expect(harness.repository.loadLatestSuccessfulPhoneTest(query)).resolves.toMatchObject({
+      id: "test-route-successful:passed",
+      tenantId: "tenant-a",
+      numberId: "number-a",
+      sessionId: "test-route-successful",
+      status: "passed",
+      publishedVersionId: "workflow-v1",
+      runtimeProfile: "cost-optimized",
+      checklist: Object.fromEntries(checkpoints.map((checkpoint) => [checkpoint, true])),
+    });
+    await expect(
+      harness.repository.loadLatestSuccessfulPhoneTest({
+        ...query,
+        tenantId: "tenant-b",
+      }),
+    ).resolves.toBeNull();
   });
 });
 
@@ -464,6 +704,10 @@ function callSetup(tenantId: string, suffix: string): CreateTelephonyCallSetupIn
       ownershipMode: "byo_provider_account",
       direction: "inbound",
       status: "ringing",
+      lifecycleState: {
+        stage: "ringing",
+        observedAt: "2026-07-23T12:00:00.000Z",
+      },
       toPhoneNumber: "+15550001000",
       fromPhoneNumber: "+15550002000",
       workflowLabel: "Support",
@@ -489,7 +733,10 @@ function callSetup(tenantId: string, suffix: string): CreateTelephonyCallSetupIn
 }
 
 async function createHarness() {
-  const database = newDb({ autoCreateForeignKeyIndices: true });
+  const database = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
   const pg = database.adapters.createPg();
   const pool = new pg.Pool() as Pool;
   await pool.query(`
@@ -528,7 +775,7 @@ async function createHarness() {
       workflow_label text, workspace_id text, test_call boolean NOT NULL,
       bridge_kind text NOT NULL, bridge_target text NOT NULL, media_path text NOT NULL,
       outage_mode text, fallback_target text, recording_consent jsonb,
-      diagnostics jsonb NOT NULL, policy_state jsonb,
+      diagnostics jsonb NOT NULL, policy_state jsonb, lifecycle_state jsonb NOT NULL,
       created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL
     );
     CREATE TABLE telephony_webhook_events (
@@ -558,7 +805,7 @@ async function createHarness() {
       phone_number_id text NOT NULL REFERENCES telephony_phone_numbers(id) ON DELETE CASCADE,
       call_session_id text NOT NULL, test_route_session_id text NOT NULL,
       checkpoint text NOT NULL, observed_at timestamptz NOT NULL,
-      UNIQUE (tenant_id, test_route_session_id, checkpoint)
+      UNIQUE (tenant_id, call_session_id, checkpoint)
     );
     INSERT INTO tenants (id) VALUES ('tenant-a'), ('tenant-b');
     INSERT INTO telephony_connections (id, tenant_id)

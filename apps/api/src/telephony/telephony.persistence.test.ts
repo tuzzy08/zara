@@ -343,9 +343,10 @@ describe("telephony persistence and secret storage", () => {
     });
   });
 
-  it("serializes concurrent tenant checkpoint saves without losing either checkpoint", async () => {
+  it("records concurrent tenant checkpoints incrementally without snapshot saves", async () => {
     tempDirectory = mkdtempSync(join(tmpdir(), "zara-telephony-"));
     const repository = new DelayedFileTelephonyStateRepository(join(tempDirectory, "telephony-store"));
+    const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
     const service = new TelephonyService(
       repository,
       new TelephonySecretVault({
@@ -354,7 +355,7 @@ describe("telephony persistence and secret storage", () => {
       }),
       createGeneratedTwilioInventoryProvider(),
       createNoopTwilioRoutingProvider(),
-      new InMemoryTelephonyIncrementalRepository(),
+      incrementalRepository,
     );
     const organizationId = "tenant-west-africa";
     const connection = await service.createConnection({
@@ -400,6 +401,25 @@ describe("telephony persistence and secret storage", () => {
       now: "2026-07-17T20:01:00.000Z",
     });
     expect(routed.dispatch.routeMode).toBe("test_route");
+    if (routed.session?.lifecycleState === undefined) {
+      throw new Error("Expected a routed execution session with lifecycle state.");
+    }
+    await incrementalRepository.createCallSetup({
+      dispatch: routed.dispatch,
+      executionSession: {
+        ...routed.session,
+        lifecycleState: routed.session.lifecycleState,
+      },
+      mediaToken: {
+        tenantId: organizationId,
+        callSessionId: routed.dispatch.callSessionId!,
+        dispatchId: routed.dispatch.id,
+        connectionId: routed.dispatch.connectionId!,
+        tokenHash: "incremental-checkpoint-test-token",
+        createdAt: "2026-07-17T20:01:00.000Z",
+        expiresAt: "2026-07-17T20:06:00.000Z",
+      },
+    });
     repository.delaySaves = true;
 
     await Promise.all([
@@ -415,12 +435,10 @@ describe("telephony persistence and secret storage", () => {
       }),
     ]);
 
-    expect(repository.maximumConcurrentSaves).toBe(1);
-    expect((await service.getState(organizationId)).phoneNumbers[0]?.testRoute?.waitingSession.checklist)
-      .toMatchObject({
-        outboundAudioSent: true,
-        agentResponseGenerated: true,
-      });
+    expect(repository.maximumConcurrentSaves).toBe(0);
+    expect(
+      incrementalRepository.phoneTestCheckpoints.map(({ checkpoint }) => checkpoint).sort(),
+    ).toEqual(["agentResponseGenerated", "outboundAudioSent"]);
   });
 
   it("imports real Twilio inventory from the connected account instead of generated fixtures", async () => {

@@ -142,6 +142,16 @@ describe("Twilio Media Streams websocket bridge", () => {
 
     const bridge = moduleRef.get(TwilioMediaStreamsWebSocketBridge);
     await withTimeout(waitFor(() => bridge.getSessionEvents(callSessionId).some((event) => event.type === "media")), "media event");
+    const incrementalRepository = moduleRef.get(
+      TELEPHONY_INCREMENTAL_REPOSITORY,
+    ) as InMemoryTelephonyIncrementalRepository;
+    await withTimeout(
+      waitFor(() => incrementalRepository.callLifecycleTransitions.length >= 2),
+      "sandwich lifecycle activation",
+    );
+    expect(
+      incrementalRepository.callLifecycleTransitions.map((transition) => transition.nextState.stage),
+    ).toEqual(["media-connected", "active"]);
     await withTimeout(waitFor(async () => {
       const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/telephony/state");
       return JSON.stringify(stateResponse.body).includes("dtmf.received");
@@ -242,6 +252,9 @@ describe("Twilio Media Streams websocket bridge", () => {
     const close = await withTimeout(nextClose(socket), "twilio stop close");
     expect(close.code).toBe(1000);
     expect(close.reason).toBe("twilio_stop");
+    expect(
+      incrementalRepository.callLifecycleTransitions.map((transition) => transition.nextState.stage),
+    ).toEqual(["media-connected", "active", "draining", "completed"]);
     expect(capacityEvents).toEqual(expect.arrayContaining([
       "socket:twilio",
       "socket:authorized",
@@ -379,7 +392,11 @@ describe("Twilio Media Streams websocket bridge", () => {
     const starts: Array<{ callSessionId: string; output: PstnPremiumCallOutput }> = [];
     const frames: PstnAudioFrame[] = [];
     const playbackMarks: Array<{ callSessionId: string; name: string }> = [];
-    const stops: string[] = [];
+    const stops: Array<{
+      callSessionId: string;
+      outcome?: "completed" | "failed";
+      reasonCode?: string;
+    }> = [];
     const bridgeTerminalCalls: string[] = [];
     const premiumExecution = {
       async start(input: { callSessionId: string; output: PstnPremiumCallOutput }) {
@@ -391,8 +408,12 @@ describe("Twilio Media Streams websocket bridge", () => {
       acknowledgePlaybackMark(input: { callSessionId: string; name: string }) {
         playbackMarks.push(input);
       },
-      async stop(input: { callSessionId: string }) {
-        stops.push(input.callSessionId);
+      async stop(input: {
+        callSessionId: string;
+        outcome?: "completed" | "failed";
+        reasonCode?: string;
+      }) {
+        stops.push(input);
       },
     };
     const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
@@ -484,8 +505,73 @@ describe("Twilio Media Streams websocket bridge", () => {
       stop: { accountSid: "AC1234567890abcdef1234567890abcd", callSid },
     }));
     await withTimeout(nextClose(socket), "premium websocket close");
-    await withTimeout(waitFor(() => stops.includes(callSessionId)), "premium execution stop");
+    await withTimeout(waitFor(() => stops.length > 0), "premium execution stop");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stops).toEqual([{
+      callSessionId,
+      outcome: "completed",
+      reasonCode: "twilio_stop",
+    }]);
     expect(bridgeTerminalCalls).toEqual([]);
+    await app.close();
+  }, 30_000);
+
+  it("fails premium execution when an authorized Twilio media socket closes abnormally", async () => {
+    const stops: Array<{
+      callSessionId: string;
+      outcome?: "completed" | "failed";
+      reasonCode?: string;
+    }> = [];
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        async start() {},
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        async stop(input) {
+          stops.push({
+            callSessionId: input.callSessionId,
+            ...(input.outcome === undefined ? {} : { outcome: input.outcome }),
+            ...(input.reasonCode === undefined ? {} : { reasonCode: input.reasonCode }),
+          });
+        },
+      },
+    });
+    const callSid = "CA-premium-abnormal-close";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-abnormal-close",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
+    const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`);
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium abnormal-close websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-abnormal-close",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() => bridge.getSessionEvents(callSessionId).some((event) => event.type === "started")),
+      "premium abnormal-close start",
+    );
+
+    socket.close(1001, "client_shutdown");
+    await withTimeout(nextClose(socket), "premium abnormal-close websocket close");
+    await withTimeout(waitFor(() => stops.length === 1), "premium abnormal-close execution stop");
+    expect(stops).toEqual([{
+      callSessionId,
+      outcome: "failed",
+      reasonCode: "twilio_media_socket_closed_1001",
+    }]);
+
     await app.close();
   }, 30_000);
 

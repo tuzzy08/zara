@@ -184,6 +184,190 @@ describe("TelephonyService incremental inbound persistence", () => {
     expect(state.dispatches).toEqual([]);
     expect(state.executionSessions).toEqual([]);
   });
+
+  it("authorizes and atomically claims a durable media token after process restart", async () => {
+    const harness = await createReadyHarness();
+    const response = await answer(
+      harness.service,
+      "CA-incremental-restart-auth",
+      "EV-incremental-restart-auth",
+    );
+    const restarted = createService(harness.stateRepository, harness.incrementalRepository);
+    harness.stateRepository.resetSaveCount();
+
+    const authorization = await restarted.authorizeTwilioMediaStream({
+      callSessionId: "CA-incremental-restart-auth:telephony",
+      token: extractStreamToken(response.twiml),
+    });
+
+    expect(authorization).toMatchObject({
+      organizationId,
+      callSessionId: "CA-incremental-restart-auth:telephony",
+      runtimePath: "pstn-sandwich",
+    });
+    expect(harness.stateRepository.saveCount).toBe(0);
+    expect(harness.incrementalRepository.mediaTokenClaims).toHaveLength(1);
+  });
+
+  it("allows exactly one concurrent media-token claim", async () => {
+    const harness = await createReadyHarness();
+    const response = await answer(
+      harness.service,
+      "CA-incremental-concurrent-auth",
+      "EV-incremental-concurrent-auth",
+    );
+    const token = extractStreamToken(response.twiml);
+    const firstReplica = createService(harness.stateRepository, harness.incrementalRepository);
+    const secondReplica = createService(harness.stateRepository, harness.incrementalRepository);
+
+    const authorizations = await Promise.all([
+      firstReplica.authorizeTwilioMediaStream({
+        callSessionId: "CA-incremental-concurrent-auth:telephony",
+        token,
+      }),
+      secondReplica.authorizeTwilioMediaStream({
+        callSessionId: "CA-incremental-concurrent-auth:telephony",
+        token,
+      }),
+    ]);
+
+    expect(authorizations.filter((authorization) => authorization !== null)).toHaveLength(1);
+    expect(harness.incrementalRepository.mediaTokenClaims).toHaveLength(2);
+  });
+
+  it("persists media lifecycle and phone-test checkpoints without a tenant snapshot save", async () => {
+    const harness = await createReadyHarness({ testRoute: true });
+    await answer(
+      harness.service,
+      "CA-incremental-lifecycle",
+      "EV-incremental-lifecycle",
+    );
+    harness.stateRepository.resetSaveCount();
+
+    await harness.service.recordTwilioMediaStreamLifecycle({
+      organizationId,
+      callSessionId: "CA-incremental-lifecycle:telephony",
+      streamSid: "MZ-incremental-lifecycle",
+      status: "active",
+      at: "2026-07-23T12:00:01.000Z",
+    });
+    await harness.service.recordPstnPhoneTestCheckpoint({
+      organizationId,
+      callSessionId: "CA-incremental-lifecycle:telephony",
+      checkpoint: "inboundFrameReceived",
+      at: "2026-07-23T12:00:02.000Z",
+    });
+    await harness.service.recordTwilioMediaStreamLifecycle({
+      organizationId,
+      callSessionId: "CA-incremental-lifecycle:telephony",
+      streamSid: "MZ-incremental-lifecycle",
+      status: "completed",
+      at: "2026-07-23T12:00:03.000Z",
+    });
+
+    expect(harness.stateRepository.saveCount).toBe(0);
+    expect(harness.incrementalRepository.callLifecycleTransitions).toHaveLength(2);
+    expect(harness.incrementalRepository.phoneTestCheckpoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ checkpoint: "mediaWebSocketConnected" }),
+        expect.objectContaining({ checkpoint: "inboundFrameReceived" }),
+        expect.objectContaining({ checkpoint: "cleanEnd" }),
+        expect.objectContaining({ checkpoint: "noFatalError" }),
+      ]),
+    );
+  });
+
+  it("does not discard a legal lifecycle transition after three CAS conflicts", async () => {
+    const harness = await createReadyHarness();
+    await answer(
+      harness.service,
+      "CA-incremental-contention",
+      "EV-incremental-contention",
+    );
+    harness.incrementalRepository.callLifecycleConflictsRemaining = 3;
+
+    await expect(
+      harness.service.recordPstnCallLifecycle({
+        organizationId,
+        callSessionId: "CA-incremental-contention:telephony",
+        stage: "media-connected",
+        at: "2026-07-23T12:00:01.000Z",
+      }),
+    ).resolves.toMatchObject({ outcome: "applied" });
+    expect(
+      harness.incrementalRepository.callSetups.find(
+        (setup) =>
+          setup.executionSession.callSessionId === "CA-incremental-contention:telephony",
+      )?.executionSession.lifecycleState.stage,
+    ).toBe("media-connected");
+  });
+
+  it("does not revive a completed session when an active media event arrives late", async () => {
+    const harness = await createReadyHarness();
+    await answer(
+      harness.service,
+      "CA-incremental-terminal",
+      "EV-incremental-terminal",
+    );
+    harness.stateRepository.resetSaveCount();
+
+    await harness.service.recordTwilioMediaStreamLifecycle({
+      organizationId,
+      callSessionId: "CA-incremental-terminal:telephony",
+      streamSid: "MZ-incremental-terminal",
+      status: "completed",
+      at: "2026-07-23T12:00:03.000Z",
+    });
+    await harness.service.recordTwilioMediaStreamLifecycle({
+      organizationId,
+      callSessionId: "CA-incremental-terminal:telephony",
+      streamSid: "MZ-incremental-terminal",
+      status: "active",
+      at: "2026-07-23T12:00:01.000Z",
+    });
+
+    expect(harness.stateRepository.saveCount).toBe(0);
+    expect(
+      harness.incrementalRepository.callSetups.find(
+        (setup) =>
+          setup.executionSession.callSessionId === "CA-incremental-terminal:telephony",
+      )?.executionSession.status,
+    ).toBe("completed");
+  });
+
+  it("applies duplicate and reordered Twilio status callbacks idempotently", async () => {
+    const harness = await createReadyHarness();
+    await answer(
+      harness.service,
+      "CA-incremental-status",
+      "EV-incremental-status",
+    );
+    harness.stateRepository.resetSaveCount();
+
+    await sendStatusCallback(harness.service, {
+      CallSid: "CA-incremental-status",
+      CallStatus: "completed",
+      SequenceNumber: "4",
+    });
+    await sendStatusCallback(harness.service, {
+      CallSid: "CA-incremental-status",
+      CallStatus: "completed",
+      SequenceNumber: "4",
+    });
+    await sendStatusCallback(harness.service, {
+      CallSid: "CA-incremental-status",
+      CallStatus: "in-progress",
+      SequenceNumber: "3",
+    });
+
+    expect(harness.stateRepository.saveCount).toBe(0);
+    expect(
+      harness.incrementalRepository.callSetups.find(
+        (setup) =>
+          setup.executionSession.callSessionId === "CA-incremental-status:telephony",
+      )?.executionSession.status,
+    ).toBe("completed");
+  });
 });
 
 async function createReadyHarness(
@@ -275,6 +459,31 @@ async function answer(service: TelephonyService, callSid: string, eventSid: stri
   return service.handleTwilioWebhook({
     signature: computeTwilioWebhookSignature({
       url: webhookUrl,
+      parameters: payload,
+      authToken,
+    }),
+    payload,
+  });
+}
+
+async function sendStatusCallback(
+  service: TelephonyService,
+  input: {
+    CallSid: string;
+    CallStatus: string;
+    SequenceNumber: string;
+  },
+) {
+  const payload = {
+    AccountSid: accountSid,
+    Direction: "inbound",
+    From: "+233201110001",
+    To: "+14155557890",
+    ...input,
+  };
+  return service.handleTwilioStatusCallback({
+    signature: computeTwilioWebhookSignature({
+      url: `${webhookUrl}/status`,
       parameters: payload,
       authToken,
     }),
