@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getTableColumns, getTableName } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import { drizzleConfigValues } from "./drizzle-config";
@@ -330,6 +331,46 @@ describe("database foundations", () => {
     expect(rollbackFile).toContain("Cannot restore legacy webhook uniqueness");
     expect(migrationJournal.entries).toContainEqual(
       expect.objectContaining({ tag: "0009_telephony_incremental_persistence" }),
+    );
+  });
+
+  it("scopes execution command and call-control event identities by tenant with rollback", () => {
+    const commandPrimaryKey = getTableConfig(telephonyExecutionCommands).primaryKeys[0];
+    const eventPrimaryKey = getTableConfig(telephonyCallControlEvents).primaryKeys[0];
+    expect(commandPrimaryKey?.columns.map((column) => column.name)).toEqual([
+      "tenant_id",
+      "id",
+    ]);
+    expect(eventPrimaryKey?.columns.map((column) => column.name)).toEqual([
+      "tenant_id",
+      "id",
+    ]);
+
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0011_telephony_tenant_composite_identities.sql",
+      ),
+      "utf8",
+    );
+    const rollbackFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "docs/Runbooks/rollback-0011-telephony-tenant-composite-identities.sql",
+      ),
+      "utf8",
+    );
+    expect(migrationFile).toContain(
+      'PRIMARY KEY ("tenant_id","id")',
+    );
+    expect(migrationFile).toContain(
+      'ALTER TABLE "telephony_call_control_events" DROP CONSTRAINT',
+    );
+    expect(rollbackFile).toContain(
+      "Cannot restore global telephony execution-command identity",
+    );
+    expect(rollbackFile).toContain(
+      "Cannot restore global telephony call-control event identity",
     );
   });
 

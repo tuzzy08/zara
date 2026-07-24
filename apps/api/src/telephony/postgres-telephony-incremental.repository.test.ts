@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { newDb } from "pg-mem";
 
 import { PostgresTelephonyIncrementalRepository } from "./postgres-telephony-incremental.repository";
-import type { CreateTelephonyCallSetupInput } from "./telephony-incremental.repository";
+import type {
+  CreateTelephonyCallExecutionInput,
+  CreateTelephonyCallSetupInput,
+} from "./telephony-incremental.repository";
 import { hashOneTimeStreamToken } from "../security/one-time-stream-token";
 
 describe("PostgresTelephonyIncrementalRepository", () => {
@@ -135,12 +138,81 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     const counts = await harness.pool.query<{ table_name: string; count: string }>(`
       SELECT 'dispatches' AS table_name, count(*)::text AS count FROM telephony_dispatches
       UNION ALL SELECT 'sessions', count(*)::text FROM telephony_execution_sessions
+      UNION ALL SELECT 'commands', count(*)::text FROM telephony_execution_commands
       UNION ALL SELECT 'tokens', count(*)::text FROM telephony_media_stream_tokens
     `);
     expect(counts.rows).toEqual([
       { table_name: "dispatches", count: "2" },
       { table_name: "sessions", count: "2" },
+      { table_name: "commands", count: "2" },
       { table_name: "tokens", count: "2" },
+    ]);
+  });
+
+  it("records incremental pool, transaction, row-lock, deadlock, and retry metrics nonfatally", async () => {
+    const recordDatabaseOperation = vi.fn();
+    const harness = await createHarness({ recordDatabaseOperation });
+    pool = harness.pool;
+
+    await expect(
+      harness.repository.createCallSetup(callSetup("tenant-a", "observed-call")),
+    ).resolves.toEqual({ outcome: "inserted", mediaToken: "created" });
+
+    expect(recordDatabaseOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "telephony_call_setup_create",
+        outcome: "success",
+        queryDurationMs: expect.any(Number),
+        transactionDurationMs: expect.any(Number),
+        poolAcquisitionWaitMs: expect.any(Number),
+        rowLockWaitMs: expect.any(Number),
+        deadlockCount: 0,
+        retryCount: 0,
+      }),
+    );
+
+    recordDatabaseOperation.mockImplementation(() => {
+      throw new Error("metrics exporter unavailable");
+    });
+    await expect(
+      harness.repository.createCallSetup(callSetup("tenant-a", "metrics-failure")),
+    ).resolves.toEqual({ outcome: "inserted", mediaToken: "created" });
+  });
+
+  it("creates tokenless call execution with required commands atomically and idempotently", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "tokenless-call");
+    const execution: CreateTelephonyCallExecutionInput = {
+      dispatch: setup.dispatch,
+      executionSession: setup.executionSession,
+      executionCommands: setup.executionCommands,
+    };
+
+    await expect(harness.repository.createCallExecution(execution)).resolves.toEqual({
+      outcome: "inserted",
+    });
+    await expect(harness.repository.createCallExecution(execution)).resolves.toEqual({
+      outcome: "existing",
+    });
+
+    const conflicting = structuredClone(execution);
+    conflicting.executionCommands[0]!.target = "+15550009999";
+    await expect(harness.repository.createCallExecution(conflicting)).resolves.toEqual({
+      outcome: "conflict",
+    });
+
+    const counts = await harness.pool.query<{ table_name: string; count: string }>(`
+      SELECT 'dispatches' AS table_name, count(*)::text AS count FROM telephony_dispatches
+      UNION ALL SELECT 'sessions', count(*)::text FROM telephony_execution_sessions
+      UNION ALL SELECT 'commands', count(*)::text FROM telephony_execution_commands
+      UNION ALL SELECT 'tokens', count(*)::text FROM telephony_media_stream_tokens
+    `);
+    expect(counts.rows).toEqual([
+      { table_name: "dispatches", count: "1" },
+      { table_name: "sessions", count: "1" },
+      { table_name: "commands", count: "1" },
+      { table_name: "tokens", count: "0" },
     ]);
   });
 
@@ -296,6 +368,171 @@ describe("PostgresTelephonyIncrementalRepository", () => {
 
   });
 
+  it("loads the owned mutation context and records call control atomically", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "call-control");
+    await harness.repository.createCallSetup(setup);
+
+    await expect(
+      harness.repository.loadCallMutationContext({
+        tenantId: "tenant-a",
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({
+      outcome: "found",
+      context: {
+        dispatch: setup.dispatch,
+        executionSession: setup.executionSession,
+        version: 0,
+      },
+    });
+    await expect(
+      harness.repository.loadCallMutationContext({
+        tenantId: "tenant-b",
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+
+    const event = {
+      id: "shared-control-event",
+      tenantId: "tenant-a",
+      dispatchId: setup.dispatch.id,
+      callSessionId: setup.executionSession.callSessionId,
+      eventType: "dtmf.received" as const,
+      at: "2026-07-23T12:00:01.000Z",
+      summary: "Caller selected support.",
+      payload: { digit: "1" },
+    };
+    const command = {
+      id: "shared-control-command",
+      tenantId: "tenant-a",
+      sessionId: setup.executionSession.id,
+      dispatchId: setup.dispatch.id,
+      callSessionId: setup.executionSession.callSessionId,
+      provider: "twilio" as const,
+      action: "twilio.dtmf.received",
+      status: "applied" as const,
+      target: setup.executionSession.bridgeTarget,
+      payload: { digit: "1" },
+      requestedAt: event.at,
+      appliedAt: event.at,
+    };
+    const mutation = {
+      tenantId: "tenant-a",
+      callSessionId: setup.executionSession.callSessionId,
+      dispatchId: setup.dispatch.id,
+      expectedVersion: 0,
+      expectedStatus: "ringing" as const,
+      session: {
+        status: "active" as const,
+        outageMode: null,
+        fallbackTarget: null,
+        diagnostics: [event.summary],
+        updatedAt: event.at,
+      },
+      event,
+      executionCommands: [command],
+    };
+
+    await expect(harness.repository.recordCallControlMutation(mutation)).resolves.toEqual({
+      outcome: "updated",
+      version: 1,
+    });
+    const reloaded = await harness.repository.loadCallMutationContext({
+      tenantId: mutation.tenantId,
+      callSessionId: mutation.callSessionId,
+    });
+    expect(reloaded.outcome).toBe("found");
+    const reloadedVersion = reloaded.outcome === "found" ? reloaded.context.version : -1;
+    await expect(
+      harness.repository.recordCallControlMutation({
+        ...mutation,
+        expectedVersion: reloadedVersion,
+        expectedStatus: "active",
+        session: {
+          ...mutation.session,
+          diagnostics: [event.summary, event.summary],
+        },
+      }),
+    ).resolves.toEqual({
+      outcome: "existing",
+      version: 1,
+    });
+    await expect(harness.repository.recordCallControlMutation(mutation)).resolves.toEqual({
+      outcome: "existing",
+      version: 1,
+    });
+    await expect(
+      harness.repository.recordCallControlMutation({
+        ...mutation,
+        expectedVersion: 1,
+        expectedStatus: "active",
+        event: {
+          ...event,
+          payload: { digit: "2" },
+        },
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 1 });
+    await expect(
+      harness.repository.recordCallControlMutation({
+        ...mutation,
+        tenantId: "tenant-b",
+        event: { ...event, tenantId: "tenant-b" },
+        executionCommands: [{ ...command, tenantId: "tenant-b" }],
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+
+    const terminalAt = "2026-07-23T12:00:02.000Z";
+    await expect(
+      harness.repository.recordCallControlMutation({
+        ...mutation,
+        expectedVersion: 1,
+        expectedStatus: "active",
+        session: {
+          ...mutation.session,
+          status: "completed",
+          diagnostics: [event.summary, "Callback scheduled."],
+          updatedAt: terminalAt,
+        },
+        event: {
+          ...event,
+          id: "terminal-control-event",
+          eventType: "callback.scheduled",
+          at: terminalAt,
+          summary: "Callback scheduled.",
+        },
+        executionCommands: [
+          {
+            ...command,
+            id: "terminal-control-command",
+            action: "twilio.call.complete",
+            requestedAt: terminalAt,
+            appliedAt: terminalAt,
+          },
+        ],
+      }),
+    ).resolves.toEqual({ outcome: "updated", version: 2 });
+    await expect(
+      harness.repository.recordCallControlMutation({
+        ...mutation,
+        expectedVersion: 2,
+        expectedStatus: "completed",
+        event: { ...event, id: "late-control-event" },
+        executionCommands: [{ ...command, id: "late-control-command" }],
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 2 });
+
+    const counts = await harness.pool.query<{ table_name: string; count: string }>(`
+      SELECT 'events' AS table_name, count(*)::text AS count FROM telephony_call_control_events
+      UNION ALL SELECT 'commands', count(*)::text FROM telephony_execution_commands
+    `);
+    expect(counts.rows).toEqual([
+      { table_name: "events", count: "2" },
+      { table_name: "commands", count: "3" },
+    ]);
+  });
+
   it("claims bounded media-token hashes once and rejects expired or cross-tenant claims", async () => {
     const harness = await createHarness();
     pool = harness.pool;
@@ -436,6 +673,95 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     await expect(
       harness.repository.recordPhoneTestCheckpoint({ ...checkpoint, tenantId: "tenant-b" }),
     ).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("updates only the owned phone-test projection with compare-and-swap idempotency", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const testRoute = phoneTestRoute();
+    const phoneTestResults = [phoneTestResult("tenant-a", "number-a")];
+    const mutation = {
+      tenantId: "tenant-a",
+      phoneNumberId: "number-a",
+      expectedTestRoute: null,
+      expectedPhoneTestResults: null,
+      testRoute,
+      phoneTestResults,
+    };
+
+    await expect(harness.repository.updatePhoneTestProjection(mutation)).resolves.toEqual({
+      outcome: "updated",
+    });
+    await expect(harness.repository.updatePhoneTestProjection(mutation)).resolves.toEqual({
+      outcome: "existing",
+    });
+    await expect(
+      harness.repository.updatePhoneTestProjection({
+        ...mutation,
+        testRoute: {
+          ...testRoute,
+          waitingSession: { ...testRoute.waitingSession, status: "expired" },
+        },
+      }),
+    ).resolves.toEqual({ outcome: "conflict" });
+    await expect(
+      harness.repository.updatePhoneTestProjection({
+        ...mutation,
+        tenantId: "tenant-b",
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("records an outbound abuse block and disables owned connections atomically", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const dispatch = structuredClone(callSetup("tenant-a", "abuse-block").dispatch);
+    dispatch.direction = "outbound";
+    dispatch.disposition = "blocked";
+    dispatch.reason = "Outbound abuse threshold exceeded.";
+    delete dispatch.callSessionId;
+
+    await expect(
+      harness.repository.recordOutboundAbuseBlock({
+        dispatch,
+        connectionIds: ["connection-tenant-a", "connection-tenant-a-fallback"],
+      }),
+    ).resolves.toEqual({
+      outcome: "inserted",
+      connectionCount: 2,
+    });
+    await expect(
+      harness.repository.recordOutboundAbuseBlock({
+        dispatch,
+        connectionIds: ["connection-tenant-a-fallback", "connection-tenant-a"],
+      }),
+    ).resolves.toEqual({
+      outcome: "existing",
+      connectionCount: 2,
+    });
+    const crossTenantDispatch = {
+      ...dispatch,
+      id: "cross-tenant-abuse-block",
+    };
+    await expect(
+      harness.repository.recordOutboundAbuseBlock({
+        dispatch: crossTenantDispatch,
+        connectionIds: ["connection-tenant-b"],
+      }),
+    ).resolves.toEqual({ outcome: "conflict", connectionCount: 0 });
+    expect(
+      (
+        await harness.pool.query(
+          "select id from telephony_dispatches where tenant_id = $1 and id = $2",
+          ["tenant-a", crossTenantDispatch.id],
+        )
+      ).rows,
+    ).toEqual([]);
+    const tenantB = await harness.pool.query(
+      "select status, health_status from telephony_connections where tenant_id = $1",
+      ["tenant-b"],
+    );
+    expect(tenantB.rows).toEqual([{ status: "active", health_status: "healthy" }]);
   });
 
   it("records the same checkpoint for separate calls in one waiting session", async () => {
@@ -720,6 +1046,22 @@ function callSetup(tenantId: string, suffix: string): CreateTelephonyCallSetupIn
       createdAt: "2026-07-23T12:00:00.000Z",
       updatedAt: "2026-07-23T12:00:00.000Z",
     },
+    executionCommands: [
+      {
+        id: `execution-${suffix}:bridge:1`,
+        tenantId,
+        sessionId: `execution-${suffix}`,
+        dispatchId,
+        callSessionId,
+        provider: "twilio",
+        action: "twilio.connect-stream",
+        status: "applied",
+        target: "+15550001000",
+        payload: { runtimePath: "pstn-premium-realtime" },
+        requestedAt: "2026-07-23T12:00:00.000Z",
+        appliedAt: "2026-07-23T12:00:00.000Z",
+      },
+    ],
     mediaToken: {
       tenantId,
       callSessionId,
@@ -732,7 +1074,9 @@ function callSetup(tenantId: string, suffix: string): CreateTelephonyCallSetupIn
   };
 }
 
-async function createHarness() {
+async function createHarness(
+  observability?: { recordDatabaseOperation(input: Record<string, unknown>): void },
+) {
   const database = newDb({
     autoCreateForeignKeyIndices: true,
     noAstCoverageCheck: true,
@@ -743,12 +1087,16 @@ async function createHarness() {
     CREATE TABLE tenants (id text PRIMARY KEY);
     CREATE TABLE telephony_connections (
       id text PRIMARY KEY,
-      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      status text NOT NULL DEFAULT 'active',
+      health_status text NOT NULL DEFAULT 'healthy'
     );
     CREATE TABLE telephony_phone_numbers (
       id text PRIMARY KEY,
       tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-      connection_id text NOT NULL REFERENCES telephony_connections(id) ON DELETE CASCADE
+      connection_id text NOT NULL REFERENCES telephony_connections(id) ON DELETE CASCADE,
+      test_route jsonb,
+      phone_test_results jsonb
     );
     CREATE TABLE telephony_dispatches (
       id text PRIMARY KEY,
@@ -764,7 +1112,7 @@ async function createHarness() {
     CREATE UNIQUE INDEX telephony_dispatches_tenant_call_session_unique_idx
       ON telephony_dispatches (tenant_id, call_session_id);
     CREATE TABLE telephony_execution_sessions (
-      id text PRIMARY KEY,
+      id text NOT NULL,
       tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
       dispatch_id text NOT NULL REFERENCES telephony_dispatches(id) ON DELETE CASCADE,
       call_session_id text NOT NULL,
@@ -776,7 +1124,25 @@ async function createHarness() {
       bridge_kind text NOT NULL, bridge_target text NOT NULL, media_path text NOT NULL,
       outage_mode text, fallback_target text, recording_consent jsonb,
       diagnostics jsonb NOT NULL, policy_state jsonb, lifecycle_state jsonb NOT NULL,
-      created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL
+      created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL,
+      PRIMARY KEY (tenant_id, id)
+    );
+    CREATE TABLE telephony_execution_commands (
+      id text NOT NULL,
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      session_id text NOT NULL,
+      dispatch_id text NOT NULL,
+      call_session_id text NOT NULL,
+      provider text NOT NULL,
+      action text NOT NULL,
+      status text NOT NULL,
+      target text NOT NULL,
+      payload jsonb NOT NULL,
+      requested_at timestamptz NOT NULL,
+      applied_at timestamptz,
+      PRIMARY KEY (tenant_id, id),
+      FOREIGN KEY (tenant_id, session_id)
+        REFERENCES telephony_execution_sessions(tenant_id, id) ON DELETE CASCADE
     );
     CREATE TABLE telephony_webhook_events (
       id text PRIMARY KEY,
@@ -785,6 +1151,18 @@ async function createHarness() {
       account_sid text NOT NULL, call_sid text NOT NULL, event_sid text NOT NULL,
       event_type text NOT NULL, received_at timestamptz NOT NULL, duplicate boolean NOT NULL,
       UNIQUE (tenant_id, connection_id, event_sid)
+    );
+    CREATE TABLE telephony_call_control_events (
+      id text NOT NULL,
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      dispatch_id text NOT NULL,
+      call_session_id text NOT NULL,
+      event_type text NOT NULL,
+      at timestamptz NOT NULL,
+      summary text NOT NULL,
+      fallback_target text,
+      payload jsonb NOT NULL,
+      PRIMARY KEY (tenant_id, id)
     );
     CREATE UNIQUE INDEX telephony_execution_sessions_tenant_call_session_unique_idx
       ON telephony_execution_sessions (tenant_id, call_session_id);
@@ -817,5 +1195,54 @@ async function createHarness() {
              ('number-a-fallback', 'tenant-a', 'connection-tenant-a-fallback'),
              ('number-b', 'tenant-b', 'connection-tenant-b');
   `);
-  return { pool, repository: new PostgresTelephonyIncrementalRepository(pool) };
+  return {
+    pool,
+    repository: new PostgresTelephonyIncrementalRepository(pool, observability as never),
+  };
+}
+
+function phoneTestRoute() {
+  return {
+    mode: "test_route" as const,
+    publishedVersionId: "workflow-v1",
+    workflowLabel: "Support",
+    workspaceId: "workspace-1",
+    runtimeProfile: "premium-realtime" as const,
+    createdAt: "2026-07-23T12:00:00.000Z",
+    allowedCallerNumbers: ["+15550002000"],
+    waitingSession: {
+      id: "waiting-1",
+      status: "waiting" as const,
+      allowedCallerNumbers: ["+15550002000"],
+      checklist: {
+        verifiedWebhook: false,
+        allowedCallerMatched: false,
+        mediaWebSocketConnected: false,
+        inboundFrameReceived: false,
+        transcriptCreated: false,
+        agentResponseGenerated: false,
+        outboundAudioSent: false,
+        cleanEnd: false,
+        noFatalError: true,
+      },
+      createdAt: "2026-07-23T12:00:00.000Z",
+      expiresAt: "2026-07-23T12:05:00.000Z",
+    },
+  };
+}
+
+function phoneTestResult(tenantId: string, phoneNumberId: string) {
+  return {
+    id: "test-result-1",
+    tenantId,
+    numberId: phoneNumberId,
+    sessionId: "waiting-1",
+    status: "unauthorized_caller" as const,
+    reason: "Caller is not authorized for this test.",
+    checklist: phoneTestRoute().waitingSession.checklist,
+    publishedVersionId: "workflow-v1",
+    runtimeProfile: "premium-realtime" as const,
+    createdAt: "2026-07-23T12:00:00.000Z",
+    completedAt: "2026-07-23T12:00:01.000Z",
+  };
 }

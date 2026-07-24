@@ -191,6 +191,10 @@ describe("PstnCapacityRecorder", () => {
       queryDurationMs: 12,
       transactionDurationMs: 18,
       advisoryLockWaitMs: 4,
+      poolAcquisitionWaitMs: 3,
+      rowLockWaitMs: 5,
+      deadlockCount: 1,
+      retryCount: 2,
       pool: {
         active: 6,
         idle: 3,
@@ -227,6 +231,10 @@ describe("PstnCapacityRecorder", () => {
         queryDurationMs: 12,
         transactionDurationMs: 18,
         advisoryLockWaitMs: 4,
+        poolAcquisitionWaitMs: 3,
+        rowLockWaitMs: 5,
+        deadlockCount: 1,
+        retryCount: 2,
       },
     });
     expect(snapshot.queues).toEqual([
@@ -252,6 +260,24 @@ describe("PstnCapacityRecorder", () => {
       value: 2,
       attributes: { queue: "provider_output", outcome: "overflow" },
     }));
+    expect(metricPoints).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "zara.pstn.database.pool_acquisition_wait",
+        value: 3,
+      }),
+      expect.objectContaining({
+        name: "zara.pstn.database.row_lock_wait",
+        value: 5,
+      }),
+      expect.objectContaining({
+        name: "zara.pstn.database.deadlocks",
+        value: 1,
+      }),
+      expect.objectContaining({
+        name: "zara.pstn.database.retries",
+        value: 2,
+      }),
+    ]));
 
     const allowedAttributeKeys = new Set([
       "runtime_path",

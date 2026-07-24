@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { PostgresTelephonyIncrementalRepository } from "./postgres-telephony-incremental.repository";
 import type { CreateTelephonyCallSetupInput } from "./telephony-incremental.repository";
+import {
+  PstnCapacityRecorder,
+  type PstnCapacityMetricPoint,
+} from "../runtime-observability/pstn-capacity-observability";
 
 const connectionString = process.env.ZARA_TEST_POSTGRES_URL;
 
@@ -158,6 +162,179 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       { outcome: "inserted", mediaToken: "created" },
       { outcome: "inserted", mediaToken: "created" },
     ]);
+  });
+
+  it("qualifies 50 same-tenant setups with concurrent cross-tenant isolation and metrics", async () => {
+    const metricPoints: PstnCapacityMetricPoint[] = [];
+    const observedRepository = new PostgresTelephonyIncrementalRepository(
+      pool,
+      new PstnCapacityRecorder({
+        metricSink: { emit: (point) => metricPoints.push(point) },
+      }),
+    );
+    const tenantACalls = Array.from({ length: 50 }, (_, index) =>
+      callSetup(tenantA, `qualification-a-${index}-${suffix}`),
+    );
+    const tenantBCalls = Array.from({ length: 10 }, (_, index) =>
+      callSetup(tenantB, `qualification-b-${index}-${suffix}`),
+    );
+
+    const outcomes = await Promise.all(
+      [...tenantACalls, ...tenantBCalls].map((setup) =>
+        observedRepository.createCallSetup(setup),
+      ),
+    );
+    expect(outcomes).toHaveLength(60);
+    expect(outcomes.every((outcome) => outcome.outcome === "inserted")).toBe(true);
+
+    const callSessionIds = [...tenantACalls, ...tenantBCalls].map(
+      (setup) => setup.executionSession.callSessionId,
+    );
+    const counts = await pool.query<{
+      tenant_id: string;
+      dispatches: number;
+      sessions: number;
+      commands: number;
+      tokens: number;
+    }>(
+      `select tenant_id,
+          count(distinct dispatch_id)::int as dispatches,
+          count(distinct session_id)::int as sessions,
+          count(distinct command_id)::int as commands,
+          count(distinct token_call_session_id)::int as tokens
+       from (
+         select d.tenant_id, d.id as dispatch_id, s.id as session_id,
+                c.id as command_id, t.call_session_id as token_call_session_id
+         from telephony_dispatches d
+         join telephony_execution_sessions s
+           on s.tenant_id = d.tenant_id and s.dispatch_id = d.id
+         join telephony_execution_commands c
+           on c.tenant_id = s.tenant_id and c.session_id = s.id
+         join telephony_media_stream_tokens t
+           on t.tenant_id = s.tenant_id and t.call_session_id = s.call_session_id
+         where d.call_session_id = any($1::text[])
+       ) qualified
+       group by tenant_id
+       order by tenant_id`,
+      [callSessionIds],
+    );
+    expect(counts.rows).toEqual([
+      {
+        tenant_id: tenantA,
+        dispatches: 50,
+        sessions: 50,
+        commands: 50,
+        tokens: 50,
+      },
+      {
+        tenant_id: tenantB,
+        dispatches: 10,
+        sessions: 10,
+        commands: 10,
+        tokens: 10,
+      },
+    ]);
+    await expect(
+      observedRepository.loadCallMutationContext({
+        tenantId: tenantB,
+        callSessionId: tenantACalls[0]!.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+    expect(metricPoints.map((point) => point.name)).toEqual(
+      expect.arrayContaining([
+        "zara.pstn.database.pool_acquisition_wait",
+        "zara.pstn.database.transaction_duration",
+        "zara.pstn.database.row_lock_wait",
+        "zara.pstn.database.deadlocks",
+        "zara.pstn.database.retries",
+      ]),
+    );
+  }, 30_000);
+
+  it("keeps call-control terminal state monotonic under fresh-version retries", async () => {
+    const setup = callSetup(tenantA, `terminal-control-${suffix}`);
+    await repository.createCallSetup(setup);
+    const at = new Date().toISOString();
+    const event = {
+      id: `terminal-event-${suffix}`,
+      tenantId: tenantA,
+      dispatchId: setup.dispatch.id,
+      callSessionId: setup.executionSession.callSessionId,
+      eventType: "callback.scheduled" as const,
+      at,
+      summary: "Callback scheduled.",
+      payload: { callbackNumber: "+15550002000" },
+    };
+    const command = {
+      id: `terminal-command-${suffix}`,
+      tenantId: tenantA,
+      sessionId: setup.executionSession.id,
+      dispatchId: setup.dispatch.id,
+      callSessionId: setup.executionSession.callSessionId,
+      provider: "twilio" as const,
+      action: "twilio.call.complete",
+      status: "applied" as const,
+      target: setup.executionSession.bridgeTarget,
+      payload: event.payload,
+      requestedAt: at,
+      appliedAt: at,
+    };
+    const mutation = {
+      tenantId: tenantA,
+      dispatchId: setup.dispatch.id,
+      callSessionId: setup.executionSession.callSessionId,
+      expectedVersion: 0,
+      expectedStatus: "ringing" as const,
+      session: {
+        status: "completed" as const,
+        outageMode: null,
+        fallbackTarget: null,
+        diagnostics: [event.summary],
+        updatedAt: at,
+      },
+      event,
+      executionCommands: [command],
+    };
+
+    await expect(repository.recordCallControlMutation(mutation)).resolves.toEqual({
+      outcome: "updated",
+      version: 1,
+    });
+    await expect(
+      repository.recordCallControlMutation({
+        ...mutation,
+        expectedVersion: 1,
+        expectedStatus: "completed",
+        session: {
+          ...mutation.session,
+          diagnostics: [event.summary, event.summary],
+        },
+      }),
+    ).resolves.toEqual({ outcome: "existing", version: 1 });
+    await expect(
+      repository.recordCallControlMutation({
+        ...mutation,
+        expectedVersion: 1,
+        expectedStatus: "completed",
+        event: { ...event, id: `late-event-${suffix}` },
+        executionCommands: [{ ...command, id: `late-command-${suffix}` }],
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 1 });
+    await expect(
+      repository.loadCallMutationContext({
+        tenantId: tenantA,
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "found",
+      context: {
+        version: 1,
+        executionSession: {
+          status: "completed",
+          diagnostics: [event.summary],
+        },
+      },
+    });
   });
 
   it("persists separate blocked starts without serializing them through call setup", async () => {
@@ -350,6 +527,22 @@ function callSetup(tenantId: string, identity: string): CreateTelephonyCallSetup
       createdAt: now,
       updatedAt: now,
     },
+    executionCommands: [
+      {
+        id: `execution-${identity}:bridge:1`,
+        tenantId,
+        sessionId: `execution-${identity}`,
+        dispatchId,
+        callSessionId,
+        provider: "twilio",
+        action: "twilio.connect-stream",
+        status: "applied",
+        target: "+15550001000",
+        payload: { runtimePath: "pstn-premium-realtime" },
+        requestedAt: now,
+        appliedAt: now,
+      },
+    ],
     mediaToken: {
       tenantId,
       callSessionId,

@@ -614,7 +614,7 @@ export const telephonyMediaStreamTokens = pgTable(
 export const telephonyExecutionCommands = pgTable(
   "telephony_execution_commands",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     tenantId: text("tenant_id")
       .notNull()
       .references(() => tenants.id, {
@@ -633,6 +633,7 @@ export const telephonyExecutionCommands = pgTable(
     appliedAt: timestamp("applied_at", { withTimezone: true }),
   },
   (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
     sessionForeignKey: foreignKey({
       columns: [table.tenantId, table.sessionId],
       foreignColumns: [telephonyExecutionSessions.tenantId, telephonyExecutionSessions.id],
@@ -683,7 +684,7 @@ export const telephonyWebhookEvents = pgTable(
 export const telephonyCallControlEvents = pgTable(
   "telephony_call_control_events",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     tenantId: text("tenant_id")
       .notNull()
       .references(() => tenants.id, {
@@ -699,6 +700,7 @@ export const telephonyCallControlEvents = pgTable(
     payload: jsonb("payload").$type<Record<string, string>>().notNull(),
   },
   (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
     tenantAtIndex: index("telephony_call_control_events_tenant_at_idx").on(table.tenantId, table.at),
   }),
 );

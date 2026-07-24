@@ -1,6 +1,8 @@
 import type {
+  CreateTelephonyCallExecutionInput,
   CreateTelephonyCallSetupInput,
   TelephonyIncrementalRepository,
+  UpdateTelephonyPhoneTestProjectionInput,
 } from "./telephony-incremental.repository";
 import {
   createSuccessfulPhoneTestChecklist,
@@ -10,7 +12,18 @@ import {
 export class InMemoryTelephonyIncrementalRepository implements TelephonyIncrementalRepository {
   readonly webhookEvents: Parameters<TelephonyIncrementalRepository["insertWebhookEvent"]>[0][] = [];
   readonly dispatches: Parameters<TelephonyIncrementalRepository["insertDispatch"]>[0][] = [];
+  readonly callExecutions: CreateTelephonyCallExecutionInput[] = [];
   readonly callSetups: CreateTelephonyCallSetupInput[] = [];
+  readonly callControlMutations:
+    Parameters<TelephonyIncrementalRepository["recordCallControlMutation"]>[0][] = [];
+  readonly phoneTestProjections: Array<{
+    tenantId: string;
+    phoneNumberId: string;
+    testRoute: UpdateTelephonyPhoneTestProjectionInput["testRoute"];
+    phoneTestResults: UpdateTelephonyPhoneTestProjectionInput["phoneTestResults"];
+  }> = [];
+  readonly connectionTenants = new Map<string, string>();
+  readonly disabledConnectionIds = new Set<string>();
   readonly phoneTestCheckpoints:
     Parameters<TelephonyIncrementalRepository["recordPhoneTestCheckpoint"]>[0][] = [];
   readonly executionSessionTransitions:
@@ -48,17 +61,147 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
 
   async createCallSetup(input: CreateTelephonyCallSetupInput) {
     if (this.failCallSetup) throw new Error("database unavailable");
-    const existingIndex = this.callSetups.findIndex(
+    const existing = this.callSetups.find(
       (candidate) =>
         candidate.dispatch.tenantId === input.dispatch.tenantId &&
         candidate.executionSession.callSessionId === input.executionSession.callSessionId,
     );
-    if (existingIndex >= 0) {
-      this.callSetups[existingIndex] = structuredClone(input);
-      return { outcome: "existing" as const, mediaToken: "retained" as const };
+    if (existing !== undefined) {
+      return sameJson(existing, input)
+        ? { outcome: "existing" as const, mediaToken: "retained" as const }
+        : { outcome: "conflict" as const };
     }
     this.callSetups.push(structuredClone(input));
     return { outcome: "inserted" as const, mediaToken: "created" as const };
+  }
+
+  async createCallExecution(input: CreateTelephonyCallExecutionInput) {
+    const existing = this.findCallExecution(
+      input.dispatch.tenantId,
+      input.executionSession.callSessionId,
+    );
+    if (existing !== undefined) {
+      return { outcome: sameJson(existing, input) ? "existing" as const : "conflict" as const };
+    }
+    this.callExecutions.push(structuredClone(input));
+    return { outcome: "inserted" as const };
+  }
+
+  async loadCallMutationContext(
+    input: Parameters<TelephonyIncrementalRepository["loadCallMutationContext"]>[0],
+  ) {
+    const execution = this.findCallExecution(input.tenantId, input.callSessionId);
+    if (execution === undefined) return { outcome: "not_found" as const };
+    const version =
+      (execution.executionSession as typeof execution.executionSession & { version?: number })
+        .version ?? 0;
+    return {
+      outcome: "found" as const,
+      context: {
+        dispatch: structuredClone(execution.dispatch),
+        executionSession: structuredClone(execution.executionSession),
+        version,
+      },
+    };
+  }
+
+  async recordCallControlMutation(
+    input: Parameters<TelephonyIncrementalRepository["recordCallControlMutation"]>[0],
+  ) {
+    const execution = this.findCallExecution(input.tenantId, input.callSessionId);
+    if (
+      execution === undefined ||
+      execution.dispatch.id !== input.dispatchId ||
+      execution.executionSession.dispatchId !== input.dispatchId
+    ) {
+      return { outcome: "not_found" as const };
+    }
+    const version =
+      (execution.executionSession as typeof execution.executionSession & { version?: number })
+        .version ?? 0;
+    const existing = this.callControlMutations.find(
+      (candidate) =>
+        candidate.tenantId === input.tenantId && candidate.event.id === input.event.id,
+    );
+    if (existing !== undefined) {
+      return sameJson(existing.event, input.event) &&
+        sameJson(existing.executionCommands, input.executionCommands)
+        ? { outcome: "existing" as const, version }
+        : { outcome: "conflict" as const, version };
+    }
+    if (
+      version !== input.expectedVersion ||
+      execution.executionSession.status !== input.expectedStatus ||
+      ["terminated", "completed", "blocked"].includes(execution.executionSession.status)
+    ) {
+      return { outcome: "conflict" as const, version };
+    }
+    execution.executionSession.status = input.session.status;
+    execution.executionSession.outageMode = input.session.outageMode ?? undefined;
+    execution.executionSession.fallbackTarget = input.session.fallbackTarget ?? undefined;
+    execution.executionSession.diagnostics = structuredClone(input.session.diagnostics);
+    execution.executionSession.updatedAt = input.session.updatedAt;
+    Object.assign(execution.executionSession, { version: version + 1 });
+    this.callControlMutations.push(structuredClone(input));
+    return { outcome: "updated" as const, version: version + 1 };
+  }
+
+  async updatePhoneTestProjection(
+    input: Parameters<TelephonyIncrementalRepository["updatePhoneTestProjection"]>[0],
+  ) {
+    const projection = this.phoneTestProjections.find(
+      (candidate) =>
+        candidate.tenantId === input.tenantId &&
+        candidate.phoneNumberId === input.phoneNumberId,
+    );
+    if (projection === undefined) return { outcome: "not_found" as const };
+    if (
+      sameJson(projection.testRoute, input.testRoute) &&
+      sameJson(projection.phoneTestResults, input.phoneTestResults)
+    ) {
+      return { outcome: "existing" as const };
+    }
+    if (
+      !sameJson(projection.testRoute, input.expectedTestRoute) ||
+      !sameJson(projection.phoneTestResults, input.expectedPhoneTestResults)
+    ) {
+      return { outcome: "conflict" as const };
+    }
+    projection.testRoute = structuredClone(input.testRoute);
+    projection.phoneTestResults = structuredClone(input.phoneTestResults);
+    return { outcome: "updated" as const };
+  }
+
+  async recordOutboundAbuseBlock(
+    input: Parameters<TelephonyIncrementalRepository["recordOutboundAbuseBlock"]>[0],
+  ) {
+    if (input.dispatch.direction !== "outbound" || input.dispatch.disposition !== "blocked") {
+      throw new Error("Outbound abuse handling requires a blocked outbound dispatch.");
+    }
+    const connectionIds = [...new Set(input.connectionIds)].sort();
+    if (connectionIds.length === 0) {
+      throw new Error("At least one telephony connection is required for abuse handling.");
+    }
+    if (
+      connectionIds.some(
+        (connectionId) => this.connectionTenants.get(connectionId) !== input.dispatch.tenantId,
+      )
+    ) {
+      return { outcome: "conflict" as const, connectionCount: 0 };
+    }
+    const existing = this.dispatches.find(
+      (candidate) =>
+        candidate.tenantId === input.dispatch.tenantId && candidate.id === input.dispatch.id,
+    );
+    if (existing !== undefined && !sameJson(existing, input.dispatch)) {
+      return { outcome: "conflict" as const, connectionCount: 0 };
+    }
+    for (const connectionId of connectionIds) this.disabledConnectionIds.add(connectionId);
+    if (existing !== undefined) {
+      return { outcome: "existing" as const, connectionCount: connectionIds.length };
+    }
+    this.dispatches.push(structuredClone(input.dispatch));
+    return { outcome: "inserted" as const, connectionCount: connectionIds.length };
   }
 
   async transitionExecutionSession(
@@ -145,11 +288,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
   async loadCallRuntimeContext(
     input: Parameters<TelephonyIncrementalRepository["loadCallRuntimeContext"]>[0],
   ) {
-    const setup = this.callSetups.find(
-      (candidate) =>
-        candidate.executionSession.tenantId === input.tenantId &&
-        candidate.executionSession.callSessionId === input.callSessionId,
-    );
+    const setup = this.findCallExecution(input.tenantId, input.callSessionId);
     if (setup === undefined || setup.dispatch.runtimePath === undefined) {
       return { outcome: "not_found" as const };
     }
@@ -330,4 +469,23 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
       .sort((left, right) => Date.parse(right.completedAt) - Date.parse(left.completedAt));
     return candidates[0] ?? null;
   }
+
+  private findCallExecution(tenantId: string, callSessionId: string) {
+    return (
+      this.callSetups.find(
+        (candidate) =>
+          candidate.executionSession.tenantId === tenantId &&
+          candidate.executionSession.callSessionId === callSessionId,
+      ) ??
+      this.callExecutions.find(
+        (candidate) =>
+          candidate.executionSession.tenantId === tenantId &&
+          candidate.executionSession.callSessionId === callSessionId,
+      )
+    );
+  }
+}
+
+function sameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

@@ -1,6 +1,10 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
+import { performance } from "node:perf_hooks";
 import type {
   TelephonyCallLifecycleState,
+  TelephonyCallControlEvent,
+  TelephonyExecutionCommand,
+  TelephonyExecutionSession,
   TelephonyExecutionSessionStatus,
   TelephonyPhoneTestResult,
   PstnRuntimePath,
@@ -8,11 +12,16 @@ import type {
 
 import type {
   ClaimTelephonyMediaTokenInput,
+  CreateTelephonyCallExecutionInput,
   CreateTelephonyCallSetupInput,
   DeleteExpiredTelephonyMediaTokensInput,
   LoadLatestSuccessfulPhoneTestInput,
+  LoadTelephonyCallMutationContextInput,
   LoadTelephonyCallRuntimeContextInput,
   RecordTelephonyPhoneTestCheckpointByCallInput,
+  RecordTelephonyCallControlMutationInput,
+  RecordTelephonyOutboundAbuseBlockInput,
+  TelephonyCallMutationContext,
   TelephonyCallRuntimeContext,
   TelephonyIncrementalRepository,
   TelephonyMediaTokenClaimOutcome,
@@ -20,16 +29,29 @@ import type {
   TelephonyTransitionOutcome,
   TransitionTelephonyCallLifecycleInput,
   TransitionTelephonyExecutionSessionInput,
+  UpdateTelephonyPhoneTestProjectionInput,
 } from "./telephony-incremental.repository";
 import {
   createSuccessfulPhoneTestChecklist,
 } from "./telephony-incremental.repository";
 import type { TelephonyDispatchRecord, TelephonyWebhookEvent } from "./telephony.models";
+import type {
+  PstnCapacityDatabaseOperation,
+  PstnCapacityObservability,
+} from "../runtime-observability/pstn-capacity-observability";
 
 type Queryable = Pick<Pool, "query" | "connect">;
+type DatabaseMetricsRecorder = Pick<PstnCapacityObservability, "recordDatabaseOperation">;
 
 export class PostgresTelephonyIncrementalRepository implements TelephonyIncrementalRepository {
-  constructor(private readonly database: Queryable) {}
+  private readonly database: Queryable;
+
+  constructor(database: Queryable, observability?: DatabaseMetricsRecorder) {
+    this.database =
+      observability === undefined
+        ? database
+        : createInstrumentedDatabase(database, observability);
+  }
 
   async insertWebhookEvent(event: TelephonyWebhookEvent) {
     const ownedConnection = await this.database.query(
@@ -136,7 +158,15 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       const inserted = await insertDispatchRow(client, input.dispatch);
       if (inserted.rows.length === 0) {
         const existing = await loadCallSetup(client, input);
-        if (!callSetupMatches(existing, input)) {
+        if (
+          !callSetupMatches(existing, input) ||
+          !(await executionCommandsMatch(
+            client,
+            input.dispatch.tenantId,
+            input.executionSession.id,
+            input.executionCommands,
+          ))
+        ) {
           await client.query("rollback");
           return { outcome: "conflict" as const };
         }
@@ -176,6 +206,7 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       }
 
       await insertExecutionSession(client, input);
+      await insertExecutionCommands(client, input);
       await insertMediaToken(client, input);
       await client.query("commit");
       return { outcome: "inserted" as const, mediaToken: "created" as const };
@@ -184,6 +215,270 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       if (isUniqueViolation(error)) {
         return { outcome: "conflict" as const };
       }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createCallExecution(input: CreateTelephonyCallExecutionInput) {
+    assertCallExecution(input);
+    const client = await this.database.connect();
+
+    try {
+      await client.query("begin");
+      if (!(await callSetupReferencesAreOwned(client, input))) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const };
+      }
+      const inserted = await insertDispatchRow(client, input.dispatch);
+      if (inserted.rows.length === 0) {
+        const existing = await loadCallSetup(client, input);
+        const outcome =
+          callExecutionMatches(existing, input) &&
+          (await executionCommandsMatch(
+            client,
+            input.dispatch.tenantId,
+            input.executionSession.id,
+            input.executionCommands,
+          ))
+            ? ("existing" as const)
+            : ("conflict" as const);
+        await client.query(outcome === "existing" ? "commit" : "rollback");
+        return { outcome };
+      }
+
+      await insertExecutionSession(client, input);
+      await insertExecutionCommands(client, input);
+      await client.query("commit");
+      return { outcome: "inserted" as const };
+    } catch (error) {
+      await rollbackQuietly(client);
+      if (isUniqueViolation(error)) {
+        return { outcome: "conflict" as const };
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async loadCallMutationContext(input: LoadTelephonyCallMutationContextInput) {
+    const row = await loadCallSetupByCall(
+      this.database,
+      input.tenantId,
+      input.callSessionId,
+    );
+    if (row === undefined || row.session_id === null || row.version === null) {
+      return { outcome: "not_found" as const };
+    }
+    return {
+      outcome: "found" as const,
+      context: callMutationContextFromRow(row, input.callSessionId),
+    };
+  }
+
+  async recordCallControlMutation(input: RecordTelephonyCallControlMutationInput) {
+    assertCallControlMutation(input);
+    const client = await this.database.connect();
+    try {
+      await client.query("begin");
+      const locked = await client.query<CallControlSessionRow>(
+        `select status, version, outage_mode, fallback_target, diagnostics, updated_at
+         from telephony_execution_sessions
+         where tenant_id = $1 and call_session_id = $2 and dispatch_id = $3
+         for update`,
+        [input.tenantId, input.callSessionId, input.dispatchId],
+      );
+      const current = locked.rows[0];
+      if (current === undefined) {
+        await client.query("rollback");
+        return { outcome: "not_found" as const };
+      }
+      const existingEvent = await loadCallControlEvent(client, input.event);
+      if (existingEvent !== undefined) {
+        const exactReplay =
+          callControlEventRowMatches(existingEvent, input.event) &&
+          (await executionCommandSubsetMatches(client, input.executionCommands));
+        await client.query(exactReplay ? "commit" : "rollback");
+        return {
+          outcome: exactReplay ? ("existing" as const) : ("conflict" as const),
+          version: current.version,
+        };
+      }
+      if (
+        current.version !== input.expectedVersion ||
+        current.status !== input.expectedStatus ||
+        isTerminalExecutionStatus(current.status)
+      ) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const, version: current.version };
+      }
+
+      const updated = await client.query<{ version: number }>(
+        `update telephony_execution_sessions
+         set status = $1,
+             outage_mode = $2,
+             fallback_target = $3,
+             diagnostics = $4::jsonb,
+             updated_at = $5,
+             version = version + 1
+         where tenant_id = $6 and call_session_id = $7 and dispatch_id = $8
+           and version = $9 and status = $10
+           and status not in ('terminated', 'completed', 'blocked')
+         returning version`,
+        [
+          input.session.status,
+          input.session.outageMode,
+          input.session.fallbackTarget,
+          JSON.stringify(input.session.diagnostics),
+          input.session.updatedAt,
+          input.tenantId,
+          input.callSessionId,
+          input.dispatchId,
+          input.expectedVersion,
+          input.expectedStatus,
+        ],
+      );
+      const version = updated.rows[0]?.version;
+      if (version === undefined) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const, version: current.version };
+      }
+      if (!(await insertOrMatchCallControlEvent(client, input.event))) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const, version: current.version };
+      }
+      if (!(await insertOrMatchExecutionCommands(client, input.executionCommands))) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const, version: current.version };
+      }
+      await client.query("commit");
+      return { outcome: "updated" as const, version };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updatePhoneTestProjection(input: UpdateTelephonyPhoneTestProjectionInput) {
+    const current = await this.database.query<PhoneTestProjectionRow>(
+      `select test_route, phone_test_results
+       from telephony_phone_numbers
+       where tenant_id = $1 and id = $2`,
+      [input.tenantId, input.phoneNumberId],
+    );
+    const row = current.rows[0];
+    if (row === undefined) return { outcome: "not_found" as const };
+    if (
+      jsonMatches(row.test_route, input.testRoute) &&
+      jsonMatches(row.phone_test_results, input.phoneTestResults)
+    ) {
+      return { outcome: "existing" as const };
+    }
+    if (
+      !jsonMatches(row.test_route, input.expectedTestRoute) ||
+      !jsonMatches(row.phone_test_results, input.expectedPhoneTestResults)
+    ) {
+      return { outcome: "conflict" as const };
+    }
+    const updated = await this.database.query(
+      `update telephony_phone_numbers
+       set test_route = $1::jsonb, phone_test_results = $2::jsonb
+       where tenant_id = $3 and id = $4
+         and (($5::jsonb is null and test_route is null) or test_route = $5::jsonb)
+         and (($6::jsonb is null and phone_test_results is null)
+           or phone_test_results = $6::jsonb)
+       returning id`,
+      [
+        jsonParameter(input.testRoute),
+        jsonParameter(input.phoneTestResults),
+        input.tenantId,
+        input.phoneNumberId,
+        jsonParameter(input.expectedTestRoute),
+        jsonParameter(input.expectedPhoneTestResults),
+      ],
+    );
+    return {
+      outcome: updated.rows.length > 0 ? ("updated" as const) : ("conflict" as const),
+    };
+  }
+
+  async recordOutboundAbuseBlock(input: RecordTelephonyOutboundAbuseBlockInput) {
+    if (
+      input.dispatch.direction !== "outbound" ||
+      input.dispatch.disposition !== "blocked"
+    ) {
+      throw new Error("Outbound abuse handling requires a blocked outbound dispatch.");
+    }
+    const connectionIds = [...new Set(input.connectionIds)].sort();
+    if (connectionIds.length === 0) {
+      throw new Error("At least one telephony connection is required for abuse handling.");
+    }
+    const client = await this.database.connect();
+    const placeholders = connectionIds.map((_, index) => `$${index + 2}`).join(", ");
+    try {
+      await client.query("begin");
+      const locked = await client.query<ConnectionPostureRow>(
+        `select id, status, health_status
+         from telephony_connections
+         where tenant_id = $1 and id in (${placeholders})
+         order by id
+         for update`,
+        [input.dispatch.tenantId, ...connectionIds],
+      );
+      if (locked.rows.length !== connectionIds.length) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const, connectionCount: 0 };
+      }
+      if (!(await dispatchReferencesAreOwned(client, input.dispatch))) {
+        await client.query("rollback");
+        return { outcome: "conflict" as const, connectionCount: 0 };
+      }
+      const existing = await loadDispatch(
+        client,
+        input.dispatch.tenantId,
+        input.dispatch.id,
+      );
+      let outcome: "inserted" | "existing";
+      if (existing !== undefined) {
+        if (!dispatchMatches(existing, input.dispatch)) {
+          await client.query("rollback");
+          return { outcome: "conflict" as const, connectionCount: 0 };
+        }
+        outcome = "existing";
+      } else {
+        const inserted = await insertDispatchRow(client, input.dispatch);
+        if (inserted.rows.length === 0) {
+          const raced = await loadDispatch(
+            client,
+            input.dispatch.tenantId,
+            input.dispatch.id,
+          );
+          if (!dispatchMatches(raced, input.dispatch)) {
+            await client.query("rollback");
+            return { outcome: "conflict" as const, connectionCount: 0 };
+          }
+          outcome = "existing";
+        } else {
+          outcome = "inserted";
+        }
+      }
+      await client.query(
+        `update telephony_connections
+         set status = 'disabled', health_status = 'failed'
+         where tenant_id = $1 and id in (${placeholders})`,
+        [input.dispatch.tenantId, ...connectionIds],
+      );
+      await client.query("commit");
+      return {
+        outcome,
+        connectionCount: connectionIds.length,
+      };
+    } catch (error) {
+      await rollbackQuietly(client);
       throw error;
     } finally {
       client.release();
@@ -649,7 +944,9 @@ function deriveLatestSuccessfulPhoneTest(
 }
 
 interface CallSetupRow extends QueryResultRow {
+  tenant_id: string;
   dispatch_id: string;
+  call_session_id: string;
   dispatch_connection_id: string | null;
   disposition: string;
   dispatch_direction: string;
@@ -752,10 +1049,26 @@ async function loadDispatch(
   return result.rows[0];
 }
 
-async function loadCallSetup(database: Pick<PoolClient, "query">, input: CreateTelephonyCallSetupInput) {
+async function loadCallSetup(
+  database: Pick<PoolClient, "query">,
+  input: CreateTelephonyCallExecutionInput,
+) {
+  return loadCallSetupByCall(
+    database,
+    input.dispatch.tenantId,
+    input.executionSession.callSessionId,
+  );
+}
+
+async function loadCallSetupByCall(
+  database: Pick<PoolClient, "query"> | Queryable,
+  tenantId: string,
+  callSessionId: string,
+) {
   const result = await database.query<CallSetupRow>(
     `select
-       d.id as dispatch_id, d.connection_id as dispatch_connection_id,
+       d.tenant_id, d.id as dispatch_id, d.call_session_id,
+       d.connection_id as dispatch_connection_id,
        d.direction as dispatch_direction, d.disposition, d.reason,
        d.phone_number_id, d.fallback_phone_number_id,
        d.published_version_id, d.workspace_id, d.workflow_label,
@@ -781,14 +1094,123 @@ async function loadCallSetup(database: Pick<PoolClient, "query">, input: CreateT
      left join telephony_media_stream_tokens t
        on t.tenant_id = d.tenant_id and t.call_session_id = d.call_session_id
      where d.tenant_id = $1 and d.call_session_id = $2`,
-    [input.dispatch.tenantId, input.executionSession.callSessionId],
+    [tenantId, callSessionId],
   );
   return result.rows[0];
 }
 
+function callMutationContextFromRow(
+  row: CallSetupRow,
+  callSessionId: string,
+): TelephonyCallMutationContext {
+  const dispatch: TelephonyDispatchRecord = {
+    id: row.dispatch_id,
+    tenantId: row.tenant_id,
+    direction: row.dispatch_direction as TelephonyDispatchRecord["direction"],
+    disposition: row.disposition as TelephonyDispatchRecord["disposition"],
+    reason: row.reason,
+    callSessionId,
+    ...(row.phone_number_id === null ? {} : { phoneNumberId: row.phone_number_id }),
+    ...(row.fallback_phone_number_id === null
+      ? {}
+      : { fallbackPhoneNumberId: row.fallback_phone_number_id }),
+    ...(row.dispatch_connection_id === null
+      ? {}
+      : { connectionId: row.dispatch_connection_id }),
+    ...(row.published_version_id === null
+      ? {}
+      : { publishedVersionId: row.published_version_id }),
+    ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
+    ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
+    ...(row.route_mode === null
+      ? {}
+      : { routeMode: row.route_mode as NonNullable<TelephonyDispatchRecord["routeMode"]> }),
+    ...(row.runtime_profile === null
+      ? {}
+      : {
+          runtimeProfile:
+            row.runtime_profile as NonNullable<TelephonyDispatchRecord["runtimeProfile"]>,
+        }),
+    ...(row.runtime_path === null
+      ? {}
+      : {
+          runtimePath: row.runtime_path as NonNullable<TelephonyDispatchRecord["runtimePath"]>,
+        }),
+    ...(row.test_route_session_id === null
+      ? {}
+      : { testRouteSessionId: row.test_route_session_id }),
+    ...(row.dispatch_outage_mode === null
+      ? {}
+      : {
+          outageMode:
+            row.dispatch_outage_mode as NonNullable<TelephonyDispatchRecord["outageMode"]>,
+        }),
+    recording: cloneJson(row.recording),
+    recordingConsent: cloneJson(row.dispatch_recording_consent),
+    toPhoneNumber: row.dispatch_to,
+    fromPhoneNumber: row.dispatch_from,
+    createdAt: normalizeTimestamp(row.dispatch_created_at),
+    source: row.source as TelephonyDispatchRecord["source"],
+    ...(row.policy_checks === null ? {} : { policyChecks: cloneJson(row.policy_checks) }),
+  };
+  const executionSession: TelephonyCallMutationContext["executionSession"] = {
+    id: row.session_id!,
+    tenantId: row.tenant_id,
+    dispatchId: row.session_dispatch_id!,
+    callSessionId,
+    connectionId: row.session_connection_id!,
+    provider: row.provider as TelephonyExecutionSession["provider"],
+    ownershipMode: row.ownership_mode as TelephonyExecutionSession["ownershipMode"],
+    direction: row.direction as TelephonyExecutionSession["direction"],
+    status: row.status as TelephonyExecutionSession["status"],
+    toPhoneNumber: row.session_to!,
+    fromPhoneNumber: row.session_from!,
+    ...(row.session_workflow_label === null
+      ? {}
+      : { workflowLabel: row.session_workflow_label }),
+    ...(row.session_workspace_id === null ? {} : { workspaceId: row.session_workspace_id }),
+    testCall: row.test_call!,
+    bridgeKind: row.bridge_kind as TelephonyExecutionSession["bridgeKind"],
+    bridgeTarget: row.bridge_target!,
+    mediaPath: row.media_path as TelephonyExecutionSession["mediaPath"],
+    ...(row.session_outage_mode === null
+      ? {}
+      : {
+          outageMode:
+            row.session_outage_mode as NonNullable<TelephonyExecutionSession["outageMode"]>,
+        }),
+    ...(row.fallback_target === null ? {} : { fallbackTarget: row.fallback_target }),
+    ...(row.session_recording_consent === null
+      ? {}
+      : { recordingConsent: cloneJson(row.session_recording_consent) }),
+    ...(row.policy_state === null ? {} : { policyState: cloneJson(row.policy_state) }),
+    lifecycleState: asLifecycleState(row.lifecycle_state),
+    diagnostics: cloneJson(row.diagnostics),
+    createdAt: normalizeTimestamp(row.session_created_at),
+    updatedAt: normalizeTimestamp(row.session_updated_at),
+  };
+  return { dispatch, executionSession, version: row.version! };
+}
+
+interface CallControlSessionRow extends QueryResultRow {
+  status: string;
+  version: number;
+}
+
+interface PhoneTestProjectionRow extends QueryResultRow {
+  test_route: unknown | null;
+  phone_test_results: unknown | null;
+}
+
+interface ConnectionPostureRow extends QueryResultRow {
+  id: string;
+  status: string;
+  health_status: string;
+}
+
 async function callSetupReferencesAreOwned(
   client: Pick<PoolClient, "query">,
-  input: CreateTelephonyCallSetupInput,
+  input: CreateTelephonyCallExecutionInput,
 ) {
   return dispatchReferencesAreOwned(
     client,
@@ -885,7 +1307,10 @@ async function insertDispatchRow(
   );
 }
 
-async function insertExecutionSession(client: PoolClient, input: CreateTelephonyCallSetupInput) {
+async function insertExecutionSession(
+  client: PoolClient,
+  input: CreateTelephonyCallExecutionInput,
+) {
   const session = input.executionSession;
   await client.query(
     `insert into telephony_execution_sessions (
@@ -929,6 +1354,34 @@ async function insertExecutionSession(client: PoolClient, input: CreateTelephony
   );
 }
 
+async function insertExecutionCommands(
+  client: Pick<PoolClient, "query">,
+  input: CreateTelephonyCallExecutionInput,
+) {
+  for (const command of input.executionCommands) {
+    await client.query(
+      `insert into telephony_execution_commands (
+        id, tenant_id, session_id, dispatch_id, call_session_id, provider,
+        action, status, target, payload, requested_at, applied_at
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)`,
+      [
+        command.id,
+        command.tenantId,
+        command.sessionId,
+        command.dispatchId,
+        command.callSessionId,
+        command.provider,
+        command.action,
+        command.status,
+        command.target,
+        JSON.stringify(command.payload),
+        command.requestedAt,
+        command.appliedAt ?? null,
+      ],
+    );
+  }
+}
+
 async function insertMediaToken(client: PoolClient, input: CreateTelephonyCallSetupInput) {
   const token = input.mediaToken;
   await client.query(
@@ -949,18 +1402,14 @@ async function insertMediaToken(client: PoolClient, input: CreateTelephonyCallSe
 }
 
 function assertCallSetup(input: CreateTelephonyCallSetupInput) {
+  assertCallExecution(input);
   const tenantId = input.dispatch.tenantId;
   const callSessionId = input.dispatch.callSessionId;
   if (
-    callSessionId === undefined ||
-    input.executionSession.tenantId !== tenantId ||
     input.mediaToken.tenantId !== tenantId ||
-    input.executionSession.callSessionId !== callSessionId ||
     input.mediaToken.callSessionId !== callSessionId ||
-    input.executionSession.dispatchId !== input.dispatch.id ||
     input.mediaToken.dispatchId !== input.dispatch.id ||
     input.executionSession.connectionId !== input.mediaToken.connectionId ||
-    input.dispatch.connectionId !== input.executionSession.connectionId ||
     !isFiniteTimestamp(input.mediaToken.createdAt) ||
     !isFiniteTimestamp(input.mediaToken.expiresAt) ||
     Date.parse(input.mediaToken.expiresAt) <= Date.parse(input.mediaToken.createdAt) ||
@@ -970,11 +1419,53 @@ function assertCallSetup(input: CreateTelephonyCallSetupInput) {
   }
 }
 
+function assertCallExecution(input: CreateTelephonyCallExecutionInput) {
+  const tenantId = input.dispatch.tenantId;
+  const callSessionId = input.dispatch.callSessionId;
+  const session = input.executionSession;
+  const commandsAreOwned =
+    input.executionCommands.length > 0 &&
+    input.executionCommands.every(
+      (command) =>
+        command.tenantId === tenantId &&
+        command.sessionId === session.id &&
+        command.dispatchId === input.dispatch.id &&
+        command.callSessionId === callSessionId &&
+        command.provider === session.provider &&
+        isFiniteTimestamp(command.requestedAt) &&
+        (command.appliedAt === undefined || isFiniteTimestamp(command.appliedAt)),
+    );
+  if (
+    callSessionId === undefined ||
+    session.tenantId !== tenantId ||
+    session.callSessionId !== callSessionId ||
+    session.dispatchId !== input.dispatch.id ||
+    input.dispatch.connectionId !== session.connectionId ||
+    !commandsAreOwned
+  ) {
+    throw new Error("Telephony call execution identities or commands are invalid.");
+  }
+}
+
 function callSetupMatches(row: CallSetupRow | undefined, input: CreateTelephonyCallSetupInput) {
+  if (!callExecutionMatches(row, input)) return false;
+  const token = input.mediaToken;
+  return (
+    row!.token_dispatch_id === token.dispatchId &&
+    row!.token_connection_id === token.connectionId &&
+    row!.token_hash !== null &&
+    row!.expires_at !== null &&
+    row!.token_created_at !== null
+  );
+}
+
+function callExecutionMatches(
+  row: CallSetupRow | undefined,
+  input: CreateTelephonyCallExecutionInput,
+) {
   if (row === undefined) return false;
   const dispatch = input.dispatch;
   const session = input.executionSession;
-  const token = input.mediaToken;
   return (
     row.dispatch_id === dispatch.id &&
     row.dispatch_connection_id === (dispatch.connectionId ?? null) &&
@@ -1016,13 +1507,218 @@ function callSetupMatches(row: CallSetupRow | undefined, input: CreateTelephonyC
     row.session_outage_mode === (session.outageMode ?? null) &&
     row.fallback_target === (session.fallbackTarget ?? null) &&
     jsonMatches(row.session_recording_consent, session.recordingConsent ?? null) &&
-    jsonMatches(row.lifecycle_state, session.lifecycleState) &&
-    row.token_dispatch_id === token.dispatchId &&
-    row.token_connection_id === token.connectionId &&
-    row.token_hash !== null &&
-    row.expires_at !== null &&
-    row.token_created_at !== null
+    jsonMatches(row.lifecycle_state, session.lifecycleState)
   );
+}
+
+async function executionCommandsMatch(
+  database: Pick<PoolClient, "query">,
+  tenantId: string,
+  sessionId: string,
+  commands: TelephonyExecutionCommand[],
+) {
+  const result = await database.query<ExecutionCommandRow>(
+    `select id, tenant_id, session_id, dispatch_id, call_session_id, provider,
+            action, status, target, payload, requested_at, applied_at
+     from telephony_execution_commands
+     where tenant_id = $1 and session_id = $2
+     order by id`,
+    [tenantId, sessionId],
+  );
+  const expected = [...commands].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+  return (
+    result.rows.length === expected.length &&
+    result.rows.every((row, index) => executionCommandMatches(row, expected[index]!))
+  );
+}
+
+interface ExecutionCommandRow extends QueryResultRow {
+  id: string;
+  tenant_id: string;
+  session_id: string;
+  dispatch_id: string;
+  call_session_id: string;
+  provider: string;
+  action: string;
+  status: string;
+  target: string;
+  payload: unknown;
+  requested_at: unknown;
+  applied_at: unknown | null;
+}
+
+function executionCommandMatches(row: ExecutionCommandRow, command: TelephonyExecutionCommand) {
+  return (
+    row.id === command.id &&
+    row.tenant_id === command.tenantId &&
+    row.session_id === command.sessionId &&
+    row.dispatch_id === command.dispatchId &&
+    row.call_session_id === command.callSessionId &&
+    row.provider === command.provider &&
+    row.action === command.action &&
+    row.status === command.status &&
+    row.target === command.target &&
+    jsonMatches(row.payload, command.payload) &&
+    normalizeTimestamp(row.requested_at) === normalizeTimestamp(command.requestedAt) &&
+    (row.applied_at === null
+      ? command.appliedAt === undefined
+      : normalizeTimestamp(row.applied_at) === normalizeTimestamp(command.appliedAt))
+  );
+}
+
+function assertCallControlMutation(input: RecordTelephonyCallControlMutationInput) {
+  const commandSessionIds = new Set(input.executionCommands.map((command) => command.sessionId));
+  if (
+    input.event.tenantId !== input.tenantId ||
+    input.event.callSessionId !== input.callSessionId ||
+    input.event.dispatchId !== input.dispatchId ||
+    input.executionCommands.length === 0 ||
+    commandSessionIds.size !== 1 ||
+    input.executionCommands.some(
+      (command) =>
+        command.tenantId !== input.tenantId ||
+        command.callSessionId !== input.callSessionId ||
+        command.dispatchId !== input.dispatchId ||
+        !isFiniteTimestamp(command.requestedAt) ||
+        (command.appliedAt !== undefined && !isFiniteTimestamp(command.appliedAt)),
+    ) ||
+    !isFiniteTimestamp(input.event.at) ||
+    !isFiniteTimestamp(input.session.updatedAt)
+  ) {
+    throw new Error("Telephony call-control mutation identities are invalid.");
+  }
+}
+
+async function insertOrMatchCallControlEvent(
+  database: Pick<PoolClient, "query">,
+  event: TelephonyCallControlEvent,
+) {
+  const inserted = await database.query(
+    `insert into telephony_call_control_events (
+       id, tenant_id, dispatch_id, call_session_id, event_type, at,
+       summary, fallback_target, payload
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+     on conflict (tenant_id, id) do nothing
+     returning id`,
+    [
+      event.id,
+      event.tenantId,
+      event.dispatchId,
+      event.callSessionId,
+      event.eventType,
+      event.at,
+      event.summary,
+      event.fallbackTarget ?? null,
+      JSON.stringify(event.payload),
+    ],
+  );
+  return inserted.rows.length > 0 || callControlEventMatches(database, event);
+}
+
+async function callControlEventMatches(
+  database: Pick<PoolClient, "query">,
+  event: TelephonyCallControlEvent,
+) {
+  const row = await loadCallControlEvent(database, event);
+  return row !== undefined && callControlEventRowMatches(row, event);
+}
+
+async function loadCallControlEvent(
+  database: Pick<PoolClient, "query">,
+  event: Pick<TelephonyCallControlEvent, "tenantId" | "id">,
+) {
+  const result = await database.query<CallControlEventRow>(
+    `select id, tenant_id, dispatch_id, call_session_id, event_type, at,
+            summary, fallback_target, payload
+     from telephony_call_control_events
+     where tenant_id = $1 and id = $2`,
+    [event.tenantId, event.id],
+  );
+  return result.rows[0];
+}
+
+function callControlEventRowMatches(
+  row: CallControlEventRow,
+  event: TelephonyCallControlEvent,
+) {
+  return (
+    row.dispatch_id === event.dispatchId &&
+    row.call_session_id === event.callSessionId &&
+    row.event_type === event.eventType &&
+    normalizeTimestamp(row.at) === normalizeTimestamp(event.at) &&
+    row.summary === event.summary &&
+    row.fallback_target === (event.fallbackTarget ?? null) &&
+    jsonMatches(row.payload, event.payload)
+  );
+}
+
+interface CallControlEventRow extends QueryResultRow {
+  id: string;
+  tenant_id: string;
+  dispatch_id: string;
+  call_session_id: string;
+  event_type: string;
+  at: unknown;
+  summary: string;
+  fallback_target: string | null;
+  payload: unknown;
+}
+
+async function insertOrMatchExecutionCommands(
+  database: Pick<PoolClient, "query">,
+  commands: TelephonyExecutionCommand[],
+) {
+  for (const command of commands) {
+    await database.query(
+      `insert into telephony_execution_commands (
+         id, tenant_id, session_id, dispatch_id, call_session_id, provider,
+         action, status, target, payload, requested_at, applied_at
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+       on conflict (tenant_id, id) do nothing`,
+      [
+        command.id,
+        command.tenantId,
+        command.sessionId,
+        command.dispatchId,
+        command.callSessionId,
+        command.provider,
+        command.action,
+        command.status,
+        command.target,
+        JSON.stringify(command.payload),
+        command.requestedAt,
+        command.appliedAt ?? null,
+      ],
+    );
+  }
+  return executionCommandSubsetMatches(database, commands);
+}
+
+async function executionCommandSubsetMatches(
+  database: Pick<PoolClient, "query">,
+  commands: TelephonyExecutionCommand[],
+) {
+  const rows = await Promise.all(
+    commands.map(async (command) => {
+      const result = await database.query<ExecutionCommandRow>(
+        `select id, tenant_id, session_id, dispatch_id, call_session_id, provider,
+                action, status, target, payload, requested_at, applied_at
+         from telephony_execution_commands
+         where tenant_id = $1 and id = $2`,
+        [command.tenantId, command.id],
+      );
+      return result.rows[0];
+    }),
+  );
+  return rows.every(
+    (row, index) => row !== undefined && executionCommandMatches(row, commands[index]!),
+  );
+}
+
+function isTerminalExecutionStatus(status: string) {
+  return status === "terminated" || status === "completed" || status === "blocked";
 }
 
 function dispatchMatches(row: DispatchRow | undefined, dispatch: TelephonyDispatchRecord) {
@@ -1101,6 +1797,14 @@ function canonicalizeJson(value: unknown): unknown {
   );
 }
 
+function cloneJson<T>(value: unknown): T {
+  return structuredClone(value) as T;
+}
+
+function jsonParameter(value: unknown) {
+  return value === null ? null : JSON.stringify(value);
+}
+
 function normalizeTimestamp(value: unknown) {
   return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
 }
@@ -1117,4 +1821,283 @@ function asLifecycleState(value: unknown): TelephonyCallLifecycleState {
     throw new Error("Stored telephony lifecycle state is invalid.");
   }
   return value as TelephonyCallLifecycleState;
+}
+
+type InstrumentedQuery = (...args: unknown[]) => Promise<unknown>;
+
+function createInstrumentedDatabase(
+  database: Queryable,
+  observability: DatabaseMetricsRecorder,
+): Queryable {
+  const query = async (...args: unknown[]) => {
+    const acquisitionStartedAt = performance.now();
+    const client = await database.connect();
+    const poolAcquisitionWaitMs = performance.now() - acquisitionStartedAt;
+    const queryStartedAt = performance.now();
+    const sql = queryText(args[0]);
+    try {
+      const result = await invokeQuery(client.query, client, args);
+      safeRecordDatabaseOperation(observability, {
+        operation: inferQueryOperation(sql),
+        outcome: "success",
+        queryDurationMs: performance.now() - queryStartedAt,
+        poolAcquisitionWaitMs,
+        rowLockWaitMs: isRowLockingQuery(sql)
+          ? performance.now() - queryStartedAt
+          : 0,
+        deadlockCount: 0,
+        retryCount: 0,
+        pool: poolSnapshot(database),
+      });
+      return result;
+    } catch (error) {
+      safeRecordDatabaseOperation(observability, {
+        operation: inferQueryOperation(sql),
+        outcome: "failure",
+        queryDurationMs: performance.now() - queryStartedAt,
+        poolAcquisitionWaitMs,
+        rowLockWaitMs: isRowLockingQuery(sql)
+          ? performance.now() - queryStartedAt
+          : 0,
+        deadlockCount: isDeadlock(error) ? 1 : 0,
+        retryCount: 0,
+        pool: poolSnapshot(database),
+      });
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+  const connect = async () => {
+    const acquisitionStartedAt = performance.now();
+    const client = await database.connect();
+    return createInstrumentedClient(
+      client,
+      observability,
+      database,
+      performance.now() - acquisitionStartedAt,
+    );
+  };
+  return {
+    query: query as unknown as Queryable["query"],
+    connect: connect as Queryable["connect"],
+  };
+}
+
+function createInstrumentedClient(
+  client: PoolClient,
+  observability: DatabaseMetricsRecorder,
+  database: Queryable,
+  poolAcquisitionWaitMs: number,
+): PoolClient {
+  let transactionStartedAt: number | null = null;
+  let rowLockWaitMs = 0;
+  let acquisitionReported = false;
+  const transactionStatements: string[] = [];
+  const query = async (...args: unknown[]) => {
+    const sql = queryText(args[0]);
+    const normalized = sql.trim().toLowerCase();
+    const queryStartedAt = performance.now();
+    if (normalized === "begin") transactionStartedAt = queryStartedAt;
+    try {
+      const result = await invokeQuery(client.query, client, args);
+      const queryDurationMs = performance.now() - queryStartedAt;
+      if (isRowLockingQuery(sql)) rowLockWaitMs += queryDurationMs;
+      if (!isTransactionControl(normalized)) {
+        transactionStatements.push(sql);
+        safeRecordDatabaseOperation(observability, {
+          operation: inferQueryOperation(sql),
+          outcome: "success",
+          queryDurationMs,
+          ...(!acquisitionReported ? { poolAcquisitionWaitMs } : {}),
+          rowLockWaitMs: isRowLockingQuery(sql) ? queryDurationMs : 0,
+          deadlockCount: 0,
+          retryCount: 0,
+          pool: poolSnapshot(database),
+        });
+        acquisitionReported = true;
+      }
+      if (
+        (normalized === "commit" || normalized === "rollback") &&
+        transactionStartedAt !== null
+      ) {
+        safeRecordDatabaseOperation(observability, {
+          operation: inferTransactionOperation(transactionStatements),
+          outcome: "success",
+          queryDurationMs,
+          transactionDurationMs: performance.now() - transactionStartedAt,
+          poolAcquisitionWaitMs,
+          rowLockWaitMs,
+          deadlockCount: 0,
+          retryCount: 0,
+          pool: poolSnapshot(database),
+        });
+      }
+      return result;
+    } catch (error) {
+      const queryDurationMs = performance.now() - queryStartedAt;
+      safeRecordDatabaseOperation(observability, {
+        operation: inferTransactionOperation([...transactionStatements, sql]),
+        outcome: "failure",
+        queryDurationMs,
+        ...(transactionStartedAt === null
+          ? {}
+          : { transactionDurationMs: performance.now() - transactionStartedAt }),
+        poolAcquisitionWaitMs,
+        rowLockWaitMs:
+          rowLockWaitMs + (isRowLockingQuery(sql) ? queryDurationMs : 0),
+        deadlockCount: isDeadlock(error) ? 1 : 0,
+        retryCount: 0,
+        pool: poolSnapshot(database),
+      });
+      throw error;
+    }
+  };
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === "query") return query;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+async function invokeQuery(
+  query: PoolClient["query"],
+  receiver: PoolClient,
+  args: unknown[],
+) {
+  return await Reflect.apply(
+    query as unknown as InstrumentedQuery,
+    receiver,
+    args,
+  );
+}
+
+function queryText(value: unknown) {
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "text" in value &&
+    typeof value.text === "string"
+  ) {
+    return value.text;
+  }
+  return "";
+}
+
+function inferTransactionOperation(
+  statements: string[],
+): PstnCapacityDatabaseOperation {
+  const sql = statements.join("\n").toLowerCase();
+  if (sql.includes("telephony_call_control_events")) {
+    return "telephony_call_control_mutation";
+  }
+  if (
+    sql.includes("update telephony_connections") &&
+    sql.includes("health_status = 'failed'")
+  ) {
+    return "telephony_outbound_abuse_block";
+  }
+  if (sql.includes("insert into telephony_media_stream_tokens")) {
+    return "telephony_call_setup_create";
+  }
+  if (
+    sql.includes("insert into telephony_execution_sessions") &&
+    sql.includes("insert into telephony_execution_commands")
+  ) {
+    return "telephony_call_execution_create";
+  }
+  return inferQueryOperation(statements.at(-1) ?? "");
+}
+
+function inferQueryOperation(sql: string): PstnCapacityDatabaseOperation {
+  const normalized = sql.toLowerCase();
+  if (normalized.includes("telephony_webhook_events")) {
+    return "telephony_webhook_insert";
+  }
+  if (normalized.includes("telephony_call_control_events")) {
+    return "telephony_call_control_mutation";
+  }
+  if (
+    normalized.includes("telephony_phone_numbers") &&
+    (normalized.includes("test_route") || normalized.includes("phone_test_results"))
+  ) {
+    return "telephony_phone_test_projection_update";
+  }
+  if (normalized.includes("telephony_phone_test_checkpoints")) {
+    return normalized.includes("test_route_session_id") &&
+      normalized.includes("group by")
+      ? "telephony_successful_phone_test_load"
+      : "telephony_phone_test_checkpoint_record";
+  }
+  if (normalized.includes("delete from telephony_media_stream_tokens")) {
+    return "telephony_media_token_cleanup";
+  }
+  if (normalized.includes("telephony_media_stream_tokens")) {
+    return normalized.includes("claimed_at")
+      ? "telephony_media_token_claim"
+      : "telephony_call_setup_create";
+  }
+  if (
+    normalized.includes("telephony_execution_sessions") &&
+    normalized.includes("lifecycle_state") &&
+    normalized.includes("update")
+  ) {
+    return "telephony_call_lifecycle_transition";
+  }
+  if (
+    normalized.includes("telephony_execution_sessions") &&
+    normalized.includes("telephony_dispatches")
+  ) {
+    return normalized.includes("telephony_media_stream_tokens")
+      ? "telephony_call_mutation_context_load"
+      : "telephony_call_runtime_context_load";
+  }
+  if (normalized.includes("telephony_execution_sessions")) {
+    return "telephony_execution_session_transition";
+  }
+  return "telephony_dispatch_insert";
+}
+
+function isTransactionControl(normalizedSql: string) {
+  return (
+    normalizedSql === "begin" ||
+    normalizedSql === "commit" ||
+    normalizedSql === "rollback"
+  );
+}
+
+function isRowLockingQuery(sql: string) {
+  return /\bfor\s+(update|key\s+share)\b/i.test(sql);
+}
+
+function isDeadlock(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "40P01"
+  );
+}
+
+function poolSnapshot(database: Queryable) {
+  const pool = database as Partial<Pool> & { options?: { max?: number } };
+  return {
+    active: Math.max(0, (pool.totalCount ?? 0) - (pool.idleCount ?? 0)),
+    idle: pool.idleCount ?? 0,
+    waiting: pool.waitingCount ?? 0,
+    limit: pool.options?.max ?? 1,
+  };
+}
+
+function safeRecordDatabaseOperation(
+  observability: DatabaseMetricsRecorder,
+  input: Parameters<DatabaseMetricsRecorder["recordDatabaseOperation"]>[0],
+) {
+  try {
+    observability.recordDatabaseOperation(input);
+  } catch {
+    // Capacity telemetry must never block telephony persistence.
+  }
 }

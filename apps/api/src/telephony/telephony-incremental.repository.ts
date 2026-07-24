@@ -1,6 +1,9 @@
 import type {
+  ImportedTelephonyPhoneNumber,
   TelephonyCallLifecycleStage,
   TelephonyCallLifecycleState,
+  TelephonyCallControlEvent,
+  TelephonyExecutionCommand,
   TelephonyExecutionSession,
   TelephonyExecutionSessionStatus,
   TelephonyPhoneTestResult,
@@ -24,17 +27,90 @@ export type TelephonyCallSetupOutcome =
   | { outcome: "existing"; mediaToken: "retained" | "rotated" }
   | { outcome: "conflict" };
 
+export type TelephonyCallExecutionOutcome = {
+  outcome: "inserted" | "existing" | "conflict";
+};
+
 export interface IncrementalTelephonyMediaToken extends TelephonyMediaStreamTokenRecord {
   tenantId: string;
 }
 
-export interface CreateTelephonyCallSetupInput {
+export interface CreateTelephonyCallExecutionInput {
   dispatch: TelephonyDispatchRecord;
   executionSession: TelephonyExecutionSession & {
     lifecycleState: TelephonyCallLifecycleState;
   };
+  executionCommands: TelephonyExecutionCommand[];
+}
+
+export interface CreateTelephonyCallSetupInput extends CreateTelephonyCallExecutionInput {
   mediaToken: IncrementalTelephonyMediaToken;
 }
+
+export interface LoadTelephonyCallMutationContextInput {
+  tenantId: string;
+  callSessionId: string;
+}
+
+export interface TelephonyCallMutationContext {
+  dispatch: TelephonyDispatchRecord;
+  executionSession: TelephonyExecutionSession & {
+    lifecycleState: TelephonyCallLifecycleState;
+  };
+  version: number;
+}
+
+export type TelephonyCallMutationContextOutcome =
+  | { outcome: "found"; context: TelephonyCallMutationContext }
+  | { outcome: "not_found" };
+
+export interface TelephonyExecutionSessionMutation {
+  status: TelephonyExecutionSessionStatus;
+  outageMode: TelephonyExecutionSession["outageMode"] | null;
+  fallbackTarget: string | null;
+  diagnostics: string[];
+  updatedAt: string;
+}
+
+export interface RecordTelephonyCallControlMutationInput {
+  tenantId: string;
+  callSessionId: string;
+  dispatchId: string;
+  expectedVersion: number;
+  expectedStatus: TelephonyExecutionSessionStatus;
+  session: TelephonyExecutionSessionMutation;
+  event: TelephonyCallControlEvent;
+  executionCommands: TelephonyExecutionCommand[];
+  retryCount?: number | undefined;
+}
+
+export type TelephonyCallControlMutationOutcome = {
+  outcome: "updated" | "existing" | "conflict" | "not_found";
+  version?: number | undefined;
+};
+
+export interface UpdateTelephonyPhoneTestProjectionInput {
+  tenantId: string;
+  phoneNumberId: string;
+  expectedTestRoute: ImportedTelephonyPhoneNumber["testRoute"] | null;
+  expectedPhoneTestResults: TelephonyPhoneTestResult[] | null;
+  testRoute: ImportedTelephonyPhoneNumber["testRoute"] | null;
+  phoneTestResults: TelephonyPhoneTestResult[] | null;
+}
+
+export type TelephonyPhoneTestProjectionUpdateOutcome = {
+  outcome: "updated" | "existing" | "conflict" | "not_found";
+};
+
+export interface RecordTelephonyOutboundAbuseBlockInput {
+  dispatch: TelephonyDispatchRecord;
+  connectionIds: string[];
+}
+
+export type TelephonyOutboundAbuseBlockOutcome = {
+  outcome: "inserted" | "existing" | "conflict";
+  connectionCount: number;
+};
 
 export interface TransitionTelephonyExecutionSessionInput {
   tenantId: string;
@@ -136,7 +212,22 @@ export interface LoadLatestSuccessfulPhoneTestInput {
 export interface TelephonyIncrementalRepository {
   insertWebhookEvent(event: TelephonyWebhookEvent): Promise<TelephonyWebhookInsertOutcome>;
   insertDispatch(dispatch: TelephonyDispatchRecord): Promise<TelephonyInsertOutcome>;
+  createCallExecution(
+    input: CreateTelephonyCallExecutionInput,
+  ): Promise<TelephonyCallExecutionOutcome>;
   createCallSetup(input: CreateTelephonyCallSetupInput): Promise<TelephonyCallSetupOutcome>;
+  loadCallMutationContext(
+    input: LoadTelephonyCallMutationContextInput,
+  ): Promise<TelephonyCallMutationContextOutcome>;
+  recordCallControlMutation(
+    input: RecordTelephonyCallControlMutationInput,
+  ): Promise<TelephonyCallControlMutationOutcome>;
+  updatePhoneTestProjection(
+    input: UpdateTelephonyPhoneTestProjectionInput,
+  ): Promise<TelephonyPhoneTestProjectionUpdateOutcome>;
+  recordOutboundAbuseBlock(
+    input: RecordTelephonyOutboundAbuseBlockInput,
+  ): Promise<TelephonyOutboundAbuseBlockOutcome>;
   transitionExecutionSession(
     input: TransitionTelephonyExecutionSessionInput,
   ): Promise<TelephonyTransitionOutcome>;

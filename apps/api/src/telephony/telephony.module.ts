@@ -59,9 +59,15 @@ import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
     },
     {
       provide: TELEPHONY_INCREMENTAL_REPOSITORY,
-      useFactory: (postgresPoolService: PostgresPoolService) =>
-        new PostgresTelephonyIncrementalRepository(postgresPoolService.pool),
-      inject: [PostgresPoolService],
+      useFactory: (
+        postgresPoolService: PostgresPoolService,
+        capacityObservability: PstnCapacityObservability,
+      ) =>
+        new PostgresTelephonyIncrementalRepository(
+          postgresPoolService.pool,
+          capacityObservability,
+        ),
+      inject: [PostgresPoolService, PstnCapacityObservability],
     },
     {
       provide: TelephonySecretVault,

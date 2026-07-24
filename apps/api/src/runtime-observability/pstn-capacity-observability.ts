@@ -27,7 +27,23 @@ export type PstnCapacityQueue =
 export type PstnCapacityDatabaseOperation =
   | "organization_list"
   | "telephony_state_load"
-  | "telephony_state_save";
+  | "telephony_state_save"
+  | "telephony_webhook_insert"
+  | "telephony_dispatch_insert"
+  | "telephony_call_setup_create"
+  | "telephony_call_execution_create"
+  | "telephony_call_mutation_context_load"
+  | "telephony_call_control_mutation"
+  | "telephony_phone_test_projection_update"
+  | "telephony_outbound_abuse_block"
+  | "telephony_execution_session_transition"
+  | "telephony_call_runtime_context_load"
+  | "telephony_call_lifecycle_transition"
+  | "telephony_media_token_claim"
+  | "telephony_media_token_cleanup"
+  | "telephony_phone_test_checkpoint_record"
+  | "telephony_phone_test_checkpoint_by_call_record"
+  | "telephony_successful_phone_test_load";
 
 export interface PstnCapacityConfig {
   maxConcurrentCalls: number;
@@ -106,6 +122,10 @@ interface DatabaseSnapshot {
     queryDurationMs: number;
     transactionDurationMs?: number | undefined;
     advisoryLockWaitMs?: number | undefined;
+    poolAcquisitionWaitMs?: number | undefined;
+    rowLockWaitMs?: number | undefined;
+    deadlockCount?: number | undefined;
+    retryCount?: number | undefined;
   } | null;
 }
 
@@ -429,6 +449,10 @@ export class PstnCapacityRecorder {
     queryDurationMs: number;
     transactionDurationMs?: number | undefined;
     advisoryLockWaitMs?: number | undefined;
+    poolAcquisitionWaitMs?: number | undefined;
+    rowLockWaitMs?: number | undefined;
+    deadlockCount?: number | undefined;
+    retryCount?: number | undefined;
     pool: DatabaseSnapshot["pool"];
   }) {
     this.database = {
@@ -449,6 +473,18 @@ export class PstnCapacityRecorder {
         ...(input.advisoryLockWaitMs !== undefined
           ? { advisoryLockWaitMs: nonNegative(input.advisoryLockWaitMs) }
           : {}),
+        ...(input.poolAcquisitionWaitMs !== undefined
+          ? { poolAcquisitionWaitMs: nonNegative(input.poolAcquisitionWaitMs) }
+          : {}),
+        ...(input.rowLockWaitMs !== undefined
+          ? { rowLockWaitMs: nonNegative(input.rowLockWaitMs) }
+          : {}),
+        ...(input.deadlockCount !== undefined
+          ? { deadlockCount: nonNegative(input.deadlockCount) }
+          : {}),
+        ...(input.retryCount !== undefined
+          ? { retryCount: nonNegative(input.retryCount) }
+          : {}),
       },
     };
     const attributes = { operation: input.operation, outcome: input.outcome };
@@ -458,6 +494,28 @@ export class PstnCapacityRecorder {
     }
     if (input.advisoryLockWaitMs !== undefined) {
       this.emit("zara.pstn.database.advisory_lock_wait", "histogram", input.advisoryLockWaitMs, attributes);
+    }
+    if (input.poolAcquisitionWaitMs !== undefined) {
+      this.emit(
+        "zara.pstn.database.pool_acquisition_wait",
+        "histogram",
+        input.poolAcquisitionWaitMs,
+        attributes,
+      );
+    }
+    if (input.rowLockWaitMs !== undefined) {
+      this.emit(
+        "zara.pstn.database.row_lock_wait",
+        "histogram",
+        input.rowLockWaitMs,
+        attributes,
+      );
+    }
+    if (input.deadlockCount !== undefined) {
+      this.emit("zara.pstn.database.deadlocks", "counter", input.deadlockCount, attributes);
+    }
+    if (input.retryCount !== undefined) {
+      this.emit("zara.pstn.database.retries", "counter", input.retryCount, attributes);
     }
     this.emit("zara.pstn.database.pool_active", "gauge", this.database.pool.active, {});
     this.emit("zara.pstn.database.pool_idle", "gauge", this.database.pool.idle, {});
