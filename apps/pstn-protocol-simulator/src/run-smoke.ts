@@ -16,6 +16,8 @@ interface SmokeScenario {
     markAckLatencyMs?: number;
     loseMarks?: boolean;
     interruptionAtMs?: number;
+    duplicateMediaStream?: boolean;
+    simultaneousDuplicateMediaStream?: boolean;
   };
 }
 
@@ -33,6 +35,26 @@ const scenarios: SmokeScenario[] = [
     name: "interrupted",
     responseMode: "normal",
     caller: { durationMs: 1_600, interruptionAtMs: 120, markAckLatencyMs: 80 },
+  },
+  {
+    name: "duplicate-media",
+    responseMode: "normal",
+    caller: {
+      durationMs: 400,
+      interruptionAtMs: 800,
+      callerTurns: [{ durationMs: 400, silenceAfterMs: 300 }, { durationMs: 400 }],
+      duplicateMediaStream: true,
+    },
+  },
+  {
+    name: "simultaneous-duplicate-media",
+    responseMode: "normal",
+    caller: {
+      durationMs: 400,
+      interruptionAtMs: 800,
+      callerTurns: [{ durationMs: 400, silenceAfterMs: 300 }, { durationMs: 400 }],
+      simultaneousDuplicateMediaStream: true,
+    },
   },
   {
     name: "tool-handoff",
@@ -121,6 +143,20 @@ function validateScenario(
     ? result.outboundFrameCount > 0 && result.outboundFingerprintMatched && outboundEvents.has("response.done")
     : scenario.name === "interrupted"
       ? result.clearCount > 0 && outboundEvents.has("input_audio_buffer.speech_started")
+      : scenario.name === "duplicate-media"
+        ? result.duplicateMediaStream?.closeCode === 4409
+          && result.inboundFrameCount > 0
+          && result.outboundFrameCount > 0
+          && result.outboundFingerprintMatched
+          && connectionCount === 1
+          && outboundEvents.has("response.done")
+      : scenario.name === "simultaneous-duplicate-media"
+        ? result.duplicateMediaStream?.closeCode === 4409
+          && result.inboundFrameCount > 0
+          && result.outboundFrameCount > 0
+          && result.outboundFingerprintMatched
+          && connectionCount === 1
+          && outboundEvents.has("response.done")
       : scenario.name === "tool-handoff"
         ? outboundEvents.has("response.done")
           && connectionCount >= 2
@@ -176,6 +212,14 @@ function isScenarioTerminal(
   if (scenario.name === "interrupted") {
     return countEvent(records, "input_audio_buffer.speech_started", "outbound") >= 1
       && countEvent(records, "response.done", "outbound") >= 1;
+  }
+  if (scenario.name === "duplicate-media") {
+    return countEvent(records, "connection.opened") === 1
+      && countEvent(records, "response.done", "outbound") >= 3;
+  }
+  if (scenario.name === "simultaneous-duplicate-media") {
+    return countEvent(records, "connection.opened") === 1
+      && countEvent(records, "response.done", "outbound") >= 3;
   }
   return countEvent(records, "response.done", "outbound") >= 3;
 }

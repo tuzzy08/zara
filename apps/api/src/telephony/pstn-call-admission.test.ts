@@ -57,6 +57,7 @@ describe("PstnCallAdmission contract", () => {
       assertPstnCallAdmissionLeaseInput({
         reservationId: validInput.reservationId,
         workerId: validInput.workerId,
+        ownershipEpoch: 1,
         activeTtlMs: validInput.activeTtlMs,
       }),
     ).not.toThrow();

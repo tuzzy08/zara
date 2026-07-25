@@ -79,9 +79,12 @@ import type {
   TelephonyWebhookEvent,
 } from "./telephony.models";
 import {
+  computeTelephonyPremiumDispatchSnapshotChecksum,
   TELEPHONY_INCREMENTAL_REPOSITORY,
   type TelephonyCallRuntimeContext,
   type TelephonyIncrementalRepository,
+  type TelephonyPremiumDispatchRepository,
+  type TelephonyPremiumDispatchSnapshot,
 } from "./telephony-incremental.repository";
 import {
   TELEPHONY_STATE_REPOSITORY,
@@ -89,6 +92,16 @@ import {
   type TelephonyStateRepository,
 } from "./telephony-state.repository";
 import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
+import { PremiumPstnDispatchSnapshotResolver } from "./premium-pstn-dispatch-snapshot-resolver";
+import { resolvePremiumPstnRequiredProviders } from "./premium-pstn-worker-requirements";
+import {
+  PSTN_PREMIUM_WORKER_AVAILABILITY,
+  type PstnPremiumWorkerAvailability,
+} from "../realtime-worker/pstn-premium-worker-availability";
+import {
+  isPstnRealtimeWorkerId,
+  isPstnRealtimeWorkerReleaseId,
+} from "./pstn-realtime-worker-routing-contract";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import {
   TWILIO_NUMBER_INVENTORY_PROVIDER,
@@ -121,6 +134,7 @@ const localTwilioWebhookUrl = "http://127.0.0.1/telephony/webhooks/twilio";
 const localTwilioMediaStreamBaseUrl = "wss://127.0.0.1/telephony/twilio/media-streams";
 const twilioMediaStreamTokenTtlMs = 5 * 60 * 1000;
 const pstnLifecycleTransitionMaxAttempts = 10;
+const pstnPremiumWorkerReselectionMaxAttempts = 64;
 const safeTakeoverMessage =
   "I am connecting you with a specialist now. If the transfer drops, we will call you back using the number on this call.";
 const safeCallbackMessage =
@@ -146,8 +160,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     @Inject(TWILIO_NUMBER_ROUTING_PROVIDER)
     private readonly twilioNumberRouting: TwilioNumberRoutingProvider,
     @Inject(TELEPHONY_INCREMENTAL_REPOSITORY)
-    private readonly incrementalRepository: TelephonyIncrementalRepository,
+    private readonly incrementalRepository: TelephonyPremiumDispatchRepository,
     private readonly pstnAdmissionCoordinator: PstnAdmissionCoordinator,
+    private readonly premiumDispatchSnapshotResolver: PremiumPstnDispatchSnapshotResolver,
     @Optional()
     private readonly auditLogService?: AuditLogService,
     @Optional()
@@ -155,6 +170,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(pstnCallObservabilityRecorderToken)
     private readonly pstnObservabilityRecorder?: PstnCallObservabilityRecorder,
+    @Optional()
+    @Inject(PSTN_PREMIUM_WORKER_AVAILABILITY)
+    private readonly premiumWorkerAvailability?: PstnPremiumWorkerAvailability,
   ) {}
 
   onModuleInit() {
@@ -989,9 +1007,29 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     testCall?: boolean | undefined;
     now?: string | undefined;
     isolateState?: boolean | undefined;
+    connectionAdmissionPosture?: {
+      connectionId: string;
+      status: TelephonyConnection["status"];
+      healthStatus: TelephonyConnection["healthStatus"];
+      blockRoutingOnHealthFailure: boolean;
+    } | undefined;
   }) {
     const currentState = await this.getOrCreateState(input.organizationId);
     const state = input.isolateState === true ? structuredClone(currentState) : currentState;
+    if (input.connectionAdmissionPosture !== undefined) {
+      const posture = input.connectionAdmissionPosture;
+      state.connections = state.connections.map((connection) =>
+        connection.id === posture.connectionId
+          ? {
+              ...connection,
+              status: posture.status,
+              healthStatus: posture.healthStatus,
+              blockRoutingOnHealthFailure:
+                posture.blockRoutingOnHealthFailure,
+            }
+          : connection
+      );
+    }
     const previousPhoneNumbers = currentState.phoneNumbers.map(clonePhoneNumber);
     const now = input.now ?? new Date().toISOString();
     const liveCallPolicy = await this.resolveLiveRoutePolicyPosture({
@@ -1473,18 +1511,22 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async authorizeTwilioMediaStream(input: { callSessionId: string; token: string }) {
-    const claims = readSignedOneTimeStreamToken({
+  async authorizeTwilioMediaStream(input: {
+    callSessionId: string;
+    token: string;
+    workerId?: string | undefined;
+    workerReleaseId?: string | undefined;
+  }) {
+    const claims = readTwilioMediaStreamTokenClaims({
       secret: this.mediaStreamTokenSecret,
       token: input.token,
-      expectedSubject: input.callSessionId,
+      callSessionId: input.callSessionId,
     });
     const organizationId = claims?.scope.organizationId;
     const dispatchId = claims?.scope.dispatchId;
     const connectionId = claims?.scope.connectionId;
     const providerAccountId = claims?.scope.providerAccountId;
     const expectedCallSid = deriveTwilioCallSidFromSession(input.callSessionId);
-    const scopeKeys = claims === undefined ? [] : Object.keys(claims.scope).sort();
     if (
       claims === undefined ||
       organizationId === undefined ||
@@ -1492,13 +1534,20 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       connectionId === undefined ||
       providerAccountId === undefined ||
       expectedCallSid === undefined ||
-      JSON.stringify(scopeKeys) !==
-        JSON.stringify([
-          "connectionId",
-          "dispatchId",
-          "organizationId",
-          "providerAccountId",
-        ])
+      (
+        claims.scope.runtimePath === "pstn-premium-realtime"
+        && (
+          claims.scope.workerId !== input.workerId
+          || claims.scope.workerReleaseId !== input.workerReleaseId
+        )
+      ) ||
+      (
+        claims.scope.runtimePath === "pstn-sandwich"
+        && (
+          input.workerId !== undefined
+          || input.workerReleaseId !== undefined
+        )
+      )
     ) {
       warnTwilioPstnDiagnostic(this.logger, "media_authorization_failed", {
         callSessionId: input.callSessionId,
@@ -1513,6 +1562,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       dispatchId,
       connectionId,
       tokenHash: hashOneTimeStreamToken(input.token),
+      ...(input.workerId === undefined ? {} : { workerId: input.workerId }),
     });
     if (claim.outcome === "claimed") {
       logTwilioPstnDiagnostic(this.logger, "media_authorized", {
@@ -1531,6 +1581,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         callSessionId: input.callSessionId,
         expectedCallSid,
         runtimePath: claim.authorization.runtimePath,
+        ...(claim.ownerEpoch === undefined
+          ? {}
+          : { ownerEpoch: claim.ownerEpoch }),
       };
     }
 
@@ -1553,6 +1606,52 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     return null;
+  }
+
+  inspectTwilioMediaStreamRuntime(input: {
+    callSessionId: string;
+    token: string;
+  }) {
+    const claims = readTwilioMediaStreamTokenClaims({
+      secret: this.mediaStreamTokenSecret,
+      token: input.token,
+      callSessionId: input.callSessionId,
+    });
+    return claims === undefined
+      ? null
+      : {
+          runtimePath: claims.scope.runtimePath,
+          ...(claims.scope.workerId === undefined
+            ? {}
+            : { workerId: claims.scope.workerId }),
+          ...(claims.scope.workerReleaseId === undefined
+            ? {}
+            : { workerReleaseId: claims.scope.workerReleaseId }),
+        };
+  }
+
+  loadPremiumDispatchSnapshot(input: {
+    organizationId: string;
+    callSessionId: string;
+  }) {
+    return this.incrementalRepository.loadPremiumDispatchSnapshot({
+      tenantId: input.organizationId,
+      callSessionId: input.callSessionId,
+    });
+  }
+
+  fencePremiumCallOwnership(input: {
+    organizationId: string;
+    callSessionId: string;
+    workerId: string;
+    ownerEpoch: number;
+  }) {
+    return this.incrementalRepository.fencePremiumCallOwnership({
+      tenantId: input.organizationId,
+      callSessionId: input.callSessionId,
+      workerId: input.workerId,
+      ownerEpoch: input.ownerEpoch,
+    });
   }
 
   async recordTwilioMediaStreamLifecycle(input: {
@@ -2227,7 +2326,193 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       ),
     ].slice(0, 50);
 
+    if (
+      duplicate
+      && isTwilioIncomingVoiceWebhook(payload)
+      && payload.CallSid !== undefined
+    ) {
+      const callSessionId = `${payload.CallSid}:telephony`;
+      let existingCall: Awaited<
+        ReturnType<
+          TelephonyIncrementalRepository["loadCallMutationContext"]
+        >
+      >;
+      try {
+        existingCall =
+          await this.incrementalRepository.loadCallMutationContext({
+            tenantId: organizationId,
+            callSessionId,
+          });
+      } catch (error) {
+        return this.failTwilioAnswerPersistence({
+          organizationId,
+          connectionId: connection.id,
+          callSid: payload.CallSid,
+          eventSid,
+          reasonCode: "call_setup_persistence_failed",
+          error,
+        });
+      }
+      if (existingCall.outcome === "found") {
+        const { dispatch, executionSession } = existingCall.context;
+        if (
+          isTerminalPstnLifecycleStage(
+            executionSession.lifecycleState.stage,
+          )
+        ) {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "call_setup_persistence_conflict",
+          });
+        }
+        const runtimePath = dispatch.runtimePath;
+        if (
+          executionSession.connectionId !== connection.id
+          || dispatch.connectionId !== connection.id
+          || dispatch.disposition !== "routed"
+          || dispatch.callSessionId !== callSessionId
+          || dispatch.publishedVersionId === undefined
+          || (
+            runtimePath !== "pstn-sandwich"
+            && runtimePath !== "pstn-premium-realtime"
+          )
+          || payload.AccountSid === undefined
+        ) {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "call_setup_persistence_conflict",
+          });
+        }
+        let premiumWorkerTarget:
+          | TelephonyPremiumDispatchSnapshot["workerTarget"]
+          | undefined;
+        if (runtimePath === "pstn-premium-realtime") {
+          try {
+            const snapshot =
+              await this.incrementalRepository.loadPremiumDispatchSnapshot({
+                tenantId: organizationId,
+                callSessionId,
+              });
+            if (snapshot.outcome !== "found") {
+              return this.failTwilioAnswerPersistence({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                reasonCode: "premium_dispatch_snapshot_unavailable",
+              });
+            }
+            premiumWorkerTarget = snapshot.snapshot.workerTarget;
+          } catch (error) {
+            return this.failTwilioAnswerPersistence({
+              organizationId,
+              connectionId: connection.id,
+              callSid: payload.CallSid,
+              eventSid,
+              reasonCode: "premium_dispatch_snapshot_unavailable",
+              error,
+            });
+          }
+        }
+        const expiresAt = new Date(
+          Date.parse(authoritativeReceivedAt)
+            + twilioMediaStreamTokenTtlMs,
+        ).toISOString();
+        if (Date.parse(expiresAt) <= Date.now()) {
+          return this.failTwilioAnswerPersistence({
+            organizationId,
+            connectionId: connection.id,
+            callSid: payload.CallSid,
+            eventSid,
+            reasonCode: "media_token_expired",
+          });
+        }
+        const streamToken = createOneTimeStreamToken({
+          secret: this.mediaStreamTokenSecret,
+          subject: callSessionId,
+          scope: {
+            organizationId,
+            dispatchId: dispatch.id,
+            connectionId: connection.id,
+            providerAccountId: payload.AccountSid,
+            runtimePath,
+            ...(premiumWorkerTarget === undefined
+              ? {}
+              : {
+                  workerId: premiumWorkerTarget.workerId,
+                  workerReleaseId: premiumWorkerTarget.releaseId,
+                }),
+          },
+          expiresAt,
+          nonce: hashOneTimeStreamToken(
+            `${organizationId}\0${connection.id}\0${eventSid}\0${payload.CallSid}`,
+          ),
+        });
+        const twiml = renderTwiMLForTwilioDispatch({
+          organizationId,
+          connectionId: connection.id,
+          dispatch,
+          streamToken: streamToken.token,
+          premiumWorkerTarget,
+        });
+        logTwilioPstnDiagnostic(this.logger, "twiml_replayed", {
+          organizationId,
+          connectionId: connection.id,
+          accountSid: payload.AccountSid,
+          callSid: payload.CallSid,
+          eventSid,
+          callSessionId,
+          dispatchId: dispatch.id,
+          runtimePath,
+          expiresAt,
+          twimlAction: describeTwilioTwiMLAction(twiml),
+        });
+        return {
+          duplicate: true,
+          event: cloneWebhookEvent(event),
+          dispatch: cloneDispatch(dispatch),
+          twiml,
+        };
+      }
+    }
+
     if (isTwilioIncomingVoiceWebhook(payload)) {
+      let durableConnection: Awaited<
+        ReturnType<
+          TelephonyIncrementalRepository["loadConnectionAdmissionPosture"]
+        >
+      >;
+      try {
+        durableConnection =
+          await this.incrementalRepository.loadConnectionAdmissionPosture({
+            tenantId: organizationId,
+            connectionId: connection.id,
+          });
+      } catch (error) {
+        return this.failTwilioAnswerPersistence({
+          organizationId,
+          connectionId: connection.id,
+          callSid: payload.CallSid,
+          eventSid,
+          reasonCode: "provider_health_posture_unavailable",
+          error,
+        });
+      }
+      if (durableConnection.outcome === "not_found") {
+        return this.failTwilioAnswerPersistence({
+          organizationId,
+          connectionId: connection.id,
+          callSid: payload.CallSid,
+          eventSid,
+          reasonCode: "provider_health_posture_unavailable",
+        });
+      }
       const dispatchResponse = await this.prepareInboundCall({
         organizationId,
         toPhoneNumber: payload.To ?? "",
@@ -2236,6 +2521,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         source: "webhook",
         now: authoritativeReceivedAt,
         isolateState: true,
+        connectionAdmissionPosture: {
+          connectionId: connection.id,
+          ...durableConnection.posture,
+        },
       });
       this.recordPstnObservability({
         traceId: `twilio:${event.id}`,
@@ -2277,6 +2566,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         reason: dispatchResponse.dispatch.reason,
       });
       let mediaStreamToken: { token: string; expiresAt: string } | null = null;
+      let premiumWorkerTarget:
+        | TelephonyPremiumDispatchSnapshot["workerTarget"]
+        | undefined;
       if (dispatchResponse.execution === null) {
         let dispatchOutcome: Awaited<ReturnType<TelephonyIncrementalRepository["insertDispatch"]>>;
         try {
@@ -2373,51 +2665,189 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             });
           }
         }
-        let durableConnection: Awaited<
-          ReturnType<
-            TelephonyIncrementalRepository["loadConnectionAdmissionPosture"]
-          >
-        >;
-        try {
-          durableConnection =
-            await this.incrementalRepository.loadConnectionAdmissionPosture({
-              tenantId: organizationId,
+        let premiumDispatchSnapshot:
+          | TelephonyPremiumDispatchSnapshot
+          | undefined;
+        let unresolvedPremiumSnapshot:
+          | {
+              resolution: Awaited<
+                ReturnType<PremiumPstnDispatchSnapshotResolver["resolve"]>
+              >;
+              requiredProviders: ReturnType<
+                typeof resolvePremiumPstnRequiredProviders
+              >;
+              workspaceId: string;
+              publishedVersionId: string;
+            }
+          | undefined;
+        if (runtimePath === "pstn-premium-realtime") {
+          const publishedVersionId =
+            dispatchResponse.dispatch.publishedVersionId;
+          const workspaceId = dispatchResponse.dispatch.workspaceId;
+          if (
+            publishedVersionId === undefined
+            || workspaceId === undefined
+          ) {
+            return this.failTwilioAnswerPersistence({
+              organizationId,
               connectionId: connection.id,
+              callSid: payload.CallSid,
+              eventSid,
+              reasonCode: "premium_dispatch_snapshot_unavailable",
             });
-        } catch {
-          return this.failTwilioAdmission({
-            organizationId,
-            connectionId: connection.id,
-            callSid: payload.CallSid,
-            eventSid,
-            callSessionId,
-            reasonCode: "provider_health_posture_unavailable",
-            limitingDimension: "backend",
-          });
+          }
+          if (duplicate) {
+            try {
+              const existingSnapshot =
+                await this.incrementalRepository.loadPremiumDispatchSnapshot({
+                  tenantId: organizationId,
+                  callSessionId,
+                });
+              if (existingSnapshot.outcome === "found") {
+                premiumDispatchSnapshot = existingSnapshot.snapshot;
+                premiumWorkerTarget =
+                  existingSnapshot.snapshot.workerTarget;
+              }
+            } catch (error) {
+              return this.failTwilioAnswerPersistence({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                reasonCode: "premium_dispatch_snapshot_unavailable",
+                error,
+              });
+            }
+          }
+          if (premiumDispatchSnapshot === undefined) {
+            let resolution: Awaited<
+              ReturnType<
+                PremiumPstnDispatchSnapshotResolver["resolve"]
+              >
+            >;
+            try {
+              resolution =
+                await this.premiumDispatchSnapshotResolver.resolve({
+                  organizationId,
+                  workspaceId,
+                  publishedVersionId,
+                });
+            } catch (error) {
+              return this.failTwilioAnswerPersistence({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                reasonCode: "premium_dispatch_snapshot_unavailable",
+                error,
+              });
+            }
+            const requiredPremiumProviders =
+              resolvePremiumPstnRequiredProviders({
+                manifest: resolution.resolvedManifest,
+                defaultProvider:
+                  resolution.resolvedConversationPolicy.defaultProvider,
+              });
+            let workerSelection:
+              | Awaited<
+                  ReturnType<PstnPremiumWorkerAvailability["select"]>
+                >
+              | undefined;
+            try {
+              workerSelection =
+                await this.premiumWorkerAvailability?.select(
+                  requiredPremiumProviders,
+                );
+            } catch {
+              workerSelection = undefined;
+            }
+            if (workerSelection?.status !== "available") {
+              return this.failTwilioAdmission({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                callSessionId,
+                reasonCode: "premium_worker_unavailable",
+                limitingDimension: "worker",
+              });
+            }
+            premiumWorkerTarget = workerSelection.worker;
+            unresolvedPremiumSnapshot = {
+              resolution,
+              requiredProviders: requiredPremiumProviders,
+              workspaceId,
+              publishedVersionId,
+            };
+          }
         }
-        if (durableConnection.outcome === "not_found") {
-          return this.failTwilioAdmission({
-            organizationId,
-            connectionId: connection.id,
-            callSid: payload.CallSid,
-            eventSid,
+        const excludedWorkerIds: string[] = [];
+        let admission: Awaited<
+          ReturnType<PstnAdmissionCoordinator["reserve"]>
+        >;
+        while (true) {
+          admission = await this.pstnAdmissionCoordinator.reserve({
+            tenantId: organizationId,
             callSessionId,
-            reasonCode: "provider_health_posture_unavailable",
-            limitingDimension: "backend",
+            provider: connection.provider,
+            providerAccountId,
+            runtime: runtimePath,
+            ...(premiumWorkerTarget === undefined
+              ? {}
+              : {
+                  workerId: premiumWorkerTarget.workerId,
+                  workerReleaseId: premiumWorkerTarget.releaseId,
+                }),
+            providerAvailable:
+              durableConnection.posture.status !== "disabled" &&
+              (durableConnection.posture.healthStatus !== "failed" ||
+                !durableConnection.posture.blockRoutingOnHealthFailure),
           });
-        }
-        const admission = await this.pstnAdmissionCoordinator.reserve({
-          tenantId: organizationId,
-          callSessionId,
-          provider: connection.provider,
-          providerAccountId,
-          runtime: runtimePath,
-          providerAvailable:
-            durableConnection.posture.status !== "disabled" &&
-            (durableConnection.posture.healthStatus !== "failed" ||
-              !durableConnection.posture.blockRoutingOnHealthFailure),
-        });
-        if (admission.outcome === "denied") {
+          if (admission.outcome === "admitted") {
+            break;
+          }
+          if (
+            admission.reasonCode === "worker_concurrency_limit"
+            && unresolvedPremiumSnapshot !== undefined
+            && premiumWorkerTarget !== undefined
+          ) {
+            excludedWorkerIds.push(premiumWorkerTarget.workerId);
+            if (
+              excludedWorkerIds.length
+              >= pstnPremiumWorkerReselectionMaxAttempts
+            ) {
+              return this.failTwilioAdmission({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                callSessionId,
+                reasonCode: admission.reasonCode,
+                limitingDimension: admission.limitingDimension,
+              });
+            }
+            let retrySelection:
+              | Awaited<
+                  ReturnType<PstnPremiumWorkerAvailability["select"]>
+                >
+              | undefined;
+            try {
+              retrySelection =
+                await this.premiumWorkerAvailability?.select(
+                  unresolvedPremiumSnapshot.requiredProviders,
+                  excludedWorkerIds,
+                );
+            } catch {
+              retrySelection = undefined;
+            }
+            if (
+              retrySelection?.status === "available"
+              && !excludedWorkerIds.includes(retrySelection.worker.workerId)
+            ) {
+              premiumWorkerTarget = retrySelection.worker;
+              continue;
+            }
+          }
           return this.failTwilioAdmission({
             organizationId,
             connectionId: connection.id,
@@ -2427,6 +2857,39 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             reasonCode: admission.reasonCode,
             limitingDimension: admission.limitingDimension,
           });
+        }
+        if (
+          unresolvedPremiumSnapshot !== undefined
+          && premiumWorkerTarget !== undefined
+        ) {
+          const snapshotWithoutChecksum = {
+            schemaVersion: 1 as const,
+            tenantId: organizationId,
+            workspaceId: unresolvedPremiumSnapshot.workspaceId,
+            callSessionId,
+            dispatchId: dispatchResponse.execution.session.dispatchId,
+            publishedVersionId:
+              unresolvedPremiumSnapshot.publishedVersionId,
+            resolvedManifest:
+              unresolvedPremiumSnapshot.resolution.resolvedManifest,
+            resolvedConversationPolicy:
+              unresolvedPremiumSnapshot.resolution
+                .resolvedConversationPolicy,
+            workerTarget: {
+              workerId: premiumWorkerTarget.workerId,
+              releaseId: premiumWorkerTarget.releaseId,
+              mediaStreamBaseUrl:
+                premiumWorkerTarget.mediaStreamBaseUrl,
+            },
+            createdAt: authoritativeReceivedAt,
+          };
+          premiumDispatchSnapshot = {
+            ...snapshotWithoutChecksum,
+            checksum:
+              computeTelephonyPremiumDispatchSnapshotChecksum(
+                snapshotWithoutChecksum,
+              ),
+          };
         }
 
         let callSetupPersisted = false;
@@ -2451,6 +2914,13 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
               dispatchId: dispatchResponse.execution.session.dispatchId,
               connectionId: dispatchResponse.execution.session.connectionId,
               providerAccountId,
+              runtimePath,
+              ...(premiumWorkerTarget === undefined
+                ? {}
+                : {
+                    workerId: premiumWorkerTarget.workerId,
+                    workerReleaseId: premiumWorkerTarget.releaseId,
+                  }),
             },
             expiresAt,
             nonce: hashOneTimeStreamToken(
@@ -2478,6 +2948,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
                   tenantId: organizationId,
                   ...tokenRecord,
                 },
+                ...(premiumDispatchSnapshot === undefined
+                  ? {}
+                  : { premiumDispatchSnapshot }),
               });
           } catch (error) {
             let persistedSetup: Awaited<
@@ -2562,7 +3035,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
                   checkpointOutcome.outcome === "conflict" ||
                   checkpointOutcome.outcome === "not_found"
                 ) {
-                  return this.failPersistedTwilioCallSetup({
+                  const failure = {
                     organizationId,
                     connectionId: connection.id,
                     callSid: payload.CallSid,
@@ -2571,10 +3044,13 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
                     observedAt: authoritativeReceivedAt,
                     reasonCode:
                       "phone_test_checkpoint_persistence_conflict",
-                  });
+                  };
+                  return callSetupOutcome.outcome === "inserted"
+                    ? this.failPersistedTwilioCallSetup(failure)
+                    : this.failTwilioAnswerPersistence(failure);
                 }
               } catch (error) {
-                return this.failPersistedTwilioCallSetup({
+                const failure = {
                   organizationId,
                   connectionId: connection.id,
                   callSid: payload.CallSid,
@@ -2584,7 +3060,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
                   reasonCode:
                     "phone_test_checkpoint_persistence_failed",
                   error,
-                });
+                };
+                return callSetupOutcome.outcome === "inserted"
+                  ? this.failPersistedTwilioCallSetup(failure)
+                  : this.failTwilioAnswerPersistence(failure);
               }
             }
           }
@@ -2592,7 +3071,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           try {
             await this.persistPreparedPhoneTestProjection(dispatchResponse);
           } catch (error) {
-            return this.failPersistedTwilioCallSetup({
+            const failure = {
               organizationId,
               connectionId: connection.id,
               callSid: payload.CallSid,
@@ -2601,7 +3080,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
               observedAt: authoritativeReceivedAt,
               reasonCode: "phone_test_projection_persistence_failed",
               error,
-            });
+            };
+            return callSetupOutcome.outcome === "inserted"
+              ? this.failPersistedTwilioCallSetup(failure)
+              : this.failTwilioAnswerPersistence(failure);
           }
           this.commitInboundProjection(state, dispatchResponse);
           mediaStreamToken = {
@@ -2640,6 +3122,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         connectionId: connection.id,
         dispatch: dispatchResponse.dispatch,
         streamToken: mediaStreamToken?.token,
+        premiumWorkerTarget,
       });
       logTwilioPstnDiagnostic(this.logger, "twiml_rendered", {
         organizationId,
@@ -2651,7 +3134,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         disposition: dispatchResponse.dispatch.disposition,
         routeMode: dispatchResponse.dispatch.routeMode,
         runtimePath: dispatchResponse.dispatch.runtimePath,
-        mediaStreamBaseUrl: resolveTwilioMediaStreamBaseUrl(),
+        mediaStreamBaseUrl:
+          premiumWorkerTarget?.mediaStreamBaseUrl
+          ?? resolveTwilioMediaStreamBaseUrl(),
         streamParameterPresent: mediaStreamToken !== null,
         twimlAction: describeTwilioTwiMLAction(twiml),
       });
@@ -3715,6 +4200,9 @@ function renderTwiMLForTwilioDispatch(input: {
   connectionId: string;
   dispatch: TelephonyDispatchRecord;
   streamToken?: string | undefined;
+  premiumWorkerTarget?:
+    | TelephonyPremiumDispatchSnapshot["workerTarget"]
+    | undefined;
 }) {
   if (input.dispatch.disposition === "blocked") {
     return renderTwilioUnavailableTwiML("This Zara voice line is temporarily unavailable. Please try again later.");
@@ -3724,19 +4212,31 @@ function renderTwiMLForTwilioDispatch(input: {
     input.dispatch.disposition !== "routed" ||
     input.dispatch.callSessionId === undefined ||
     input.dispatch.publishedVersionId === undefined ||
-    input.streamToken === undefined
+    input.streamToken === undefined ||
+    (
+      input.dispatch.runtimePath === "pstn-premium-realtime"
+      && input.premiumWorkerTarget === undefined
+    )
   ) {
     return renderTwilioRejectTwiML("busy");
   }
 
   return renderTwilioConnectStreamTwiML({
-    mediaStreamBaseUrl: resolveTwilioMediaStreamBaseUrl(),
+    mediaStreamBaseUrl:
+      input.premiumWorkerTarget?.mediaStreamBaseUrl
+      ?? resolveTwilioMediaStreamBaseUrl(),
     callSessionId: input.dispatch.callSessionId,
     streamToken: input.streamToken,
     organizationId: input.organizationId,
     connectionId: input.connectionId,
     publishedVersionId: input.dispatch.publishedVersionId,
     runtimePath: input.dispatch.runtimePath ?? "pstn-sandwich",
+    ...(input.premiumWorkerTarget === undefined
+      ? {}
+      : {
+          workerId: input.premiumWorkerTarget.workerId,
+          workerReleaseId: input.premiumWorkerTarget.releaseId,
+        }),
     ...(input.dispatch.workspaceId === undefined
       ? {}
       : { workspaceId: input.dispatch.workspaceId }),
@@ -3782,7 +4282,9 @@ function resolveTwilioStatusCallbackUrl(env: Record<string, string | undefined> 
   return `${resolveTwilioWebhookUrl(env)}/status`;
 }
 
-function resolveTwilioMediaStreamBaseUrl(env: Record<string, string | undefined> = process.env) {
+function resolveTwilioMediaStreamBaseUrl(
+  env: Record<string, string | undefined> = process.env,
+) {
   const configuredUrl = env.ZARA_TWILIO_MEDIA_STREAM_BASE_URL?.trim();
   if (configuredUrl !== undefined && configuredUrl.length > 0) {
     return trimTrailingSlash(configuredUrl);
@@ -4366,6 +4868,74 @@ function resolveCallbackNumber(
   dispatchFromNumber: string,
 ) {
   return requestedCallbackNumber?.trim() ?? dispatchFromNumber;
+}
+
+function readTwilioMediaStreamTokenClaims(input: {
+  secret: Buffer;
+  token: string;
+  callSessionId: string;
+}) {
+  const claims = readSignedOneTimeStreamToken({
+    secret: input.secret,
+    token: input.token,
+    expectedSubject: input.callSessionId,
+  });
+  const runtimePath = claims?.scope.runtimePath;
+  const organizationId = claims?.scope.organizationId;
+  const dispatchId = claims?.scope.dispatchId;
+  const connectionId = claims?.scope.connectionId;
+  const providerAccountId = claims?.scope.providerAccountId;
+  const workerId = claims?.scope.workerId;
+  const workerReleaseId = claims?.scope.workerReleaseId;
+  const expectedScopeKeys = runtimePath === "pstn-premium-realtime"
+    ? [
+        "connectionId",
+        "dispatchId",
+        "organizationId",
+        "providerAccountId",
+        "runtimePath",
+        "workerId",
+        "workerReleaseId",
+      ]
+    : [
+        "connectionId",
+        "dispatchId",
+        "organizationId",
+        "providerAccountId",
+        "runtimePath",
+      ];
+  if (
+    claims === undefined
+    || organizationId === undefined
+    || dispatchId === undefined
+    || connectionId === undefined
+    || providerAccountId === undefined
+    || (runtimePath !== "pstn-sandwich"
+      && runtimePath !== "pstn-premium-realtime")
+    || (runtimePath === "pstn-premium-realtime"
+      && (
+        !isPstnRealtimeWorkerId(workerId)
+        || !isPstnRealtimeWorkerReleaseId(workerReleaseId)
+      ))
+    || (runtimePath === "pstn-sandwich"
+      && (workerId !== undefined || workerReleaseId !== undefined))
+    || JSON.stringify(Object.keys(claims.scope).sort())
+      !== JSON.stringify(expectedScopeKeys)
+  ) {
+    return undefined;
+  }
+  return {
+    ...claims,
+    scope: {
+      organizationId,
+      dispatchId,
+      connectionId,
+      providerAccountId,
+      runtimePath,
+      ...(workerId === undefined ? {} : { workerId }),
+      ...(workerReleaseId === undefined ? {} : { workerReleaseId }),
+    },
+  };
 }
 
 function deriveTwilioCallSidFromSession(callSessionId: string) {

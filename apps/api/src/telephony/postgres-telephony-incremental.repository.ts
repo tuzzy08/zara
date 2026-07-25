@@ -20,27 +20,36 @@ import type {
   DeleteTelephonyPhoneNumberInput,
   DeleteTelephonyRetainedCallDataInput,
   DeleteExpiredTelephonyMediaTokensInput,
+  FenceTelephonyPremiumCallOwnershipInput,
   LoadTelephonyConnectionAdmissionPostureInput,
   LoadLatestSuccessfulPhoneTestInput,
   LoadTelephonyCallMutationContextInput,
   LoadTelephonyCallRuntimeContextInput,
+  LoadTelephonyPremiumDispatchSnapshotInput,
   RecordTelephonyPhoneTestCheckpointByCallInput,
   RecordTelephonyCallControlMutationInput,
   RecordTelephonyConnectionHealthObservationInput,
   RecordTelephonyOutboundAbuseBlockInput,
   TelephonyCallMutationContext,
   TelephonyCallRuntimeContext,
-  TelephonyIncrementalRepository,
   TelephonyMediaTokenClaimOutcome,
   TelephonyPhoneTestCheckpointRecord,
+  TelephonyPremiumDispatchSnapshot,
+  TelephonyPremiumDispatchRepository,
   TelephonyTransitionOutcome,
   TransitionTelephonyCallLifecycleInput,
   TransitionTelephonyExecutionSessionInput,
   UpdateTelephonyPhoneTestProjectionInput,
 } from "./telephony-incremental.repository";
 import {
+  computeTelephonyPremiumDispatchSnapshotChecksum,
   createSuccessfulPhoneTestChecklist,
 } from "./telephony-incremental.repository";
+import {
+  isPstnRealtimeWorkerId,
+  isPstnRealtimeWorkerMediaStreamBaseUrl,
+  isPstnRealtimeWorkerReleaseId,
+} from "./pstn-realtime-worker-routing-contract";
 import type { TelephonyDispatchRecord, TelephonyWebhookEvent } from "./telephony.models";
 import type {
   PstnCapacityDatabaseOperation,
@@ -50,7 +59,8 @@ import type {
 type Queryable = Pick<Pool, "query" | "connect">;
 type DatabaseMetricsRecorder = Pick<PstnCapacityObservability, "recordDatabaseOperation">;
 
-export class PostgresTelephonyIncrementalRepository implements TelephonyIncrementalRepository {
+export class PostgresTelephonyIncrementalRepository
+  implements TelephonyPremiumDispatchRepository {
   private readonly database: Queryable;
 
   constructor(database: Queryable, observability?: DatabaseMetricsRecorder) {
@@ -165,8 +175,14 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       const inserted = await insertDispatchRow(client, input.dispatch);
       if (inserted.rows.length === 0) {
         const existing = await loadCallSetup(client, input);
+        const existingSnapshot = await loadPremiumDispatchSnapshotRow(
+          client,
+          input.dispatch.tenantId,
+          input.executionSession.callSessionId,
+        );
         if (
           !callSetupMatches(existing, input) ||
+          !premiumDispatchSnapshotMatches(existingSnapshot, input.premiumDispatchSnapshot) ||
           !(await executionCommandsMatch(
             client,
             input.dispatch.tenantId,
@@ -215,6 +231,7 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       await insertExecutionSession(client, input);
       await insertExecutionCommands(client, input);
       await insertMediaToken(client, input);
+      await insertPremiumDispatchSnapshot(client, input);
       await client.query("commit");
       return { outcome: "inserted" as const, mediaToken: "created" as const };
     } catch (error) {
@@ -1038,6 +1055,24 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
     };
   }
 
+  async loadPremiumDispatchSnapshot(input: LoadTelephonyPremiumDispatchSnapshotInput) {
+    const row = await loadPremiumDispatchSnapshotRow(
+      this.database,
+      input.tenantId,
+      input.callSessionId,
+    );
+    if (row === undefined) {
+      return { outcome: "not_found" as const };
+    }
+    const snapshot = asPremiumDispatchSnapshot(row.snapshot);
+    assertPremiumDispatchSnapshotIntegrity(snapshot);
+    assertPremiumDispatchSnapshotEnvelope(row, snapshot);
+    return {
+      outcome: "found" as const,
+      snapshot,
+    };
+  }
+
   async transitionCallLifecycle(
     input: TransitionTelephonyCallLifecycleInput,
   ): Promise<TelephonyTransitionOutcome> {
@@ -1092,7 +1127,11 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
   async claimMediaToken(
     input: ClaimTelephonyMediaTokenInput,
   ): Promise<TelephonyMediaTokenClaimOutcome> {
-    if (!isSha256Hash(input.tokenHash)) {
+    if (
+      !isSha256Hash(input.tokenHash) ||
+      (input.workerId !== undefined &&
+        !isPstnRealtimeWorkerId(input.workerId))
+    ) {
       return { outcome: "conflict" };
     }
 
@@ -1123,35 +1162,70 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
         input.tokenHash,
       ],
     );
-    const authorizationRow = authorization.rows.find((row) => isPstnRuntimePath(row.runtime_path));
+    const authorizationRow = authorization.rows.find(
+      (row) =>
+        isPstnRuntimePath(row.runtime_path) &&
+        (input.workerId === undefined || row.runtime_path === "pstn-premium-realtime"),
+    );
     const claimed =
       authorizationRow === undefined
-        ? { rows: [] }
-        : await this.database.query(
-      `update telephony_media_stream_tokens
-       set claimed_at = current_timestamp
-       where tenant_id = $1 and call_session_id = $2
-         and dispatch_id = $3 and connection_id = $4 and token_hash = $5
-         and claimed_at is null and expires_at > current_timestamp
-         and exists (
-           select 1
-           from telephony_execution_sessions s
-           where s.tenant_id = $1
-             and s.call_session_id = $2
-             and s.lifecycle_state->>'stage' not in ('completed', 'failed', 'expired')
-         )
-       returning call_session_id`,
-      [
-        input.tenantId,
-        input.callSessionId,
-        input.dispatchId,
-        input.connectionId,
-        input.tokenHash,
-      ],
-    );
+        ? { rows: [] as Array<{ owner_epoch: number }> }
+        : input.workerId === undefined
+          ? await this.database.query<{ owner_epoch: number }>(
+              `update telephony_media_stream_tokens
+               set claimed_at = current_timestamp
+               where tenant_id = $1 and call_session_id = $2
+                 and dispatch_id = $3 and connection_id = $4 and token_hash = $5
+                 and claimed_at is null and expires_at > current_timestamp
+                 and exists (
+                   select 1
+                   from telephony_execution_sessions s
+                   where s.tenant_id = $1
+                     and s.call_session_id = $2
+                     and s.lifecycle_state->>'stage'
+                       not in ('completed', 'failed', 'expired')
+                 )
+               returning owner_epoch`,
+              [
+                input.tenantId,
+                input.callSessionId,
+                input.dispatchId,
+                input.connectionId,
+                input.tokenHash,
+              ],
+            )
+          : await this.database.query<{ owner_epoch: number }>(
+              `update telephony_media_stream_tokens
+               set claimed_at = current_timestamp,
+                   owner_worker_id = $6,
+                   owner_epoch = owner_epoch + 1
+               where tenant_id = $1 and call_session_id = $2
+                 and dispatch_id = $3 and connection_id = $4 and token_hash = $5
+                 and claimed_at is null and expires_at > current_timestamp
+                 and owner_worker_id is null and owner_epoch = 0
+                 and exists (
+                   select 1
+                   from telephony_execution_sessions s
+                   where s.tenant_id = $1
+                     and s.call_session_id = $2
+                     and s.lifecycle_state->>'stage'
+                       not in ('completed', 'failed', 'expired')
+                 )
+               returning owner_epoch`,
+              [
+                input.tenantId,
+                input.callSessionId,
+                input.dispatchId,
+                input.connectionId,
+                input.tokenHash,
+                input.workerId,
+              ],
+            );
     if (claimed.rows.length > 0 && authorizationRow !== undefined) {
+      const ownerEpoch = claimed.rows[0]?.owner_epoch;
       return {
         outcome: "claimed",
+        ...(input.workerId === undefined || ownerEpoch === undefined ? {} : { ownerEpoch }),
         authorization: {
           tenantId: authorizationRow.tenant_id,
           callSessionId: authorizationRow.call_session_id,
@@ -1194,10 +1268,50 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
     return { outcome: "conflict" };
   }
 
+  async fencePremiumCallOwnership(input: FenceTelephonyPremiumCallOwnershipInput) {
+    if (
+      !isPstnRealtimeWorkerId(input.workerId) ||
+      !Number.isSafeInteger(input.ownerEpoch) ||
+      input.ownerEpoch < 1
+    ) {
+      return { outcome: "not_owner" as const };
+    }
+    const owned = await this.database.query<{ owner_epoch: number }>(
+      `update telephony_media_stream_tokens
+       set owner_epoch = owner_epoch
+       where tenant_id = $1 and call_session_id = $2
+         and owner_worker_id = $3 and owner_epoch = $4
+         and claimed_at is not null
+         and exists (
+           select 1
+           from telephony_execution_sessions as session
+           where session.tenant_id = $1
+             and session.call_session_id = $2
+             and session.lifecycle_state->>'stage'
+               not in ('completed', 'failed', 'expired')
+         )
+       returning owner_epoch`,
+      [input.tenantId, input.callSessionId, input.workerId, input.ownerEpoch],
+    );
+    const row = owned.rows[0];
+    if (row !== undefined) {
+      return { outcome: "owned" as const, ownerEpoch: row.owner_epoch };
+    }
+    const existing = await this.database.query(
+      `select 1 from telephony_media_stream_tokens
+       where tenant_id = $1 and call_session_id = $2`,
+      [input.tenantId, input.callSessionId],
+    );
+    return existing.rows.length === 0
+      ? { outcome: "not_found" as const }
+      : { outcome: "not_owner" as const };
+  }
+
   async deleteExpiredMediaTokens(input: DeleteExpiredTelephonyMediaTokensInput) {
     const deleted = await this.database.query(
       `delete from telephony_media_stream_tokens
-       where tenant_id = $1 and expires_at <= $2 returning call_session_id`,
+       where tenant_id = $1 and expires_at <= $2 and claimed_at is null
+       returning call_session_id`,
       [input.tenantId, input.before],
     );
     return { deletedCount: deleted.rows.length };
@@ -1356,6 +1470,18 @@ interface SuccessfulPhoneTestCheckpointRow extends QueryResultRow {
   test_route_session_id: string;
   created_at: unknown;
   completed_at: unknown;
+}
+
+interface PremiumDispatchSnapshotRow extends QueryResultRow {
+  tenant_id: string;
+  call_session_id: string;
+  dispatch_id: string;
+  workspace_id: string;
+  published_version_id: string;
+  schema_version: number;
+  checksum: string;
+  snapshot: unknown;
+  created_at: unknown;
 }
 
 function deriveLatestSuccessfulPhoneTest(
@@ -1530,6 +1656,22 @@ async function loadCallSetupByCall(
      left join telephony_media_stream_tokens t
        on t.tenant_id = d.tenant_id and t.call_session_id = d.call_session_id
      where d.tenant_id = $1 and d.call_session_id = $2`,
+    [tenantId, callSessionId],
+  );
+  return result.rows[0];
+}
+
+async function loadPremiumDispatchSnapshotRow(
+  database: Pick<Pool, "query"> | Pick<PoolClient, "query">,
+  tenantId: string,
+  callSessionId: string,
+) {
+  const result = await database.query<PremiumDispatchSnapshotRow>(
+    `select
+       tenant_id, call_session_id, dispatch_id, workspace_id,
+       published_version_id, schema_version, checksum, snapshot, created_at
+     from telephony_premium_dispatch_snapshots
+     where tenant_id = $1 and call_session_id = $2`,
     [tenantId, callSessionId],
   );
   return result.rows[0];
@@ -1866,6 +2008,31 @@ async function insertMediaToken(client: PoolClient, input: CreateTelephonyCallSe
   );
 }
 
+async function insertPremiumDispatchSnapshot(
+  client: Pick<PoolClient, "query">,
+  input: CreateTelephonyCallSetupInput,
+) {
+  const snapshot = input.premiumDispatchSnapshot;
+  if (snapshot === undefined) return;
+  await client.query(
+    `insert into telephony_premium_dispatch_snapshots (
+      tenant_id, call_session_id, dispatch_id, workspace_id,
+      published_version_id, schema_version, checksum, snapshot, created_at
+    ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+    [
+      snapshot.tenantId,
+      snapshot.callSessionId,
+      snapshot.dispatchId,
+      snapshot.workspaceId,
+      snapshot.publishedVersionId,
+      snapshot.schemaVersion,
+      snapshot.checksum,
+      JSON.stringify(snapshot),
+      snapshot.createdAt,
+    ],
+  );
+}
+
 function assertCallSetup(input: CreateTelephonyCallSetupInput) {
   assertCallExecution(input);
   const tenantId = input.dispatch.tenantId;
@@ -1882,6 +2049,87 @@ function assertCallSetup(input: CreateTelephonyCallSetupInput) {
   ) {
     throw new Error("Telephony call setup identities or media token hash are invalid.");
   }
+  if (input.premiumDispatchSnapshot !== undefined) {
+    assertPremiumDispatchSnapshot(input, input.premiumDispatchSnapshot);
+  }
+}
+
+function assertPremiumDispatchSnapshot(
+  input: CreateTelephonyCallSetupInput,
+  snapshot: TelephonyPremiumDispatchSnapshot,
+) {
+  assertPremiumDispatchSnapshotIntegrity(snapshot);
+  if (
+    input.dispatch.runtimePath !== "pstn-premium-realtime" ||
+    snapshot.tenantId !== input.dispatch.tenantId ||
+    snapshot.workspaceId !== input.dispatch.workspaceId ||
+    snapshot.callSessionId !== input.executionSession.callSessionId ||
+    snapshot.dispatchId !== input.dispatch.id ||
+    snapshot.publishedVersionId !== input.dispatch.publishedVersionId
+  ) {
+    throw new Error("Premium dispatch snapshot identities or checksum are invalid.");
+  }
+}
+
+function assertPremiumDispatchSnapshotIntegrity(snapshot: TelephonyPremiumDispatchSnapshot) {
+  if (
+    typeof snapshot !== "object" ||
+    snapshot === null ||
+    snapshot.schemaVersion !== 1 ||
+    typeof snapshot.resolvedManifest !== "object" ||
+    snapshot.resolvedManifest === null ||
+    snapshot.resolvedManifest.tenantId !== snapshot.tenantId ||
+    snapshot.resolvedManifest.workspaceId !== snapshot.workspaceId ||
+    snapshot.resolvedManifest.publishedVersionId !== snapshot.publishedVersionId ||
+    !isPremiumWorkerTarget(snapshot.workerTarget) ||
+    !isFiniteTimestamp(snapshot.createdAt) ||
+    !/^[a-f0-9]{64}$/.test(snapshot.checksum)
+  ) {
+    throw new Error("Premium dispatch snapshot identities or checksum are invalid.");
+  }
+  const withoutChecksum = structuredClone(snapshot) as Partial<TelephonyPremiumDispatchSnapshot>;
+  delete withoutChecksum.checksum;
+  if (
+    computeTelephonyPremiumDispatchSnapshotChecksum(
+      withoutChecksum as Omit<TelephonyPremiumDispatchSnapshot, "checksum">,
+    ) !== snapshot.checksum
+  ) {
+    throw new Error("Premium dispatch snapshot identities or checksum are invalid.");
+  }
+  if (containsSensitiveSnapshotMaterial(snapshot)) {
+    throw new Error("Premium dispatch snapshot contains sensitive material.");
+  }
+}
+
+function assertPremiumDispatchSnapshotEnvelope(
+  row: PremiumDispatchSnapshotRow,
+  snapshot: TelephonyPremiumDispatchSnapshot,
+) {
+  if (
+    row.tenant_id !== snapshot.tenantId ||
+    row.call_session_id !== snapshot.callSessionId ||
+    row.dispatch_id !== snapshot.dispatchId ||
+    row.workspace_id !== snapshot.workspaceId ||
+    row.published_version_id !== snapshot.publishedVersionId ||
+    row.schema_version !== snapshot.schemaVersion ||
+    row.checksum !== snapshot.checksum ||
+    normalizeTimestamp(row.created_at) !== normalizeTimestamp(snapshot.createdAt)
+  ) {
+    throw new Error("Premium dispatch snapshot envelope is invalid.");
+  }
+}
+
+function isPremiumWorkerTarget(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const target = value as Record<string, unknown>;
+  return Object.keys(target).length === 3
+    && isPstnRealtimeWorkerId(target["workerId"])
+    && isPstnRealtimeWorkerReleaseId(target["releaseId"])
+    && isPstnRealtimeWorkerMediaStreamBaseUrl(
+      target["mediaStreamBaseUrl"],
+    );
 }
 
 function assertCallExecution(input: CreateTelephonyCallExecutionInput) {
@@ -1921,6 +2169,26 @@ function callSetupMatches(row: CallSetupRow | undefined, input: CreateTelephonyC
     row!.token_hash !== null &&
     row!.expires_at !== null &&
     row!.token_created_at !== null
+  );
+}
+
+function premiumDispatchSnapshotMatches(
+  row: PremiumDispatchSnapshotRow | undefined,
+  expected: TelephonyPremiumDispatchSnapshot | undefined,
+) {
+  if (row === undefined || expected === undefined) {
+    return row === undefined && expected === undefined;
+  }
+  return (
+    row.tenant_id === expected.tenantId &&
+    row.call_session_id === expected.callSessionId &&
+    row.dispatch_id === expected.dispatchId &&
+    row.workspace_id === expected.workspaceId &&
+    row.published_version_id === expected.publishedVersionId &&
+    row.schema_version === expected.schemaVersion &&
+    row.checksum === expected.checksum &&
+    normalizeTimestamp(row.created_at) === normalizeTimestamp(expected.createdAt) &&
+    jsonMatches(row.snapshot, expected)
   );
 }
 
@@ -2254,6 +2522,47 @@ function isFiniteTimestamp(value: string) {
 
 function isPstnRuntimePath(value: string | null): value is PstnRuntimePath {
   return value === "pstn-sandwich" || value === "pstn-premium-realtime";
+}
+
+function asPremiumDispatchSnapshot(value: unknown): TelephonyPremiumDispatchSnapshot {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  return structuredClone(parsed) as TelephonyPremiumDispatchSnapshot;
+}
+
+const sensitiveSnapshotKeys = new Set([
+  "apikey",
+  "accesstoken",
+  "refreshtoken",
+  "authtoken",
+  "authorization",
+  "credential",
+  "credentials",
+  "password",
+  "secret",
+  "streamtoken",
+  "tokenhash",
+]);
+
+function containsSensitiveSnapshotMaterial(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsSensitiveSnapshotMaterial);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record["name"] === "string" &&
+    record["name"].toLowerCase() === "authorization" &&
+    typeof record["value"] === "string" &&
+    record["value"].trim().length > 0
+  ) {
+    return true;
+  }
+  return Object.entries(record).some(
+    ([key, entry]) =>
+      (sensitiveSnapshotKeys.has(key.toLowerCase()) &&
+        entry !== undefined &&
+        entry !== null &&
+        entry !== "") ||
+      containsSensitiveSnapshotMaterial(entry),
+  );
 }
 
 function jsonMatches(value: unknown, expected: unknown) {

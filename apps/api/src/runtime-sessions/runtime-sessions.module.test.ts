@@ -2,11 +2,14 @@ import { MODULE_METADATA } from "@nestjs/common/constants";
 import { describe, expect, it } from "vitest";
 
 import { premiumRealtimeProviderTransportToken } from "./premium-realtime-provider-transport";
-import { RuntimeSessionsModule } from "./runtime-sessions.module";
+import { PremiumRealtimeRuntimeModule } from "./premium-realtime-runtime.module";
 
 describe("RuntimeSessionsModule", () => {
   it("runs the premium simulator production guard during provider startup", () => {
-    const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, RuntimeSessionsModule) as Array<unknown>;
+    const providers = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      PremiumRealtimeRuntimeModule,
+    ) as Array<unknown>;
     const provider = providers.find((candidate) =>
       typeof candidate === "object"
       && candidate !== null

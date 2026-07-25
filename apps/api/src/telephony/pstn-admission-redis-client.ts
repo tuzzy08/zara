@@ -65,7 +65,9 @@ export class PstnAdmissionRedisClient
       return;
     }
     this.destroyed = true;
-    this.client.destroy();
+    if (this.client.isOpen) {
+      this.client.destroy();
+    }
   }
 
   async eval(

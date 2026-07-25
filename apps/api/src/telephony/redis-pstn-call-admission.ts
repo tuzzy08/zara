@@ -191,11 +191,11 @@ local function clearRecoveryHold()
   redis.call("HDEL", holdOwnersKey, member)
 end
 
-local function writeRecoveryHold(blockAt, ownerKey)
+local function writeRecoveryHold(blockAt, ownerKey, ownershipEpoch)
   local holdExpiresAt = blockAt + tonumber(ARGV[2])
   redis.call("ZADD", holdStartsKey, blockAt, member)
   redis.call("ZADD", holdExpiresKey, holdExpiresAt, member)
-  redis.call("HSET", holdOwnersKey, member, ownerKey)
+  redis.call("HSET", holdOwnersKey, member, ownerKey .. "|" .. tostring(ownershipEpoch))
   redis.call("PEXPIREAT", holdStartsKey, holdExpiresAt, "NX")
   redis.call("PEXPIREAT", holdStartsKey, holdExpiresAt, "GT")
   redis.call("PEXPIREAT", holdExpiresKey, holdExpiresAt, "NX")
@@ -210,7 +210,15 @@ local function readRecoveryOwner()
     clearRecoveryHold()
     return false
   end
-  return redis.call("HGET", holdOwnersKey, member)
+  local encoded = redis.call("HGET", holdOwnersKey, member)
+  if encoded == false then
+    return false, false
+  end
+  local ownerKey, ownershipEpoch = string.match(encoded, "^(.*)|(%d+)$")
+  if ownerKey == nil or ownershipEpoch == nil then
+    return false, false
+  end
+  return ownerKey, tonumber(ownershipEpoch)
 end
 
 if redis.call("EXISTS", KEYS[1]) == 1 then
@@ -224,7 +232,8 @@ if redis.call("EXISTS", KEYS[1]) == 1 then
   for index = 1, 5 do
     if dimensionKeys[index] == false then
       if fullInput then
-        writeRecoveryHold(now, destinationWorkerKey)
+        local previousEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch")) or 0
+        writeRecoveryHold(now, destinationWorkerKey, previousEpoch)
       end
       return {"not_found"}
     end
@@ -244,7 +253,7 @@ if dimensionKeys == nil then
   if not fullInput then
     return {"not_found"}
   end
-  local recoveryOwner = readRecoveryOwner()
+  local recoveryOwner, recoveryEpoch = readRecoveryOwner()
   if recoveryOwner == false then
     return {"not_found"}
   end
@@ -275,12 +284,13 @@ if dimensionKeys == nil then
       limitingDimension = concurrencyDimensions[index - 1]
     end
     if remaining <= 0 then
-      writeRecoveryHold(now, destinationWorkerKey)
+      writeRecoveryHold(now, destinationWorkerKey, recoveryEpoch)
       return {"denied", concurrencyReasons[index - 1]}
     end
   end
   dimensionKeys = {KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[6]}
   local expiresAt = now + tonumber(ARGV[2])
+  local ownershipEpoch = recoveryEpoch + 1
   redis.call(
     "HSET",
     KEYS[1],
@@ -289,6 +299,7 @@ if dimensionKeys == nil then
     "expiresAt", expiresAt,
     "limitingDimension", limitingDimension,
     "remainingCapacity", lowestRemaining - 1,
+    "ownershipEpoch", ownershipEpoch,
     "globalKey", KEYS[2],
     "providerKey", KEYS[3],
     "tenantKey", KEYS[4],
@@ -301,11 +312,17 @@ if dimensionKeys == nil then
     redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "NX")
     redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "GT")
   end
-  writeRecoveryHold(expiresAt, destinationWorkerKey)
-  return {"activated", tostring(expiresAt)}
+  writeRecoveryHold(expiresAt, destinationWorkerKey, ownershipEpoch)
+  return {"activated", tostring(expiresAt), tostring(ownershipEpoch)}
 end
 
-if destinationWorkerKey ~= dimensionKeys[5] then
+local state = redis.call("HGET", KEYS[1], "state")
+local ownershipEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch"))
+if state == "active" and destinationWorkerKey ~= dimensionKeys[5] then
+  return {"not_owner"}
+end
+
+if state ~= "active" and destinationWorkerKey ~= dimensionKeys[5] then
   redis.call("ZREMRANGEBYSCORE", destinationWorkerKey, "-inf", now)
   local workerLimit = fullInput and tonumber(ARGV[7]) or tonumber(ARGV[3])
   if redis.call("ZCARD", destinationWorkerKey) >= workerLimit then
@@ -317,23 +334,33 @@ if destinationWorkerKey ~= dimensionKeys[5] then
 end
 
 local expiresAt = tonumber(redis.call("HGET", KEYS[1], "expiresAt"))
-if redis.call("HGET", KEYS[1], "state") == "active" then
+if state == "active" then
+  if ownershipEpoch == nil then
+    return {"not_owner"}
+  end
   redis.call("ZADD", dimensionKeys[5], expiresAt, member)
   redis.call("PEXPIREAT", dimensionKeys[5], expiresAt, "NX")
   redis.call("PEXPIREAT", dimensionKeys[5], expiresAt, "GT")
-  writeRecoveryHold(expiresAt, destinationWorkerKey)
-  return {"existing", tostring(expiresAt)}
+  writeRecoveryHold(expiresAt, destinationWorkerKey, ownershipEpoch)
+  return {"existing", tostring(expiresAt), tostring(ownershipEpoch)}
 end
 expiresAt = now + tonumber(ARGV[2])
-redis.call("HSET", KEYS[1], "state", "active", "expiresAt", expiresAt)
+ownershipEpoch = 1
+redis.call(
+  "HSET",
+  KEYS[1],
+  "state", "active",
+  "expiresAt", expiresAt,
+  "ownershipEpoch", ownershipEpoch
+)
 redis.call("PEXPIREAT", KEYS[1], expiresAt)
 for index = 1, 5 do
   redis.call("ZADD", dimensionKeys[index], expiresAt, member)
   redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "NX")
   redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "GT")
 end
-writeRecoveryHold(expiresAt, destinationWorkerKey)
-return {"activated", tostring(expiresAt)}
+writeRecoveryHold(expiresAt, destinationWorkerKey, ownershipEpoch)
+return {"activated", tostring(expiresAt), tostring(ownershipEpoch)}
 `;
 
 const renewScript = `
@@ -341,6 +368,11 @@ local clock = redis.call("TIME")
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local member = ARGV[1]
 if redis.call("EXISTS", KEYS[1]) == 0 then
+  if #ARGV == 1 then
+    redis.call("ZREM", KEYS[2], member)
+    redis.call("ZREM", KEYS[3], member)
+    redis.call("HDEL", KEYS[4], member)
+  end
   return {"not_found"}
 end
 local dimensionKeys = {
@@ -362,12 +394,21 @@ if expiresAt == nil or expiresAt <= now then
   for index = 1, 5 do
     redis.call("ZREM", dimensionKeys[index], member)
   end
+  if #ARGV == 1 then
+    redis.call("ZREM", KEYS[2], member)
+    redis.call("ZREM", KEYS[3], member)
+    redis.call("HDEL", KEYS[4], member)
+  end
   return {"not_found"}
 end
 if redis.call("HGET", KEYS[1], "state") ~= "active" then
   return {"not_found"}
 end
 if dimensionKeys[5] ~= KEYS[2] then
+  return {"not_owner"}
+end
+local ownershipEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch"))
+if ownershipEpoch == nil or ownershipEpoch ~= tonumber(ARGV[3]) then
   return {"not_owner"}
 end
 expiresAt = now + tonumber(ARGV[2])
@@ -381,22 +422,24 @@ end
 local holdExpiresAt = expiresAt + tonumber(ARGV[2])
 redis.call("ZADD", KEYS[3], expiresAt, member)
 redis.call("ZADD", KEYS[4], holdExpiresAt, member)
-redis.call("HSET", KEYS[5], member, KEYS[2])
+redis.call("HSET", KEYS[5], member, KEYS[2] .. "|" .. tostring(ownershipEpoch))
 for index = 3, 5 do
   redis.call("PEXPIREAT", KEYS[index], holdExpiresAt, "NX")
   redis.call("PEXPIREAT", KEYS[index], holdExpiresAt, "GT")
 end
-return {"renewed", tostring(expiresAt)}
+return {"renewed", tostring(expiresAt), tostring(ownershipEpoch)}
 `;
 
 const releaseScript = `
 local clock = redis.call("TIME")
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local member = ARGV[1]
-redis.call("ZREM", KEYS[2], member)
-redis.call("ZREM", KEYS[3], member)
-redis.call("HDEL", KEYS[4], member)
 if redis.call("EXISTS", KEYS[1]) == 0 then
+  if #ARGV == 1 then
+    redis.call("ZREM", KEYS[2], member)
+    redis.call("ZREM", KEYS[3], member)
+    redis.call("HDEL", KEYS[4], member)
+  end
   return {"not_found"}
 end
 local dimensionKeys = {
@@ -418,8 +461,26 @@ if expiresAt == nil or expiresAt <= now then
   for index = 1, 5 do
     redis.call("ZREM", dimensionKeys[index], member)
   end
+  if #ARGV == 1 then
+    redis.call("ZREM", KEYS[2], member)
+    redis.call("ZREM", KEYS[3], member)
+    redis.call("HDEL", KEYS[4], member)
+  end
   return {"not_found"}
 end
+if #ARGV == 3 then
+  local ownershipEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch"))
+  if redis.call("HGET", KEYS[1], "state") ~= "active"
+    or dimensionKeys[5] ~= ARGV[2]
+    or ownershipEpoch == nil
+    or ownershipEpoch ~= tonumber(ARGV[3])
+  then
+    return {"not_owner"}
+  end
+end
+redis.call("ZREM", KEYS[2], member)
+redis.call("ZREM", KEYS[3], member)
+redis.call("HDEL", KEYS[4], member)
 redis.call("DEL", KEYS[1])
 for index = 1, 5 do
   redis.call("ZREM", dimensionKeys[index], member)
@@ -556,6 +617,7 @@ export class RedisPstnCallAdmission implements PstnCallAdmission {
         [
           hashOpaque(input.reservationId),
           String(input.activeTtlMs),
+          String(input.ownershipEpoch),
         ],
       );
       return parseRenewResponse(response);
@@ -580,9 +642,13 @@ export class RedisPstnCallAdmission implements PstnCallAdmission {
           this.recoveryHoldExpiresKey(),
           this.recoveryHoldOwnersKey(),
         ],
-        [
-          hashOpaque(input.reservationId),
-        ],
+        "ownershipEpoch" in input
+          ? [
+              hashOpaque(input.reservationId),
+              this.workerConcurrencyKey(input.workerId),
+              String(input.ownershipEpoch),
+            ]
+          : [hashOpaque(input.reservationId)],
       );
       return parseReleaseResponse(response);
     } catch {
@@ -753,10 +819,12 @@ function parseActivateResponse(
   }
   if (values?.[0] === "activated" || values?.[0] === "existing") {
     const leaseExpiresAt = parseLeaseExpiry(values[1]);
-    if (leaseExpiresAt !== undefined) {
+    const ownershipEpoch = parseOwnershipEpoch(values[2]);
+    if (leaseExpiresAt !== undefined && ownershipEpoch !== undefined) {
       return {
         outcome: values[0],
         leaseExpiresAt,
+        ownershipEpoch,
       };
     }
   }
@@ -772,10 +840,12 @@ function parseRenewResponse(
   }
   if (values?.[0] === "renewed") {
     const leaseExpiresAt = parseLeaseExpiry(values[1]);
-    if (leaseExpiresAt !== undefined) {
+    const ownershipEpoch = parseOwnershipEpoch(values[2]);
+    if (leaseExpiresAt !== undefined && ownershipEpoch !== undefined) {
       return {
         outcome: "renewed",
         leaseExpiresAt,
+        ownershipEpoch,
       };
     }
   }
@@ -787,7 +857,12 @@ function parseReleaseResponse(
 ): PstnCallAdmissionReleaseResult {
   const values = readStringArray(response);
   return {
-    outcome: values?.[0] === "released" ? "released" : "not_found",
+    outcome:
+      values?.[0] === "released"
+        ? "released"
+        : values?.[0] === "not_owner"
+          ? "not_owner"
+          : "not_found",
   };
 }
 
@@ -852,6 +927,14 @@ function parseRemainingCapacity(value: string | undefined) {
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function parseOwnershipEpoch(value: string | undefined) {
+  if (value === undefined || !/^\d{1,16}$/.test(value)) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function createScopeFingerprint(input: PstnCallAdmissionInput) {

@@ -11,10 +11,13 @@ This workspace runs outside the API and realtime worker processes. It provides:
 
 Run release-scale load from a dedicated load-generator host or isolated resource pool. A separate process on the same API host is not sufficient because its CPU, memory, sockets, and event-loop pressure would contaminate the server measurements.
 
-The API must run in test or staging with the simulator transport selected:
+The dedicated realtime worker must run in test or staging with the simulator transport selected. The API keeps the Twilio webhook; it selects the worker endpoint from the worker registry heartbeat:
 
 ```text
+# realtime worker
 NODE_ENV=staging
+ZARA_PROCESS_ROLE=pstn-realtime-worker
+PSTN_WORKER_PUBLIC_MEDIA_URL=wss://realtime-worker.example.test/telephony/twilio/media-streams
 ZARA_PREMIUM_REALTIME_TRANSPORT=simulator
 ZARA_PREMIUM_REALTIME_SIMULATOR_URL=wss://load-generator.example.test/realtime
 ZARA_PREMIUM_REALTIME_SIMULATOR_TOKEN=<at-least-32-random-characters>
@@ -127,5 +130,7 @@ ZARA_PSTN_SIMULATOR_TO=+15550002222 \
 ZARA_PSTN_SIMULATOR_WEBHOOK_URL=https://api.example.test/telephony/webhooks/twilio \
 npm run smoke:pstn-protocol
 ```
+
+The smoke includes `duplicate-media` and `simultaneous-duplicate-media` ownership scenarios. The first establishes primary ownership through valid playback before attempting a second WebSocket. The second sends the same one-time token from two open sockets before playback, requires exactly one `4409` rejection with no loser output, and confirms that exactly one provider connection opened.
 
 Both smoke and load commands keep signatures, stream credentials, transcripts, media, and raw provider errors out of output.

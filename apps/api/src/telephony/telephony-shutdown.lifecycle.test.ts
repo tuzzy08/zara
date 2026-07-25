@@ -8,7 +8,7 @@ describe("TelephonyShutdownLifecycle", () => {
     vi.restoreAllMocks();
   });
 
-  it("finishes admission cleanup after earlier shutdown stages fail", async () => {
+  it("finishes admission cleanup after API media shutdown fails", async () => {
     const phases: string[] = [];
     const errors: string[] = [];
     vi.spyOn(Logger.prototype, "error").mockImplementation((message: unknown) => {
@@ -23,12 +23,6 @@ describe("TelephonyShutdownLifecycle", () => {
       } as never,
       {
         async shutdown() {
-          phases.push("premium");
-          throw new Error("premium persistence failed");
-        },
-      } as never,
-      {
-        async shutdown() {
           phases.push("admission");
         },
       } as never,
@@ -37,25 +31,20 @@ describe("TelephonyShutdownLifecycle", () => {
     await expect(lifecycle.beforeApplicationShutdown()).resolves.toBeUndefined();
     await expect(lifecycle.beforeApplicationShutdown()).resolves.toBeUndefined();
 
-    expect(phases).toEqual(["media", "premium", "admission"]);
+    expect(phases).toEqual(["media", "admission"]);
     expect(errors).toEqual([
       expect.stringContaining(
-        'telephony_shutdown_incomplete {"failedStages":["media","premium"]}',
+        'telephony_shutdown_incomplete {"failedStages":["media"]}',
       ),
     ]);
   });
 
-  it("runs media, premium, and admission shutdown in order", async () => {
+  it("runs API media and admission shutdown in order", async () => {
     const phases: string[] = [];
     const lifecycle = new TelephonyShutdownLifecycle(
       {
         async shutdown() {
           phases.push("media");
-        },
-      } as never,
-      {
-        async shutdown() {
-          phases.push("premium");
         },
       } as never,
       {
@@ -67,6 +56,6 @@ describe("TelephonyShutdownLifecycle", () => {
 
     await lifecycle.beforeApplicationShutdown();
 
-    expect(phases).toEqual(["media", "premium", "admission"]);
+    expect(phases).toEqual(["media", "admission"]);
   });
 });

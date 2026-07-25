@@ -376,6 +376,7 @@ describe("telephony persistence and secret storage", () => {
       createNoopTwilioRoutingProvider(),
       incrementalRepository,
       createTestAdmissionCoordinator(),
+      createUnusedPremiumSnapshotResolver(),
     );
     const organizationId = "tenant-west-africa";
     const connection = await service.createConnection({
@@ -537,6 +538,7 @@ describe("telephony persistence and secret storage", () => {
         input?.twilioRouting ?? createNoopTwilioRoutingProvider(),
         incrementalRepository,
         createTestAdmissionCoordinator(),
+        createUnusedPremiumSnapshotResolver(),
       ),
     };
   }
@@ -571,6 +573,7 @@ describe("telephony persistence and secret storage", () => {
         input?.twilioRouting ?? createNoopTwilioRoutingProvider(),
         incrementalRepository,
         createTestAdmissionCoordinator(),
+        createUnusedPremiumSnapshotResolver(),
       ),
     };
   }
@@ -598,6 +601,14 @@ describe("telephony persistence and secret storage", () => {
       renewIntervalMs: 30_000,
       commandTimeoutMs: 750,
     });
+  }
+
+  function createUnusedPremiumSnapshotResolver() {
+    return {
+      async resolve() {
+        throw new Error("Premium snapshot resolution is not expected in this test.");
+      },
+    } as never;
   }
 
   function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider & {

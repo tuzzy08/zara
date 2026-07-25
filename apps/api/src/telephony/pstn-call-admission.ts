@@ -62,19 +62,28 @@ export interface PstnCallAdmissionInput {
 export interface PstnCallAdmissionLeaseInput {
   reservationId: string;
   workerId: string;
+  ownershipEpoch: number;
   activeTtlMs: number;
 }
 
 export type PstnCallAdmissionActivationInput =
   | PstnCallAdmissionInput
-  | (PstnCallAdmissionLeaseInput & {
+  | {
+      reservationId: string;
       workerId: string;
       workerLimit: number;
-    });
+      activeTtlMs: number;
+    };
 
-export interface PstnCallAdmissionReleaseInput {
-  reservationId: string;
-}
+export type PstnCallAdmissionReleaseInput =
+  | {
+      reservationId: string;
+    }
+  | {
+      reservationId: string;
+      workerId: string;
+      ownershipEpoch: number;
+    };
 
 export type PstnCallAdmissionReserveResult =
   | {
@@ -98,6 +107,7 @@ export type PstnCallAdmissionActivateResult =
   | {
       outcome: "activated" | "existing";
       leaseExpiresAt: string;
+      ownershipEpoch: number;
     }
   | {
       outcome: "not_found";
@@ -123,6 +133,7 @@ export type PstnCallAdmissionRenewResult =
   | {
       outcome: "renewed";
       leaseExpiresAt: string;
+      ownershipEpoch: number;
     }
   | {
       outcome: "not_found";
@@ -135,7 +146,7 @@ export type PstnCallAdmissionRenewResult =
     };
 
 export type PstnCallAdmissionReleaseResult = {
-  outcome: "released" | "not_found" | "backend_unavailable";
+  outcome: "released" | "not_found" | "not_owner" | "backend_unavailable";
 };
 
 export type PstnCallAdmissionHealth =
@@ -175,6 +186,7 @@ export function assertPstnCallAdmissionLeaseInput(
   if (
     !isOpaqueValue(input.reservationId) ||
     !isOpaqueValue(input.workerId) ||
+    !isOwnershipEpoch(input.ownershipEpoch) ||
     !isBoundedLeaseTtl(input.activeTtlMs)
   ) {
     throw new Error("Invalid PSTN call admission lease input.");
@@ -184,7 +196,13 @@ export function assertPstnCallAdmissionLeaseInput(
 export function assertPstnCallAdmissionActivationInput(
   input: PstnCallAdmissionActivationInput,
 ): void {
-  assertPstnCallAdmissionLeaseInput(input);
+  if (
+    !isOpaqueValue(input.reservationId) ||
+    !isOpaqueValue(input.workerId) ||
+    !isBoundedLeaseTtl(input.activeTtlMs)
+  ) {
+    throw new Error("Invalid PSTN call admission activation input.");
+  }
   const workerLimit =
     "workerLimit" in input ? input.workerLimit : input.limits.worker;
   if (
@@ -200,7 +218,13 @@ export function assertPstnCallAdmissionActivationInput(
 export function assertPstnCallAdmissionReleaseInput(
   input: PstnCallAdmissionReleaseInput,
 ): void {
-  if (!isOpaqueValue(input.reservationId)) {
+  if (
+    !isOpaqueValue(input.reservationId) ||
+    ("ownershipEpoch" in input &&
+      (!("workerId" in input) ||
+        !isOpaqueValue(input.workerId) ||
+        !isOwnershipEpoch(input.ownershipEpoch)))
+  ) {
     throw new Error("Invalid PSTN call admission release input.");
   }
 }
@@ -260,4 +284,8 @@ function isBoundedLeaseTtl(value: number) {
     value > 0 &&
     value <= maxPstnAdmissionLeaseTtlMs
   );
+}
+
+function isOwnershipEpoch(value: number) {
+  return Number.isSafeInteger(value) && value > 0;
 }

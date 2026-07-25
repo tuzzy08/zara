@@ -1,12 +1,18 @@
 import type { Pool } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { newDb } from "pg-mem";
+import type {
+  CompiledRuntimeManifest,
+} from "@zara/core";
+import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
 
 import { PostgresTelephonyIncrementalRepository } from "./postgres-telephony-incremental.repository";
 import type {
   CreateTelephonyCallExecutionInput,
   CreateTelephonyCallSetupInput,
+  TelephonyPremiumDispatchSnapshot,
 } from "./telephony-incremental.repository";
+import { computeTelephonyPremiumDispatchSnapshotChecksum } from "./telephony-incremental.repository";
 import { hashOneTimeStreamToken } from "../security/one-time-stream-token";
 
 describe("PostgresTelephonyIncrementalRepository", () => {
@@ -260,6 +266,132 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       { table_name: "commands", count: "1" },
       { table_name: "tokens", count: "0" },
     ]);
+  });
+
+  it("inserts and loads an immutable premium dispatch snapshot with call setup", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "premium-snapshot");
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+
+    await expect(harness.repository.createCallSetup(setup)).resolves.toEqual({
+      outcome: "inserted",
+      mediaToken: "created",
+    });
+    await expect(
+      harness.repository.loadPremiumDispatchSnapshot({
+        tenantId: "tenant-a",
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({
+      outcome: "found",
+      snapshot: setup.premiumDispatchSnapshot,
+    });
+    await expect(harness.repository.createCallSetup(structuredClone(setup))).resolves.toEqual({
+      outcome: "existing",
+      mediaToken: "retained",
+    });
+
+    const conflicting = structuredClone(setup);
+    conflicting.premiumDispatchSnapshot!.resolvedConversationPolicy.providers.openaiRealtime.defaultModel =
+      "gpt-realtime-conflict";
+    conflicting.premiumDispatchSnapshot!.checksum =
+      computeTelephonyPremiumDispatchSnapshotChecksum(
+        snapshotWithoutChecksum(conflicting.premiumDispatchSnapshot!),
+      );
+    await expect(harness.repository.createCallSetup(conflicting)).resolves.toEqual({
+      outcome: "conflict",
+    });
+    await expect(
+      harness.repository.loadPremiumDispatchSnapshot({
+        tenantId: "tenant-b",
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+  });
+
+  it("rejects a premium dispatch snapshot whose persisted checksum is corrupted", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "premium-snapshot-corrupt-checksum");
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+    await harness.repository.createCallSetup(setup);
+    const corruptedSnapshot = {
+      ...structuredClone(setup.premiumDispatchSnapshot),
+      checksum: "0".repeat(64),
+    };
+    await harness.pool.query(
+      `update telephony_premium_dispatch_snapshots
+       set checksum = $1, snapshot = $2::jsonb
+       where tenant_id = $3 and call_session_id = $4`,
+      [
+        corruptedSnapshot.checksum,
+        JSON.stringify(corruptedSnapshot),
+        setup.dispatch.tenantId,
+        setup.executionSession.callSessionId,
+      ],
+    );
+
+    await expect(
+      harness.repository.loadPremiumDispatchSnapshot({
+        tenantId: setup.dispatch.tenantId,
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).rejects.toThrow("Premium dispatch snapshot identities or checksum are invalid.");
+  });
+
+  it("rejects a premium dispatch snapshot whose row envelope disagrees with its payload", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "premium-snapshot-envelope-mismatch");
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+    await harness.repository.createCallSetup(setup);
+    await harness.pool.query(
+      `update telephony_premium_dispatch_snapshots
+       set workspace_id = $1
+       where tenant_id = $2 and call_session_id = $3`,
+      [
+        "workspace-tampered",
+        setup.dispatch.tenantId,
+        setup.executionSession.callSessionId,
+      ],
+    );
+
+    await expect(
+      harness.repository.loadPremiumDispatchSnapshot({
+        tenantId: setup.dispatch.tenantId,
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).rejects.toThrow("Premium dispatch snapshot envelope is invalid.");
+  });
+
+  it("rejects sensitive premium snapshot material and rolls back the entire call setup", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const setup = callSetup("tenant-a", "sensitive-premium-snapshot");
+    const snapshot = premiumDispatchSnapshot(setup) as TelephonyPremiumDispatchSnapshot & {
+      resolvedManifest: { credentials?: { accessToken: string } };
+    };
+    snapshot.resolvedManifest.credentials = { accessToken: "must-not-be-persisted" };
+    snapshot.checksum = computeTelephonyPremiumDispatchSnapshotChecksum(
+      snapshotWithoutChecksum(snapshot),
+    );
+    setup.premiumDispatchSnapshot = snapshot;
+
+    await expect(harness.repository.createCallSetup(setup)).rejects.toThrow(
+      "Premium dispatch snapshot contains sensitive material.",
+    );
+    const rolledBackRows = await Promise.all(
+      [
+        "telephony_dispatches",
+        "telephony_execution_sessions",
+        "telephony_media_stream_tokens",
+        "telephony_premium_dispatch_snapshots",
+      ].map((table) =>
+        harness.pool.query(`select tenant_id from ${table} where tenant_id = $1`, ["tenant-a"]),
+      ),
+    );
+    expect(rolledBackRows.every((result) => result.rows.length === 0)).toBe(true);
   });
 
   it("rejects an outbound execution when its tenant-owned connection is abuse blocked", async () => {
@@ -670,6 +802,10 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       observedAt: "2026-07-23T12:01:00.000Z",
     };
     const expired = callSetup("tenant-a", "call-expired");
+    const sandwich = callSetup("tenant-a", "call-sandwich-worker");
+    sandwich.dispatch.runtimePath = "pstn-sandwich";
+    sandwich.executionCommands[0]!.payload = { runtimePath: "pstn-sandwich" };
+    sandwich.mediaToken.expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
     const otherTenantExpired = callSetup("tenant-b", "call-expired-b");
     expired.mediaToken.createdAt = "2026-07-23T11:55:00.000Z";
     expired.mediaToken.expiresAt = new Date(Date.now() - 1_000).toISOString();
@@ -679,6 +815,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     await harness.repository.createCallSetup(active);
     await harness.repository.createCallSetup(terminal);
     await harness.repository.createCallSetup(expired);
+    await harness.repository.createCallSetup(sandwich);
     await harness.repository.createCallSetup(otherTenantExpired);
 
     const claim = {
@@ -687,9 +824,11 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       dispatchId: active.executionSession.dispatchId,
       connectionId: active.executionSession.connectionId,
       tokenHash: active.mediaToken.tokenHash,
+      workerId: "premium-worker-a",
     };
-    await expect(harness.repository.claimMediaToken(claim)).resolves.toMatchObject({
+    await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
       outcome: "claimed",
+      ownerEpoch: 1,
       authorization: {
         tenantId: "tenant-a",
         callSessionId: active.executionSession.callSessionId,
@@ -697,6 +836,48 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         connectionId: active.executionSession.connectionId,
         runtimePath: "pstn-premium-realtime",
       },
+    });
+    await expect(
+      harness.repository.fencePremiumCallOwnership({
+        tenantId: "tenant-a",
+        callSessionId: active.executionSession.callSessionId,
+        workerId: "premium-worker-a",
+        ownerEpoch: 1,
+      }),
+    ).resolves.toEqual({ outcome: "owned", ownerEpoch: 1 });
+    await expect(
+      harness.repository.fencePremiumCallOwnership({
+        tenantId: "tenant-a",
+        callSessionId: active.executionSession.callSessionId,
+        workerId: "premium-worker-a",
+        ownerEpoch: 2,
+      }),
+    ).resolves.toEqual({ outcome: "not_owner" });
+    await expect(
+      harness.repository.fencePremiumCallOwnership({
+        tenantId: "tenant-a",
+        callSessionId: active.executionSession.callSessionId,
+        workerId: "premium-worker-b",
+        ownerEpoch: 1,
+      }),
+    ).resolves.toEqual({ outcome: "not_owner" });
+    await expect(
+      harness.repository.fencePremiumCallOwnership({
+        tenantId: "tenant-b",
+        callSessionId: active.executionSession.callSessionId,
+        workerId: "premium-worker-a",
+        ownerEpoch: 1,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+    await expect(
+      harness.pool.query(
+        `select owner_worker_id, owner_epoch
+         from telephony_media_stream_tokens
+         where tenant_id = $1 and call_session_id = $2`,
+        ["tenant-a", active.executionSession.callSessionId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ owner_worker_id: "premium-worker-a", owner_epoch: 1 }],
     });
     await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
       outcome: "already_claimed",
@@ -744,11 +925,30 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       }),
     ).resolves.toEqual({ outcome: "expired" });
     await expect(
+      harness.repository.claimMediaToken({
+        ...claim,
+        callSessionId: sandwich.executionSession.callSessionId,
+        dispatchId: sandwich.executionSession.dispatchId,
+        tokenHash: sandwich.mediaToken.tokenHash,
+      }),
+    ).resolves.toEqual({ outcome: "conflict" });
+    await expect(
       harness.repository.deleteExpiredMediaTokens({
         tenantId: "tenant-a",
         before: new Date().toISOString(),
       }),
-    ).resolves.toEqual({ deletedCount: 2 });
+    ).resolves.toEqual({ deletedCount: 1 });
+    await expect(
+      harness.repository.fencePremiumCallOwnership({
+        tenantId: "tenant-a",
+        callSessionId: active.executionSession.callSessionId,
+        workerId: "premium-worker-a",
+        ownerEpoch: 1,
+      }),
+    ).resolves.toEqual({ outcome: "owned", ownerEpoch: 1 });
+    await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
+      outcome: "already_claimed",
+    });
     await expect(
       harness.repository.claimMediaToken({
         ...claim,
@@ -1476,6 +1676,46 @@ function callSetup(tenantId: string, suffix: string): CreateTelephonyCallSetupIn
   };
 }
 
+function premiumDispatchSnapshot(
+  setup: CreateTelephonyCallSetupInput,
+): TelephonyPremiumDispatchSnapshot {
+  const snapshot = {
+    schemaVersion: 1 as const,
+    tenantId: setup.dispatch.tenantId,
+    workspaceId: setup.dispatch.workspaceId!,
+    callSessionId: setup.executionSession.callSessionId,
+    dispatchId: setup.dispatch.id,
+    publishedVersionId: setup.dispatch.publishedVersionId!,
+    resolvedManifest: {
+      tenantId: setup.dispatch.tenantId,
+      workspaceId: setup.dispatch.workspaceId,
+      publishedVersionId: setup.dispatch.publishedVersionId,
+      runtimeProfile: "premium-realtime",
+      compiledDefinitionHash: "manifest-definition-hash",
+    } as unknown as CompiledRuntimeManifest,
+    resolvedConversationPolicy: structuredClone(defaultPremiumRealtimeConversationPolicy),
+    workerTarget: {
+      workerId: "worker-test-1",
+      releaseId: "release-test-1",
+      mediaStreamBaseUrl:
+        "wss://worker-test.zara.test/telephony/twilio/media-streams",
+    },
+    createdAt: "2026-07-23T12:00:00.000Z",
+  };
+  return {
+    ...snapshot,
+    checksum: computeTelephonyPremiumDispatchSnapshotChecksum(snapshot),
+  };
+}
+
+function snapshotWithoutChecksum(
+  snapshot: TelephonyPremiumDispatchSnapshot,
+): Omit<TelephonyPremiumDispatchSnapshot, "checksum"> {
+  const withoutChecksum = structuredClone(snapshot) as Partial<TelephonyPremiumDispatchSnapshot>;
+  delete withoutChecksum.checksum;
+  return withoutChecksum as Omit<TelephonyPremiumDispatchSnapshot, "checksum">;
+}
+
 function outboundCallExecution(
   tenantId: string,
   suffix: string,
@@ -1643,6 +1883,21 @@ async function createHarness(
       connection_id text NOT NULL REFERENCES telephony_connections(id) ON DELETE CASCADE,
       token_hash varchar(43) NOT NULL UNIQUE,
       expires_at timestamp NOT NULL, created_at timestamp NOT NULL, claimed_at timestamp,
+      owner_worker_id text, owner_epoch integer NOT NULL DEFAULT 0,
+      PRIMARY KEY (tenant_id, call_session_id),
+      FOREIGN KEY (tenant_id, call_session_id)
+        REFERENCES telephony_execution_sessions(tenant_id, call_session_id) ON DELETE CASCADE
+    );
+    CREATE TABLE telephony_premium_dispatch_snapshots (
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      call_session_id text NOT NULL,
+      dispatch_id text NOT NULL,
+      workspace_id text NOT NULL,
+      published_version_id text NOT NULL,
+      schema_version integer NOT NULL,
+      checksum varchar(64) NOT NULL,
+      snapshot jsonb NOT NULL,
+      created_at timestamptz NOT NULL,
       PRIMARY KEY (tenant_id, call_session_id),
       FOREIGN KEY (tenant_id, call_session_id)
         REFERENCES telephony_execution_sessions(tenant_id, call_session_id) ON DELETE CASCADE

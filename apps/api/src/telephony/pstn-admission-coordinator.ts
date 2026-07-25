@@ -16,16 +16,19 @@ export interface PstnAdmissionScope {
   provider: string;
   providerAccountId: string;
   runtime: PstnAdmissionRuntimePath;
+  workerId?: string | undefined;
   providerAvailable?: boolean | undefined;
 }
 
 interface TrackedAdmission {
   input: PstnCallAdmissionInput;
   state: "claim" | "active";
+  ownershipEpoch?: number | undefined;
 }
 
 interface PendingRelease {
   input: PstnCallAdmissionInput | undefined;
+  ownershipEpoch: number | undefined;
   failureCount: number;
   nextRetryAt: number;
   inFlight: Promise<PstnCallAdmissionReleaseResult> | undefined;
@@ -43,6 +46,13 @@ type PstnAdmissionObservability = Pick<
   | "recordAdmissionBackendHealth"
 >;
 
+export interface PstnAdmissionOwnershipLostEvent {
+  tenantId: string;
+  callSessionId: string;
+  runtime: PstnAdmissionRuntimePath;
+  reason: "lease_unrecoverable" | "not_owner";
+}
+
 export class PstnAdmissionCoordinator {
   private readonly tracked = new Map<string, TrackedAdmission>();
   private readonly unresolvedActiveLeases = new Set<string>();
@@ -51,6 +61,9 @@ export class PstnAdmissionCoordinator {
   private releaseRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
+  private readonly ownershipLostListeners = new Set<
+    (event: PstnAdmissionOwnershipLostEvent) => void | Promise<void>
+  >();
 
   constructor(
     private readonly admission: PstnCallAdmission,
@@ -130,7 +143,7 @@ export class PstnAdmissionCoordinator {
 
     const result = await this.admission.activate({
       reservationId: key,
-      workerId: this.config.workerId,
+      workerId: recoveryInput.workerId,
       workerLimit: this.config.limits.worker,
       activeTtlMs: this.config.activeTtlMs,
     });
@@ -143,6 +156,7 @@ export class PstnAdmissionCoordinator {
       this.tracked.set(key, {
         input: recoveryInput,
         state: "active",
+        ownershipEpoch: result.ownershipEpoch,
       });
       this.ensureRenewalTimer();
     }
@@ -166,6 +180,7 @@ export class PstnAdmissionCoordinator {
     this.stopRenewalTimerWhenIdle();
     const releaseIntent: PendingRelease = {
       input: tracked?.input,
+      ownershipEpoch: tracked?.ownershipEpoch,
       failureCount: 0,
       nextRetryAt: Date.now(),
       inFlight: undefined,
@@ -183,6 +198,17 @@ export class PstnAdmissionCoordinator {
         : {}),
     });
     return health;
+  }
+
+  onOwnershipLost(
+    listener: (
+      event: PstnAdmissionOwnershipLostEvent,
+    ) => void | Promise<void>,
+  ) {
+    this.ownershipLostListeners.add(listener);
+    return () => {
+      this.ownershipLostListeners.delete(listener);
+    };
   }
 
   shutdown() {
@@ -220,7 +246,7 @@ export class PstnAdmissionCoordinator {
       callSessionId: scope.callSessionId,
       tenantId: scope.tenantId,
       providerAccountId: scope.providerAccountId,
-      workerId: this.config.workerId,
+      workerId: scope.workerId ?? this.config.workerId,
       provider: scope.provider,
       runtime: scope.runtime,
       limits: {
@@ -273,15 +299,23 @@ export class PstnAdmissionCoordinator {
     );
     await Promise.allSettled(
       active.map(async ([key, tracked]) => {
+        if (tracked.ownershipEpoch === undefined) {
+          this.unresolvedActiveLeases.add(key);
+          return;
+        }
         const result = await this.admission.renew({
           reservationId: tracked.input.reservationId,
-          workerId: this.config.workerId,
+          workerId: tracked.input.workerId,
+          ownershipEpoch: tracked.ownershipEpoch,
           activeTtlMs: tracked.input.activeTtlMs,
         });
         this.recordLease("renew", result.outcome, tracked.input);
         if (result.outcome === "not_owner") {
-          this.tracked.delete(key);
           this.unresolvedActiveLeases.delete(key);
+          await this.notifyOwnershipLost(tracked);
+          if (this.tracked.get(key) === tracked) {
+            this.tracked.delete(key);
+          }
           return;
         }
         if (result.outcome === "renewed") {
@@ -300,15 +334,42 @@ export class PstnAdmissionCoordinator {
             reconciliation.outcome === "activated" ||
             reconciliation.outcome === "existing"
           ) {
+            tracked.ownershipEpoch = reconciliation.ownershipEpoch;
             this.unresolvedActiveLeases.delete(key);
           } else if (reconciliation.outcome === "not_owner") {
-            this.tracked.delete(key);
             this.unresolvedActiveLeases.delete(key);
+            await this.notifyOwnershipLost(tracked);
+            if (this.tracked.get(key) === tracked) {
+              this.tracked.delete(key);
+            }
+          } else if (reconciliation.outcome === "not_found") {
+            this.unresolvedActiveLeases.delete(key);
+            await this.notifyOwnershipLost(tracked, "lease_unrecoverable");
+            if (this.tracked.get(key) === tracked) {
+              this.tracked.delete(key);
+            }
           }
         }
       }),
     );
     this.stopRenewalTimerWhenIdle();
+  }
+
+  private async notifyOwnershipLost(
+    tracked: TrackedAdmission,
+    reason: PstnAdmissionOwnershipLostEvent["reason"] = "not_owner",
+  ) {
+    const event: PstnAdmissionOwnershipLostEvent = {
+      tenantId: tracked.input.tenantId,
+      callSessionId: tracked.input.callSessionId,
+      runtime: tracked.input.runtime === "pstn-premium-realtime"
+        ? "pstn-premium-realtime"
+        : "pstn-sandwich",
+      reason,
+    };
+    await Promise.allSettled(
+      [...this.ownershipLostListeners].map((listener) => listener(event)),
+    );
   }
 
   private stopRenewalTimerWhenIdle() {
@@ -348,7 +409,15 @@ export class PstnAdmissionCoordinator {
   ): Promise<PstnCallAdmissionReleaseResult> {
     let result: PstnCallAdmissionReleaseResult;
     try {
-      result = await this.admission.release({ reservationId: key });
+      result = await this.admission.release(
+        pending.input !== undefined && pending.ownershipEpoch !== undefined
+          ? {
+              reservationId: key,
+              workerId: pending.input.workerId,
+              ownershipEpoch: pending.ownershipEpoch,
+            }
+          : { reservationId: key },
+      );
     } catch {
       result = { outcome: "backend_unavailable" };
     }

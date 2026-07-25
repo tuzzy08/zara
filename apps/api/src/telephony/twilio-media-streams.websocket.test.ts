@@ -36,7 +36,23 @@ import {
 } from "./pstn-premium-call-execution";
 import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
+import { InMemoryPstnCallAdmission } from "./in-memory-pstn-call-admission";
+import {
+  PSTN_CALL_ADMISSION,
+  type PstnCallAdmission,
+} from "./pstn-call-admission";
 import { TelephonyService } from "./telephony.service";
+import {
+  PSTN_MEDIA_PROCESS_ROLE,
+  PSTN_MEDIA_WORKER_READINESS,
+  PSTN_MEDIA_WORKER_ID,
+  PSTN_MEDIA_WORKER_RELEASE_ID,
+  type PstnMediaProcessRole,
+} from "./pstn-media-process-role";
+import { PremiumPstnDispatchSnapshotResolver } from "./premium-pstn-dispatch-snapshot-resolver";
+import { PstnRealtimeWorkerHostLifecycle } from "../realtime-worker/pstn-realtime-worker-host";
+import { PSTN_PREMIUM_WORKER_AVAILABILITY } from "../realtime-worker/pstn-premium-worker-availability";
+import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
 
 describe("Twilio Media Streams websocket bridge", () => {
   const sockets: WebSocket[] = [];
@@ -46,6 +62,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       sockets.pop()?.close();
     }
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("retains only recent completed session histories without evicting active session history", () => {
@@ -53,7 +70,13 @@ describe("Twilio Media Streams websocket bridge", () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
+      {
+        onOwnershipLost: () => () => undefined,
+      } as never,
+      "api",
+      undefined,
+      undefined,
+      undefined,
     );
     const internals = bridge as unknown as {
       attachments: Map<string, unknown>;
@@ -89,6 +112,482 @@ describe("Twilio Media Streams websocket bridge", () => {
     expect(bridge.getSessionEvents("completed-call-64")).toEqual([event]);
     expect(bridge.getSessionEvents("reused-active-call")).toEqual([event]);
   });
+
+  it("rejects premium media on the API process before consuming the stream token", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      processRole: "api",
+    });
+    const telephonyService = app.get(TelephonyService);
+    const authorize = vi.spyOn(
+      telephonyService,
+      "authorizeTwilioMediaStream",
+    );
+    const callSid = "CA-premium-api-role-rejected";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-api-role-rejected",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium API-role websocket open");
+
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-api-role-rejected",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+
+    await expect(
+      withTimeout(nextClose(socket), "premium API-role websocket close"),
+    ).resolves.toEqual({
+      code: 4403,
+      reason: "runtime_not_served_by_process",
+    });
+    expect(authorize).not.toHaveBeenCalled();
+
+    await app.close();
+  }, 30_000);
+
+  it("rejects a forged runtime path before consuming the signed premium token", async () => {
+    const { app, moduleRef, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      processRole: "api",
+    });
+    const telephonyService = app.get(TelephonyService);
+    const authorize = vi.spyOn(
+      telephonyService,
+      "authorizeTwilioMediaStream",
+    );
+    const callSid = "CA-premium-forged-runtime";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-forged-runtime",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "forged-runtime websocket open");
+
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-forged-runtime",
+      token: streamToken,
+      runtimePath: "pstn-sandwich",
+    })));
+
+    await expect(
+      withTimeout(nextClose(socket), "forged-runtime websocket close"),
+    ).resolves.toEqual({
+      code: 4403,
+      reason: "runtime_path_mismatch",
+    });
+    expect(authorize).not.toHaveBeenCalled();
+    const repository = moduleRef.get(
+      TELEPHONY_INCREMENTAL_REPOSITORY,
+    ) as InMemoryTelephonyIncrementalRepository;
+    expect(repository.callSetups.at(-1)?.mediaToken.consumedAt).toBeUndefined();
+
+    await app.close();
+  }, 30_000);
+
+  it("rejects premium media on a non-ready worker before consuming the stream token", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      workerAcceptingCalls: false,
+    });
+    const telephonyService = app.get(TelephonyService);
+    const authorize = vi.spyOn(
+      telephonyService,
+      "authorizeTwilioMediaStream",
+    );
+    const callSid = "CA-premium-worker-not-ready";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-worker-not-ready",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "non-ready worker websocket open");
+
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-worker-not-ready",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+
+    await expect(
+      withTimeout(nextClose(socket), "non-ready worker websocket close"),
+    ).resolves.toEqual({
+      code: 1013,
+      reason: "worker_not_accepting_calls",
+    });
+    expect(authorize).not.toHaveBeenCalled();
+    await app.close();
+  }, 30_000);
+
+  it("rejects premium media on a worker other than the signed dispatch target before consuming the stream token", async () => {
+    const { app, moduleRef, phoneNumber, authToken } =
+      await createRoutedTwilioApp({
+        runtimeProfile: "premium-realtime",
+        workerId: "wrong-premium-worker",
+      });
+    const telephonyService = app.get(TelephonyService);
+    const authorize = vi.spyOn(
+      telephonyService,
+      "authorizeTwilioMediaStream",
+    );
+    const callSid = "CA-premium-wrong-worker";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-wrong-worker",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const targetWorkerId = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraWorkerId",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "wrong-worker websocket open");
+
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-wrong-worker",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+      workerId: targetWorkerId,
+    })));
+
+    await expect(
+      withTimeout(nextClose(socket), "wrong-worker websocket close"),
+    ).resolves.toEqual({
+      code: 4403,
+      reason: "target_worker_mismatch",
+    });
+    expect(authorize).not.toHaveBeenCalled();
+    const repository = moduleRef.get(
+      TELEPHONY_INCREMENTAL_REPOSITORY,
+    ) as InMemoryTelephonyIncrementalRepository;
+    expect(repository.callSetups.at(-1)?.mediaToken.consumedAt).toBeUndefined();
+
+    await app.close();
+  }, 30_000);
+
+  it("rejects premium media from a different worker release before consuming the stream token", async () => {
+    const { app, moduleRef, phoneNumber, authToken } =
+      await createRoutedTwilioApp({
+        runtimeProfile: "premium-realtime",
+        workerReleaseId: "replacement-release",
+      });
+    const telephonyService = app.get(TelephonyService);
+    const authorize = vi.spyOn(
+      telephonyService,
+      "authorizeTwilioMediaStream",
+    );
+    const callSid = "CA-premium-wrong-release";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-wrong-release",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const targetWorkerId = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraWorkerId",
+    );
+    const targetReleaseId = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraWorkerReleaseId",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "wrong-release websocket open");
+
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-wrong-release",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+      workerId: targetWorkerId,
+      workerReleaseId: targetReleaseId,
+    })));
+
+    await expect(
+      withTimeout(nextClose(socket), "wrong-release websocket close"),
+    ).resolves.toEqual({
+      code: 4403,
+      reason: "target_worker_release_mismatch",
+    });
+    expect(authorize).not.toHaveBeenCalled();
+    const repository = moduleRef.get(
+      TELEPHONY_INCREMENTAL_REPOSITORY,
+    ) as InMemoryTelephonyIncrementalRepository;
+    expect(repository.callSetups.at(-1)?.mediaToken.consumedAt).toBeUndefined();
+    await app.close();
+  }, 30_000);
+
+  it("persists a failed lifecycle when the initial premium ownership fence rejects the worker", async () => {
+    const start = vi.fn(async () => undefined);
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        start,
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        async stop() {},
+      },
+    });
+    const telephonyService = app.get(TelephonyService);
+    vi.spyOn(
+      telephonyService,
+      "fencePremiumCallOwnership",
+    ).mockResolvedValue({ outcome: "not_owner" });
+    const lifecycle = vi.spyOn(
+      telephonyService,
+      "recordPstnCallLifecycle",
+    );
+    const callSid = "CA-premium-fence-rejected";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-fence-rejected",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "fence-rejected websocket open");
+    const closed = nextClose(socket);
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-fence-rejected",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+
+    await expect(
+      withTimeout(closed, "fence-rejected websocket close"),
+    ).resolves.toEqual({
+      code: 4409,
+      reason: "premium_call_not_owned",
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(lifecycle).toHaveBeenCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "premium_call_ownership_fence_failed",
+    });
+
+    await app.close();
+  }, 30_000);
+
+  it("does not start premium execution when media-connected persistence is rejected", async () => {
+    const start = vi.fn(async () => undefined);
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        start,
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        async stop() {},
+      },
+    });
+    const telephonyService = app.get(TelephonyService);
+    vi.spyOn(
+      telephonyService,
+      "recordPstnCallLifecycle",
+    ).mockResolvedValueOnce({ outcome: "not_found" });
+    const callSid = "CA-premium-media-connected-rejected";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-media-connected-rejected",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "media-connected-rejected websocket open");
+    const closed = nextClose(socket);
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-media-connected-rejected",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+
+    await expect(
+      withTimeout(closed, "media-connected-rejected websocket close"),
+    ).resolves.toEqual({
+      code: 4409,
+      reason: "premium_call_lifecycle_rejected",
+    });
+    expect(start).not.toHaveBeenCalled();
+    await app.close();
+  }, 30_000);
+
+  it("starts premium execution when an active status callback precedes media connection", async () => {
+    const start = vi.fn(async () => undefined);
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        start,
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        async stop() {},
+      },
+    });
+    const telephonyService = app.get(TelephonyService);
+    const callSid = "CA-premium-active-before-media";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-active-before-media",
+      phoneNumber,
+    });
+    await expect(telephonyService.recordPstnCallLifecycle({
+      organizationId: "tenant-west-africa",
+      callSessionId: `${callSid}:telephony`,
+      stage: "active",
+      at: "2026-07-25T20:00:00.000Z",
+    })).resolves.toMatchObject({ outcome: "applied" });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "active-before-media websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-active-before-media",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+
+    await withTimeout(
+      waitFor(() => start.mock.calls.length === 1),
+      "active-before-media premium execution start",
+    );
+    socket.terminate();
+    await app.close();
+  }, 30_000);
+
+  it("does not consume a sandwich media token when a worker attempts to claim it", async () => {
+    const { app, moduleRef, phoneNumber, authToken } = await createRoutedTwilioApp();
+    await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid: "CA-sandwich-worker-claim",
+      eventSid: "EVT-sandwich-worker-claim",
+      phoneNumber,
+    });
+    const repository = moduleRef.get(
+      TELEPHONY_INCREMENTAL_REPOSITORY,
+    ) as InMemoryTelephonyIncrementalRepository;
+    const setup = repository.callSetups.at(-1);
+    if (setup === undefined) {
+      throw new Error("Expected the webhook to persist a call setup.");
+    }
+    const claim = {
+      tenantId: setup.mediaToken.tenantId,
+      callSessionId: setup.mediaToken.callSessionId,
+      dispatchId: setup.mediaToken.dispatchId,
+      connectionId: setup.mediaToken.connectionId,
+      tokenHash: setup.mediaToken.tokenHash,
+    };
+
+    await expect(
+      repository.claimMediaToken({
+        ...claim,
+        workerId: "premium-worker-forged",
+      }),
+    ).resolves.toEqual({ outcome: "conflict" });
+    expect(setup.mediaToken.consumedAt).toBeUndefined();
+    await expect(repository.claimMediaToken(claim)).resolves.toMatchObject({
+      outcome: "claimed",
+    });
+
+    await app.close();
+  }, 30_000);
 
   it("bridges verified Twilio media streams and sends only Twilio media mark and clear messages outbound", async () => {
     const logs: string[] = [];
@@ -167,6 +666,7 @@ describe("Twilio Media Streams websocket bridge", () => {
         customParameters: {
           zaraStreamToken: streamToken,
           zaraCallSessionId: "forged-value-is-ignored",
+          zaraRuntimePath: "pstn-sandwich",
         },
       },
     }));
@@ -877,6 +1377,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       callSid,
       streamSid: "MZ-premium-shutdown",
       token: streamToken,
+      runtimePath: "pstn-premium-realtime",
     })));
     const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
     await withTimeout(
@@ -951,6 +1452,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       callSid,
       streamSid: "MZ-premium-close-terminal-failure",
       token: streamToken,
+      runtimePath: "pstn-premium-realtime",
     })));
     const coordinator = app.get(PstnAdmissionCoordinator);
     const shutdownAdmission = vi.spyOn(coordinator, "shutdown");
@@ -971,10 +1473,33 @@ describe("Twilio Media Streams websocket bridge", () => {
       "premium terminal failure stop",
     );
 
-    await expect(app.close()).resolves.toBeUndefined();
+    const workerLifecycle = new PstnRealtimeWorkerHostLifecycle(
+      { async connect() {} },
+      {
+        async start() {},
+        async beginDrain() {
+          return {
+            completed: true as const,
+            reason: "empty" as const,
+            remainingCalls: 0,
+          };
+        },
+        stop() {},
+        getHealthPosture() {
+          return { acceptingCalls: false };
+        },
+      },
+      bridge,
+      { shutdown: shutdownPremiumExecution },
+      { shutdown: () => coordinator.shutdown() },
+    );
+    await expect(
+      workerLifecycle.beforeApplicationShutdown(),
+    ).resolves.toBeUndefined();
     expect(stop).toHaveBeenCalledTimes(2);
     expect(shutdownPremiumExecution).toHaveBeenCalledOnce();
     expect(shutdownAdmission).toHaveBeenCalledOnce();
+    await expect(app.close()).resolves.toBeUndefined();
   }, 30_000);
 
   it("logs a safe premium startup failure code before closing the Twilio media stream", async () => {
@@ -1012,6 +1537,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       callSid,
       streamSid: "MZ-premium-start-failure",
       token: streamToken,
+      runtimePath: "pstn-premium-realtime",
     })));
 
     await expect(withTimeout(nextClose(socket), "premium startup failure websocket close")).resolves.toEqual({
@@ -1090,8 +1616,16 @@ describe("Twilio Media Streams websocket bridge", () => {
     const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`);
     sockets.push(socket);
     await withTimeout(nextOpen(socket), "premium websocket open");
-    socket.send(JSON.stringify(createStartMessage({ callSid, streamSid, token: streamToken })));
-    await withTimeout(waitFor(() => starts.length === 1), "premium execution start");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid,
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+    await withTimeout(
+      waitFor(() => starts.length === 1),
+      "premium execution start",
+    );
 
     socket.send(JSON.stringify({
       event: "media",
@@ -1157,6 +1691,176 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
+  it("stops premium execution and persists failure when admission ownership is lost", async () => {
+    const stop = vi.fn(async () => undefined);
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        async start() {},
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        stop,
+      },
+    });
+    const callSid = "CA-premium-ownership-lost";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-ownership-lost",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "ownership-lost websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-ownership-lost",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "ownership-lost premium execution start",
+    );
+    const lifecycle = vi.spyOn(
+      app.get(TelephonyService),
+      "recordPstnCallLifecycle",
+    );
+    const closed = nextClose(socket);
+
+    await (
+      bridge as unknown as {
+        handleAdmissionOwnershipLost(input: {
+          tenantId: string;
+          callSessionId: string;
+          runtime: "pstn-premium-realtime";
+          reason: "not_owner";
+        }): Promise<void>;
+      }
+    ).handleAdmissionOwnershipLost({
+      tenantId: "tenant-west-africa",
+      callSessionId,
+      runtime: "pstn-premium-realtime",
+      reason: "not_owner",
+    });
+
+    await expect(
+      withTimeout(closed, "ownership-lost websocket close"),
+    ).resolves.toEqual({
+      code: 4409,
+      reason: "premium_call_ownership_lost",
+    });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledWith({
+      callSessionId,
+      outcome: "failed",
+      reasonCode: "pstn_admission_ownership_lost",
+    });
+    expect(lifecycle).toHaveBeenCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "pstn_admission_ownership_lost",
+    });
+
+    await app.close();
+  }, 30_000);
+
+  it("closes premium media fail-stop when ownership-loss cleanup fails", async () => {
+    const stop = vi.fn(async () => {
+      throw new Error("provider stop failed");
+    });
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        async start() {},
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        stop,
+      },
+    });
+    const callSid = "CA-premium-ownership-lost-cleanup-failure";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-ownership-lost-cleanup-failure",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "ownership-lost cleanup websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-ownership-lost-cleanup-failure",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "ownership-lost cleanup premium execution start",
+    );
+    vi.spyOn(
+      app.get(TelephonyService),
+      "recordPstnCallLifecycle",
+    ).mockRejectedValueOnce(new Error("lifecycle persistence failed"));
+    const closed = nextClose(socket);
+
+    await expect(
+      (
+        bridge as unknown as {
+          handleAdmissionOwnershipLost(input: {
+            tenantId: string;
+            callSessionId: string;
+            runtime: "pstn-premium-realtime";
+            reason: "not_owner";
+          }): Promise<void>;
+        }
+      ).handleAdmissionOwnershipLost({
+        tenantId: "tenant-west-africa",
+        callSessionId,
+        runtime: "pstn-premium-realtime",
+        reason: "not_owner",
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      withTimeout(closed, "ownership-lost cleanup websocket close"),
+    ).resolves.toEqual({
+      code: 4409,
+      reason: "premium_call_ownership_lost",
+    });
+    expect(stop).toHaveBeenCalledOnce();
+    await app.close();
+  }, 30_000);
+
   it.each([
     {
       title: "fails premium execution when an authorized Twilio media socket closes abnormally",
@@ -1210,6 +1914,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       callSid,
       streamSid: `MZ-premium-${suffix}`,
       token: streamToken,
+      runtimePath: "pstn-premium-realtime",
     })));
     const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
     await withTimeout(
@@ -1266,6 +1971,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       callSid,
       streamSid: "MZ-premium-admission-activation",
       token: streamToken,
+      runtimePath: "pstn-premium-realtime",
     })));
 
     await withTimeout(closePromise, "premium admission websocket close");
@@ -1306,7 +2012,12 @@ describe("Twilio Media Streams websocket bridge", () => {
     sockets.push(socket);
     await withTimeout(nextOpen(socket), "premium overflow websocket open");
     const closed = nextClose(socket);
-    socket.send(JSON.stringify(createStartMessage({ callSid, streamSid, token: streamToken })));
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid,
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
     socket.send(JSON.stringify({
       event: "media",
       sequenceNumber: "2",
@@ -1325,6 +2036,84 @@ describe("Twilio Media Streams websocket bridge", () => {
     });
     startGate.resolve();
     await app.close();
+  }, 30_000);
+
+  it("continues an owned premium media call on the worker after the API process stops", async () => {
+    vi.stubEnv(
+      "ZARA_STREAM_TOKEN_SECRET",
+      "test-shared-worker-stream-token-secret",
+    );
+    const incrementalRepository =
+      new InMemoryTelephonyIncrementalRepository();
+    const admission = new InMemoryPstnCallAdmission();
+    const workerStart = vi.fn(async () => undefined);
+    const worker = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      processRole: "pstn-realtime-worker",
+      incrementalRepository,
+      admission,
+      premiumExecution: {
+        start: workerStart,
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        async stop() {},
+      },
+    });
+    const api = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      processRole: "api",
+      incrementalRepository,
+      admission,
+    });
+    const callSid = "CA-premium-api-restart";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app: api.app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: api.authToken,
+      callSid,
+      eventSid: "EVT-premium-api-restart",
+      phoneNumber: api.phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+
+    await api.app.close();
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(worker.app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "post-API-stop worker websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-api-restart",
+      token: streamToken,
+      runtimePath: "pstn-premium-realtime",
+    })));
+
+    await withTimeout(
+      waitFor(() => workerStart.mock.calls.length === 1),
+      "post-API-stop premium worker execution start",
+    );
+    expect(workerStart).toHaveBeenCalledWith(
+      expect.objectContaining({ callSessionId }),
+    );
+
+    socket.send(JSON.stringify({
+      event: "stop",
+      sequenceNumber: "2",
+      streamSid: "MZ-premium-api-restart",
+      stop: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        callSid,
+      },
+    }));
+    await withTimeout(nextClose(socket), "post-API-stop worker websocket close");
+    await worker.app.close();
   }, 30_000);
 
   it("requires the server-minted Twilio stream token once before media attachment", async () => {
@@ -1474,6 +2263,12 @@ describe("Twilio Media Streams websocket bridge", () => {
 
 async function createRoutedTwilioApp(options?: {
   runtimeProfile?: "cost-optimized" | "premium-realtime";
+  processRole?: PstnMediaProcessRole;
+  workerId?: string;
+  workerReleaseId?: string;
+  workerAcceptingCalls?: boolean;
+  incrementalRepository?: InMemoryTelephonyIncrementalRepository;
+  admission?: PstnCallAdmission;
   premiumExecution?: Pick<
     PstnPremiumCallExecution,
     "start" | "appendInboundFrame" | "acknowledgePlaybackMark" | "stop"
@@ -1506,7 +2301,22 @@ async function createRoutedTwilioApp(options?: {
       ),
     )
     .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
-    .useValue(new InMemoryTelephonyIncrementalRepository())
+    .useValue(
+      options?.incrementalRepository
+      ?? new InMemoryTelephonyIncrementalRepository(),
+    )
+    .overrideProvider(PSTN_CALL_ADMISSION)
+    .useValue(options?.admission ?? new InMemoryPstnCallAdmission())
+    .overrideProvider(PremiumPstnDispatchSnapshotResolver)
+    .useValue({
+      async resolve(snapshotInput: {
+        organizationId: string;
+        workspaceId: string;
+        publishedVersionId: string;
+      }) {
+        return createPremiumSnapshotResolution(snapshotInput);
+      },
+    })
     .overrideProvider(TWILIO_NUMBER_INVENTORY_PROVIDER)
     .useValue(createGeneratedTwilioInventoryProvider())
     .overrideProvider(TWILIO_NUMBER_ROUTING_PROVIDER)
@@ -1536,6 +2346,51 @@ async function createRoutedTwilioApp(options?: {
       recordAdmission() {},
       recordAdmissionLease() {},
       recordAdmissionBackendHealth() {},
+    })
+    .overrideProvider(PSTN_MEDIA_PROCESS_ROLE)
+    .useValue(
+      options?.processRole
+      ?? (options?.runtimeProfile === "premium-realtime"
+        ? "pstn-realtime-worker"
+        : "api"),
+    )
+    .overrideProvider(PSTN_MEDIA_WORKER_ID)
+    .useValue(
+      options?.processRole === "api"
+        ? undefined
+        : options?.runtimeProfile === "premium-realtime"
+          ? options.workerId ?? "test-premium-worker"
+          : undefined,
+    )
+    .overrideProvider(PSTN_MEDIA_WORKER_RELEASE_ID)
+    .useValue(
+      options?.processRole === "api"
+        ? undefined
+        : options?.runtimeProfile === "premium-realtime"
+          ? options.workerReleaseId ?? "test-release"
+          : undefined,
+    )
+    .overrideProvider(PSTN_MEDIA_WORKER_READINESS)
+    .useValue({
+      isAcceptingCalls: () => options?.workerAcceptingCalls ?? true,
+    })
+    .overrideProvider(PSTN_PREMIUM_WORKER_AVAILABILITY)
+    .useValue({
+      async select(provider: "openai-realtime" | "gemini-live") {
+        return {
+          status: "available" as const,
+          provider,
+          worker: {
+            workerId: "test-premium-worker",
+            releaseId: "test-release",
+            mediaStreamBaseUrl:
+              "wss://realtime.zara.test/telephony/twilio/media-streams",
+            availableSlots: 20,
+            activeCalls: 0,
+            startingCalls: 0,
+          },
+        };
+      },
     })
     .compile();
 
@@ -1737,6 +2592,9 @@ function createStartMessage(input: {
   omitAccountSid?: boolean | undefined;
   streamSid: string;
   token?: string | undefined;
+  runtimePath?: "pstn-sandwich" | "pstn-premium-realtime" | undefined;
+  workerId?: string | undefined;
+  workerReleaseId?: string | undefined;
 }) {
   return {
     event: "start",
@@ -1759,10 +2617,48 @@ function createStartMessage(input: {
       },
       customParameters: input.token === undefined
         ? {}
-        : {
+          : {
             zaraStreamToken: input.token,
+            zaraRuntimePath: input.runtimePath ?? "pstn-sandwich",
+            ...((input.runtimePath ?? "pstn-sandwich")
+              === "pstn-premium-realtime"
+              ? {
+                  zaraWorkerId:
+                    input.workerId ?? "test-premium-worker",
+                  zaraWorkerReleaseId:
+                    input.workerReleaseId ?? "test-release",
+                }
+              : {}),
           },
     },
+  };
+}
+
+function createPremiumSnapshotResolution(input: {
+  organizationId: string;
+  workspaceId: string;
+  publishedVersionId: string;
+}) {
+  return {
+    resolvedManifest: {
+      schemaVersion: 1,
+      tenantId: input.organizationId,
+      workspaceId: input.workspaceId,
+      workflowId: "workflow-test",
+      publishedVersionId: input.publishedVersionId,
+      publishedAt: "2026-07-25T09:00:00.000Z",
+      runtimeProfile: "premium-realtime",
+      entryNodeId: "agent-test",
+      entryAgentId: "agent-test",
+      graph: { nodes: [], edges: [] },
+      routePolicies: [],
+      agents: [],
+      toolGrants: [],
+      warnings: [],
+    },
+    resolvedConversationPolicy: structuredClone(
+      defaultPremiumRealtimeConversationPolicy,
+    ),
   };
 }
 

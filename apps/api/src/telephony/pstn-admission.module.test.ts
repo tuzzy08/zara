@@ -6,6 +6,7 @@ import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
 import {
   PstnAdmissionModule,
   PstnAdmissionRedisLifecycle,
+  PSTN_ADMISSION_REDIS_CLIENT,
 } from "./pstn-admission.module";
 import type { PstnCallAdmission } from "./pstn-call-admission";
 
@@ -50,6 +51,19 @@ describe("PstnAdmissionModule", () => {
       status: "healthy",
       backend: "memory",
     });
+    await module.close();
+  });
+
+  it("exports the shared Redis client for worker registration", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("PSTN_ADMISSION_REDIS_URL", "");
+    const module = await Test.createTestingModule({
+      imports: [PstnAdmissionModule],
+    }).compile();
+
+    expect(
+      module.get(PSTN_ADMISSION_REDIS_CLIENT, { strict: false }),
+    ).toBeUndefined();
     await module.close();
   });
 
@@ -135,10 +149,12 @@ describe("PstnAdmissionModule", () => {
         activate: vi.fn(async () => ({
           outcome: "activated" as const,
           leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+          ownershipEpoch: 1,
         })),
         renew: vi.fn(async () => ({
           outcome: "renewed" as const,
           leaseExpiresAt: "2026-07-24T12:02:30.000Z",
+          ownershipEpoch: 1,
         })),
         release: vi.fn(async () => {
           releaseAttempts += 1;

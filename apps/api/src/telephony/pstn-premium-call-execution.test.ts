@@ -3,7 +3,11 @@ import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
 import { Logger } from "@nestjs/common";
 
 import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
+import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
 import { PstnPremiumCallActor } from "./pstn-premium-call-actor";
+import {
+  computeTelephonyPremiumDispatchSnapshotChecksum,
+} from "./telephony-incremental.repository";
 import {
   PstnPremiumCallExecution,
   type PstnPremiumCallOutput,
@@ -67,12 +71,18 @@ describe("PstnPremiumCallExecution", () => {
         async recordPstnCallLifecycle() {},
       } as never,
       {
-        async getPublishedManifest() {
-          return manifest;
+        async loadPremiumDispatchSnapshot() {
+          return {
+            outcome: "found",
+            snapshot: createPremiumDispatchSnapshot(manifest),
+          };
         },
       } as never,
       {
         async createRealtimeSession() {
+          throw new Error("Mutable runtime policy must not be read by a PSTN worker.");
+        },
+        async createRealtimeSessionFromSnapshot() {
           return registered.session;
         },
         getRegisteredSession() {
@@ -2070,6 +2080,37 @@ describe("PstnPremiumCallExecution", () => {
   });
 });
 
+function createPremiumDispatchSnapshot(
+  manifest: CompiledRuntimeManifest,
+) {
+  if (manifest.workspaceId === undefined) {
+    throw new Error("Premium test manifest requires a workspace.");
+  }
+  const snapshot = {
+    schemaVersion: 1 as const,
+    tenantId: manifest.tenantId,
+    workspaceId: manifest.workspaceId,
+    callSessionId: "CA-premium:telephony",
+    dispatchId: "dispatch-premium-1",
+    publishedVersionId: manifest.publishedVersionId,
+    resolvedManifest: structuredClone(manifest),
+    resolvedConversationPolicy: structuredClone(
+      defaultPremiumRealtimeConversationPolicy,
+    ),
+    workerTarget: {
+      workerId: "worker-test-1",
+      releaseId: "release-test-1",
+      mediaStreamBaseUrl:
+        "wss://worker-test.zara.test/telephony/twilio/media-streams",
+    },
+    createdAt: "2026-07-11T11:00:00.000Z",
+  };
+  return {
+    ...snapshot,
+    checksum: computeTelephonyPremiumDispatchSnapshotChecksum(snapshot),
+  };
+}
+
 function createPremiumManifest() {
   return {
     schemaVersion: "zara.runtime-manifest.v2",
@@ -2208,9 +2249,16 @@ function createMinimalExecutionHarness(
         await options.recordLifecycle?.(input.stage);
       },
     } as never,
-    { async getPublishedManifest() { return manifest; } } as never,
     {
-      async createRealtimeSession() { return registered.session; },
+      async loadPremiumDispatchSnapshot() {
+        return {
+          outcome: "found",
+          snapshot: createPremiumDispatchSnapshot(manifest),
+        };
+      },
+    } as never,
+    {
+      async createRealtimeSessionFromSnapshot() { return registered.session; },
       getRegisteredSession() { return registered; },
       async processProviderMessage(message: { rawProviderMessage: string }) {
         if (typeof options.processProviderGate === "function") {
@@ -2312,9 +2360,16 @@ function createHandoffExecutionHarness(input: {
         lifecycleStages.push(input.stage);
       },
     } as never,
-    { async getPublishedManifest() { return manifest; } } as never,
     {
-      async createRealtimeSession() { return registered.session; },
+      async loadPremiumDispatchSnapshot() {
+        return {
+          outcome: "found",
+          snapshot: createPremiumDispatchSnapshot(manifest),
+        };
+      },
+    } as never,
+    {
+      async createRealtimeSessionFromSnapshot() { return registered.session; },
       getRegisteredSession() { return registered; },
       async processProviderMessage(message: { rawProviderMessage: string }) {
         return input.processProviderMessage(message.rawProviderMessage, registered);

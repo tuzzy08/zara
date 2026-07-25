@@ -47,6 +47,8 @@ export interface TwilioVirtualCallerInput {
   completionProbe?: (() => boolean) | undefined;
   requireRemoteClose?: boolean | undefined;
   quiescenceMs?: number | undefined;
+  duplicateMediaStream?: boolean | undefined;
+  simultaneousDuplicateMediaStream?: boolean | undefined;
   signal?: AbortSignal | undefined;
   beforeConnect?: ((input: {
     callSessionId: string;
@@ -70,6 +72,7 @@ export interface TwilioVirtualCallerResult {
   mediaConnectLatencyMs: number;
   firstOutboundAudioLatencyMs?: number | undefined;
   totalDurationMs: number;
+  duplicateMediaStream?: { closeCode: number } | undefined;
 }
 
 export class TwilioVirtualCaller {
@@ -127,17 +130,48 @@ export class TwilioVirtualCaller {
     const providerFingerprint = createCallFingerprint(callSessionId);
     await input.beforeConnect?.({ callSessionId, callFingerprint: providerFingerprint });
 
-    const socket = (this.dependencies.websocketFactory ?? ((url) => new WebSocket(url)))(twiml.streamUrl);
-    try {
-      await waitForOpen(socket, input.connectTimeoutMs ?? 5_000);
-    } catch (error) {
-      if (socket.terminate !== undefined) socket.terminate();
-      else socket.close(1011, "simulated_connect_failure");
-      throw error;
+    if (
+      input.duplicateMediaStream === true
+      && input.simultaneousDuplicateMediaStream === true
+    ) {
+      throw new Error("Duplicate media stream modes cannot be combined.");
+    }
+    const streamSid = createTwilioStreamSid(input.callSid);
+    const websocketFactory = this.dependencies.websocketFactory ?? ((url: string) => new WebSocket(url));
+    let socket: CallerWebSocket;
+    let bootstrapSent = false;
+    let bufferedOwnerMessages: Array<RawData | Buffer> = [];
+    let simultaneousDuplicateResult: { closeCode: number } | undefined;
+    if (input.simultaneousDuplicateMediaStream === true) {
+      const race = await establishSimultaneousMediaRace({
+        accountSid: input.accountSid,
+        callSid: input.callSid,
+        connectTimeoutMs: input.connectTimeoutMs ?? 5_000,
+        createSocket: websocketFactory,
+        runtimePath: twiml.runtimePath,
+        streamSid,
+        streamToken: twiml.streamToken,
+        streamUrl: twiml.streamUrl,
+        workerId: twiml.workerId,
+        workerReleaseId: twiml.workerReleaseId,
+      });
+      socket = race.owner.socket;
+      race.owner.buffering = false;
+      bufferedOwnerMessages = race.owner.messages.splice(0);
+      simultaneousDuplicateResult = { closeCode: race.loserCloseCode };
+      bootstrapSent = true;
+    } else {
+      socket = websocketFactory(twiml.streamUrl);
+      try {
+        await waitForOpen(socket, input.connectTimeoutMs ?? 5_000);
+      } catch (error) {
+        if (socket.terminate !== undefined) socket.terminate();
+        else socket.close(1011, "simulated_connect_failure");
+        throw error;
+      }
     }
     const mediaConnectedAt = this.nowMs();
     throwIfAborted(input.signal);
-    const streamSid = createTwilioStreamSid(input.callSid);
     const result: TwilioVirtualCallerResult = {
       callSid: input.callSid,
       callSessionId,
@@ -151,12 +185,19 @@ export class TwilioVirtualCaller {
       webhookLatencyMs: Math.max(0, webhookCompletedAt - startedAt),
       mediaConnectLatencyMs: Math.max(0, mediaConnectedAt - webhookCompletedAt),
       totalDurationMs: 0,
+      ...(simultaneousDuplicateResult === undefined
+        ? {}
+        : { duplicateMediaStream: simultaneousDuplicateResult }),
     };
     let nextSequenceNumber = 2;
     let providerMessageVersion = 0;
     let localCloseRequested = false;
     let remoteClosed = false;
     let lifecycleError: Error | undefined;
+    let resolveOwnerPlayback: (() => void) | undefined;
+    const ownerPlayback = new Promise<void>((resolve) => {
+      resolveOwnerPlayback = resolve;
+    });
     let resolveSocketClosed: (() => void) | undefined;
     const socketClosed = new Promise<void>((resolve) => {
       resolveSocketClosed = resolve;
@@ -179,14 +220,15 @@ export class TwilioVirtualCaller {
         result.firstOutboundAudioLatencyMs ??= Math.max(0, this.nowMs() - startedAt);
       },
     });
-    socket.on("message", (raw) => {
+    const receiveProviderMessage = (raw: RawData | Buffer) => {
       try {
         providerMessageVersion += 1;
-        playback.receive(raw.toString());
+        if (playback.receive(raw.toString())) resolveOwnerPlayback?.();
       } catch (error) {
         lifecycleError = error instanceof Error ? error : new Error("Invalid Zara media stream message.");
       }
-    });
+    };
+    socket.on("message", receiveProviderMessage);
     socket.on("error", (error) => {
       lifecycleError ??= error;
     });
@@ -199,22 +241,42 @@ export class TwilioVirtualCaller {
       if (safeReason.length > 0) result.remoteCloseReason = safeReason;
       resolveSocketClosed?.();
     });
+    for (const raw of bufferedOwnerMessages) receiveProviderMessage(raw);
+    bufferedOwnerMessages = [];
 
     try {
-      sendJson(socket, { event: "connected", protocol: "Call", version: "1.0.0" });
-      sendJson(socket, {
-      event: "start",
-      sequenceNumber: "1",
-      streamSid,
-      start: {
-        accountSid: input.accountSid,
-        callSid: input.callSid,
-        streamSid,
-        tracks: ["inbound"],
-        customParameters: { zaraStreamToken: twiml.streamToken },
-        mediaFormat: { encoding: "audio/x-mulaw", sampleRate: 8_000, channels: 1 },
-      },
-      });
+      if (!bootstrapSent) {
+        sendMediaStreamBootstrap(socket, {
+          accountSid: input.accountSid,
+          callSid: input.callSid,
+          runtimePath: twiml.runtimePath,
+          streamSid,
+          streamToken: twiml.streamToken,
+          workerId: twiml.workerId,
+          workerReleaseId: twiml.workerReleaseId,
+        });
+      }
+
+      if (input.duplicateMediaStream === true) {
+        await waitForOwnerPlayback({
+          ownerPlayback,
+          socketClosed,
+          readError: () => lifecycleError,
+          timeoutMs: input.connectTimeoutMs ?? 5_000,
+          signal: input.signal,
+        });
+        result.duplicateMediaStream = await this.attemptDuplicateMediaStream({
+          accountSid: input.accountSid,
+          callSid: input.callSid,
+          connectTimeoutMs: input.connectTimeoutMs ?? 5_000,
+          streamSid,
+          streamToken: twiml.streamToken,
+          streamUrl: twiml.streamUrl,
+          runtimePath: twiml.runtimePath,
+          workerId: twiml.workerId,
+          workerReleaseId: twiml.workerReleaseId,
+        });
+      }
 
       if (input.silence === true) {
         await this.sleep(input.durationMs, input.signal);
@@ -338,6 +400,71 @@ export class TwilioVirtualCaller {
     }
   }
 
+  private async attemptDuplicateMediaStream(input: {
+    accountSid: string;
+    callSid: string;
+    connectTimeoutMs: number;
+    streamSid: string;
+    streamToken: string;
+    streamUrl: string;
+    runtimePath: "pstn-sandwich" | "pstn-premium-realtime";
+    workerId: string | undefined;
+    workerReleaseId: string | undefined;
+  }) {
+    const socket = (this.dependencies.websocketFactory ?? ((url) => new WebSocket(url)))(input.streamUrl);
+    let closed = false;
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const outcome = new Promise<
+      | { type: "closed"; closeCode: number }
+      | { type: "message" }
+      | { type: "error" }
+      | { type: "timeout" }
+    >((resolve) => {
+      const settle = (value:
+        | { type: "closed"; closeCode: number }
+        | { type: "message" }
+        | { type: "error" }
+        | { type: "timeout" }) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      timeout = setTimeout(() => settle({ type: "timeout" }), Math.max(1, input.connectTimeoutMs));
+      socket.on("message", () => settle({ type: "message" }));
+      socket.on("error", () => settle({ type: "error" }));
+      socket.on("close", (code) => {
+        closed = true;
+        settle({ type: "closed", closeCode: code });
+      });
+    });
+
+    try {
+      await waitForOpen(socket, input.connectTimeoutMs);
+      sendMediaStreamBootstrap(socket, input);
+      const rejection = await outcome;
+      if (rejection.type === "message") {
+        throw new Error("Duplicate media stream produced provider-side output before rejection.");
+      }
+      if (rejection.type === "error") {
+        throw new Error("Duplicate media stream failed before deterministic rejection.");
+      }
+      if (rejection.type === "timeout") {
+        throw new Error("Timed out waiting for duplicate media stream rejection.");
+      }
+      if (rejection.closeCode !== 4409) {
+        throw new Error(`Duplicate media stream closed with unexpected code ${rejection.closeCode}.`);
+      }
+      return { closeCode: rejection.closeCode };
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+      if (!closed) {
+        if (socket.terminate !== undefined) socket.terminate();
+        else socket.close(1011, "simulated_duplicate_cleanup");
+      }
+    }
+  }
+
   private async sleep(delayMs: number, signal?: AbortSignal) {
     throwIfAborted(signal);
     if (signal === undefined) {
@@ -354,6 +481,148 @@ export class TwilioVirtualCaller {
   private nowMs() {
     return (this.dependencies.nowMs ?? Date.now)();
   }
+}
+
+type RaceCandidate = {
+  socket: CallerWebSocket;
+  messages: Array<RawData | Buffer>;
+  buffering: boolean;
+  failed: boolean;
+  closedCode?: number | undefined;
+  terminal: Promise<{ type: "close"; code: number } | { type: "error" }>;
+};
+
+async function establishSimultaneousMediaRace(input: {
+  accountSid: string;
+  callSid: string;
+  connectTimeoutMs: number;
+  createSocket: (url: string) => CallerWebSocket;
+  runtimePath: "pstn-sandwich" | "pstn-premium-realtime";
+  streamSid: string;
+  streamToken: string;
+  streamUrl: string;
+  workerId: string | undefined;
+  workerReleaseId: string | undefined;
+}) {
+  const candidates = [createRaceCandidate(input.createSocket(input.streamUrl)), createRaceCandidate(
+    input.createSocket(input.streamUrl),
+  )] as const;
+  try {
+    await Promise.all(candidates.map(({ socket }) => waitForOpen(socket, input.connectTimeoutMs)));
+    sendMediaStreamBootstrap(candidates[0].socket, input);
+    if (candidates[0].messages.length > 0 || candidates[1].messages.length > 0) {
+      throw new Error("Provider output arrived before both duplicate media streams attempted ownership.");
+    }
+    sendMediaStreamBootstrap(candidates[1].socket, input);
+    const terminal = await waitForRaceTerminal(candidates, input.connectTimeoutMs);
+    if (terminal.outcome.type !== "close" || terminal.outcome.code !== 4409) {
+      throw new Error("Simultaneous duplicate media race did not produce deterministic rejection.");
+    }
+    const loser = candidates[terminal.index];
+    const owner = candidates[terminal.index === 0 ? 1 : 0];
+    if (loser.messages.length > 0) {
+      throw new Error("Rejected duplicate media stream produced provider-side output.");
+    }
+    if (owner.closedCode !== undefined || owner.failed) {
+      throw new Error("Simultaneous duplicate media race did not retain one owner.");
+    }
+    return { owner, loserCloseCode: terminal.outcome.code };
+  } catch (error) {
+    for (const { socket, closedCode } of candidates) {
+      if (closedCode === undefined) {
+        if (socket.terminate !== undefined) socket.terminate();
+        else socket.close(1011, "simulated_race_cleanup");
+      }
+    }
+    throw error;
+  }
+}
+
+function createRaceCandidate(socket: CallerWebSocket): RaceCandidate {
+  const messages: Array<RawData | Buffer> = [];
+  let resolveTerminal: (
+    outcome: { type: "close"; code: number } | { type: "error" },
+  ) => void = () => undefined;
+  let settled = false;
+  const candidate: RaceCandidate = {
+    socket,
+    messages,
+    buffering: true,
+    failed: false,
+    terminal: new Promise((resolve) => {
+      resolveTerminal = resolve;
+    }),
+  };
+  socket.on("message", (raw) => {
+    if (candidate.buffering) messages.push(raw);
+  });
+  socket.on("error", () => {
+    candidate.failed = true;
+    if (settled) return;
+    settled = true;
+    resolveTerminal({ type: "error" });
+  });
+  socket.on("close", (code) => {
+    candidate.closedCode = code;
+    if (settled) return;
+    settled = true;
+    resolveTerminal({ type: "close", code });
+  });
+  return candidate;
+}
+
+async function waitForRaceTerminal(
+  candidates: readonly [RaceCandidate, RaceCandidate],
+  timeoutMs: number,
+) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error("Timed out waiting for simultaneous duplicate media rejection.")),
+      Math.max(1, timeoutMs),
+    );
+  });
+  try {
+    return await Promise.race([
+      candidates[0].terminal.then((outcome) => ({ index: 0 as const, outcome })),
+      candidates[1].terminal.then((outcome) => ({ index: 1 as const, outcome })),
+      timedOut,
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+function sendMediaStreamBootstrap(socket: CallerWebSocket, input: {
+  accountSid: string;
+  callSid: string;
+  runtimePath: "pstn-sandwich" | "pstn-premium-realtime";
+  streamSid: string;
+  streamToken: string;
+  workerId: string | undefined;
+  workerReleaseId: string | undefined;
+}) {
+  sendJson(socket, { event: "connected", protocol: "Call", version: "1.0.0" });
+  sendJson(socket, {
+    event: "start",
+    sequenceNumber: "1",
+    streamSid: input.streamSid,
+    start: {
+      accountSid: input.accountSid,
+      callSid: input.callSid,
+      streamSid: input.streamSid,
+      tracks: ["inbound"],
+      customParameters: {
+        zaraStreamToken: input.streamToken,
+        zaraRuntimePath: input.runtimePath,
+        ...(input.workerId === undefined ? {} : { zaraWorkerId: input.workerId }),
+        ...(input.workerReleaseId === undefined
+          ? {}
+          : { zaraWorkerReleaseId: input.workerReleaseId }),
+      },
+      mediaFormat: { encoding: "audio/x-mulaw", sampleRate: 8_000, channels: 1 },
+    },
+  });
 }
 
 type PlaybackItem =
@@ -380,7 +649,7 @@ class TwilioPlaybackQueue {
   }) {}
 
   receive(raw: string) {
-    if (this.cancelled) return;
+    if (this.cancelled) return false;
     const message = JSON.parse(raw) as ZaraStreamMessage;
     if (
       (message.event === "media" || message.event === "mark" || message.event === "clear")
@@ -392,14 +661,15 @@ class TwilioPlaybackQueue {
       this.dependencies.onFirstOutboundAudio();
       this.queue.push({ type: "media", payloadBase64: message.media.payload, generation: this.generation });
       this.startDrain();
-      return;
+      return true;
     }
     if (message.event === "mark" && typeof message.mark?.name === "string") {
       this.queue.push({ type: "mark", name: message.mark.name, generation: this.generation });
       this.startDrain();
-      return;
+      return false;
     }
     if (message.event === "clear") this.clear();
+    return false;
   }
 
   async waitUntilIdle() {
@@ -506,6 +776,37 @@ function sendJson(socket: CallerWebSocket, message: Record<string, unknown>) {
 
 function defaultSleep(delayMs: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function waitForOwnerPlayback(input: {
+  ownerPlayback: Promise<void>;
+  socketClosed: Promise<void>;
+  readError: () => Error | undefined;
+  timeoutMs: number;
+  signal?: AbortSignal | undefined;
+}) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<"timeout">((resolve) => {
+    timeout = setTimeout(() => resolve("timeout"), Math.max(1, input.timeoutMs));
+  });
+  const outcome = await Promise.race([
+    input.ownerPlayback.then(() => "playback" as const),
+    input.socketClosed.then(() => "closed" as const),
+    timedOut,
+    ...(input.signal === undefined
+      ? []
+      : [waitUntilAborted(input.signal).then(() => "aborted" as const)]),
+  ]);
+  if (timeout !== undefined) clearTimeout(timeout);
+  if (outcome === "playback") return;
+  if (outcome === "aborted") throwIfAborted(input.signal);
+  if (input.readError() !== undefined) {
+    throw new Error("Primary media stream failed before ownership was established.");
+  }
+  if (outcome === "closed") {
+    throw new Error("Primary media stream closed before ownership was established.");
+  }
+  throw new Error("Timed out waiting for primary media stream ownership.");
 }
 
 async function waitForSocketClose(socket: CallerWebSocket, closed: Promise<void>) {

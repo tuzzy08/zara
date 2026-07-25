@@ -8,6 +8,7 @@ import type {
   CreateTelephonyCallExecutionInput,
   CreateTelephonyCallSetupInput,
   TelephonyIncrementalRepository,
+  TelephonyPremiumDispatchRepository,
   UpdateTelephonyPhoneTestProjectionInput,
 } from "./telephony-incremental.repository";
 import {
@@ -15,7 +16,7 @@ import {
   requiredPhoneTestCheckpoints,
 } from "./telephony-incremental.repository";
 
-export class InMemoryTelephonyIncrementalRepository implements TelephonyIncrementalRepository {
+export class InMemoryTelephonyIncrementalRepository implements TelephonyPremiumDispatchRepository {
   readonly webhookEvents: Parameters<TelephonyIncrementalRepository["insertWebhookEvent"]>[0][] = [];
   readonly dispatches: Parameters<TelephonyIncrementalRepository["insertDispatch"]>[0][] = [];
   readonly callExecutions: CreateTelephonyCallExecutionInput[] = [];
@@ -49,6 +50,10 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     Parameters<TelephonyIncrementalRepository["claimMediaToken"]>[0][] = [];
   readonly connectionHealthObservations:
     Parameters<TelephonyIncrementalRepository["recordConnectionHealthObservation"]>[0][] = [];
+  readonly premiumOwners = new Map<
+    string,
+    { workerId: string; ownerEpoch: number }
+  >();
   failCallSetup = false;
   failPhoneTestCheckpoint = false;
   failPhoneTestProjection = false;
@@ -607,6 +612,12 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     if (setup.dispatch.runtimePath === undefined) {
       return { outcome: "conflict" as const };
     }
+    if (
+      input.workerId !== undefined
+      && setup.dispatch.runtimePath !== "pstn-premium-realtime"
+    ) {
+      return { outcome: "conflict" as const };
+    }
     if (setup.mediaToken.consumedAt !== undefined) {
       return { outcome: "already_claimed" as const };
     }
@@ -617,8 +628,16 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
       return { outcome: "expired" as const };
     }
     setup.mediaToken.consumedAt = new Date().toISOString();
+    const ownerEpoch = input.workerId === undefined ? undefined : 1;
+    if (input.workerId !== undefined) {
+      this.premiumOwners.set(
+        `${input.tenantId}:${input.callSessionId}`,
+        { workerId: input.workerId, ownerEpoch: 1 },
+      );
+    }
     return {
       outcome: "claimed" as const,
+      ...(ownerEpoch === undefined ? {} : { ownerEpoch }),
       authorization: {
         tenantId: setup.executionSession.tenantId,
         callSessionId: setup.executionSession.callSessionId,
@@ -627,6 +646,38 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
         runtimePath: setup.dispatch.runtimePath,
       },
     };
+  }
+
+  async loadPremiumDispatchSnapshot(
+    input: Parameters<
+      TelephonyPremiumDispatchRepository["loadPremiumDispatchSnapshot"]
+    >[0],
+  ) {
+    const setup = this.callSetups.find(
+      (candidate) =>
+        candidate.dispatch.tenantId === input.tenantId
+        && candidate.executionSession.callSessionId === input.callSessionId,
+    );
+    return setup?.premiumDispatchSnapshot === undefined
+      ? { outcome: "not_found" as const }
+      : {
+          outcome: "found" as const,
+          snapshot: structuredClone(setup.premiumDispatchSnapshot),
+        };
+  }
+
+  async fencePremiumCallOwnership(
+    input: Parameters<
+      TelephonyPremiumDispatchRepository["fencePremiumCallOwnership"]
+    >[0],
+  ) {
+    const owner = this.premiumOwners.get(
+      `${input.tenantId}:${input.callSessionId}`,
+    );
+    return owner?.workerId === input.workerId
+      && owner.ownerEpoch === input.ownerEpoch
+      ? { outcome: "owned" as const, ownerEpoch: owner.ownerEpoch }
+      : { outcome: "not_owner" as const };
   }
 
   async loadCallRuntimeContext(

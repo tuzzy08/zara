@@ -37,6 +37,15 @@ describe("production Dockerfile", () => {
     expect(dockerfile).not.toContain("--prefer-offline");
   });
 
+  it("excludes incremental compiler state from clean Docker builds", async () => {
+    const dockerignore = await readFile(
+      resolve(process.cwd(), ".dockerignore"),
+      "utf8",
+    );
+
+    expect(dockerignore).toContain("**/*.tsbuildinfo");
+  });
+
   it("serves SPA documents without caching while keeping hashed assets immutable", async () => {
     const nginxConfig = await readFile(resolve(process.cwd(), "deploy/nginx/spa.conf"), "utf8");
     const appLocation = nginxConfig.match(/location \/ \{(?<block>[\s\S]*?)\n {2}\}/);
@@ -70,7 +79,9 @@ describe("production Dockerfile", () => {
       await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8"),
     );
     const redisService = compose.match(/ {2}redis:\n(?<block>[\s\S]*?)\n {2}minio:/);
-    const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
+    const apiService = compose.match(
+      / {2}api:\n(?<block>[\s\S]*?)\n {2}realtime-worker:/,
+    );
     const environment = await readFile(
       resolve(process.cwd(), "deploy/coolify.env.example"),
       "utf8",
@@ -113,16 +124,95 @@ describe("production Dockerfile", () => {
 
   it("gives the Coolify API service a healthcheck grace period for production boot", async () => {
     const compose = normalizeLineEndings(await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8"));
-    const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
+    const apiService = compose.match(
+      / {2}api:\n(?<block>[\s\S]*?)\n {2}realtime-worker:/,
+    );
 
     expect(apiService?.groups?.block).toContain("healthcheck:");
     expect(apiService?.groups?.block).toContain("start_period: 60s");
   });
 
+  it("deploys premium PSTN media as a separate health-gated realtime worker", async () => {
+    const compose = normalizeLineEndings(
+      await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8"),
+    );
+    const dockerfile = await readFile(
+      resolve(process.cwd(), "Dockerfile"),
+      "utf8",
+    );
+    const apiPackage = JSON.parse(
+      await readFile(
+        resolve(process.cwd(), "apps/api/package.json"),
+        "utf8",
+      ),
+    ) as { scripts?: Record<string, string> };
+    const apiService = compose.match(
+      / {2}api:\n(?<block>[\s\S]*?)\n {2}realtime-worker:/,
+    );
+    const workerService = compose.match(
+      / {2}realtime-worker:\n(?<block>[\s\S]*?)\n {2}web:/,
+    );
+
+    expect(dockerfile).toContain("FROM api AS realtime-worker");
+    expect(dockerfile).toContain(
+      'CMD ["node", "apps/api/dist-js/realtime-worker/realtime-worker.main.js"]',
+    );
+    expect(apiPackage.scripts).toHaveProperty(
+      "start:realtime-worker:raw",
+      "node dist-js/realtime-worker/realtime-worker.main.js",
+    );
+    expect(apiService?.groups?.block).not.toContain(
+      "ZARA_PREMIUM_TWILIO_MEDIA_STREAM_BASE_URL:",
+    );
+    expect(apiService?.groups?.block).not.toContain(
+      "ZARA_PROCESS_ROLE: pstn-realtime-worker",
+    );
+    expect(workerService?.groups?.block).toContain("target: realtime-worker");
+    expect(workerService?.groups?.block).toContain(
+      "ZARA_PROCESS_ROLE: pstn-realtime-worker",
+    );
+    expect(workerService?.groups?.block).toContain("PSTN_WORKER_ID:");
+    expect(workerService?.groups?.block).toContain(
+      "PSTN_WORKER_PUBLIC_MEDIA_URL: ${REALTIME_WORKER_PUBLIC_URL:?Set REALTIME_WORKER_PUBLIC_URL in Coolify}",
+    );
+    expect(workerService?.groups?.block).toContain(
+      "PSTN_ADMISSION_REDIS_URL:",
+    );
+    expect(workerService?.groups?.block).toContain(
+      "PSTN_CAPACITY_MAX_CONCURRENT_CALLS: ${PSTN_WORKER_MAX_CALLS:-20}",
+    );
+    expect(workerService?.groups?.block).toContain(
+      "PSTN_INSTANCE_CPU_LIMIT_MILLICORES:",
+    );
+    expect(workerService?.groups?.block).toContain(
+      "PSTN_INSTANCE_MEMORY_LIMIT_BYTES:",
+    );
+    expect(workerService?.groups?.block).toContain(
+      "PSTN_INSTANCE_FILE_DESCRIPTOR_LIMIT:",
+    );
+    expect(workerService?.groups?.block).toContain("PGPOOL_MAX:");
+    expect(workerService?.groups?.block).toContain(
+      "PSTN_EVENT_LOOP_DELAY_LIMIT_MS: ${PSTN_WORKER_MAX_EVENT_LOOP_LAG_MS:-50}",
+    );
+    expect(workerService?.groups?.block).toContain("DATABASE_URL:");
+    expect(workerService?.groups?.block).toContain(
+      "http://127.0.0.1:4020/health/ready",
+    );
+    expect(workerService?.groups?.block).toContain("stop_grace_period: 31m");
+    expect(workerService?.groups?.block).toContain(
+      "api-state:/app/.zara:ro",
+    );
+    expect(workerService?.groups?.block).not.toMatch(
+      /^\s*-\s+api-state:\/app\/\.zara\s*$/m,
+    );
+  });
+
   it("keeps API runtime state writable for the unprivileged production user", async () => {
     const compose = normalizeLineEndings(await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8"));
     const dockerfile = await readFile(resolve(process.cwd(), "Dockerfile"), "utf8");
-    const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
+    const apiService = compose.match(
+      / {2}api:\n(?<block>[\s\S]*?)\n {2}realtime-worker:/,
+    );
 
     expect(dockerfile).toContain("RUN mkdir -p /app/.zara && chown -R node:node /app/.zara");
     expect(apiService?.groups?.block).toContain("api-state:/app/.zara");

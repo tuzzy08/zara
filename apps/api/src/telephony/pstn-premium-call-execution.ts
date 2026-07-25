@@ -20,7 +20,6 @@ import {
   type PremiumRealtimeProviderSessionTransition,
   type RegisteredPremiumRealtimeSession,
 } from "../runtime-sessions/runtime-sessions.service";
-import { WorkflowsService } from "../workflows/workflows.service";
 import {
   pstnCallObservabilityRecorderToken,
   type PstnCallObservabilityEvent,
@@ -36,6 +35,11 @@ import {
 import { PstnPremiumIngressAdmission } from "./pstn-premium-ingress-admission";
 import { PstnPremiumPlaybackAdmission } from "./pstn-premium-playback-admission";
 import { PstnPremiumPlaybackController } from "./pstn-premium-playback-controller";
+import {
+  computeTelephonyPremiumDispatchSnapshotChecksum,
+  TELEPHONY_INCREMENTAL_REPOSITORY,
+  type TelephonyPremiumDispatchRepository,
+} from "./telephony-incremental.repository";
 
 export interface PstnPremiumCallOutput {
   sendMedia(frame: PstnAudioFrame): void;
@@ -186,16 +190,18 @@ export class PstnPremiumCallExecution {
     @Inject(TelephonyService)
     private readonly telephonyService: Pick<
       TelephonyService,
-      | "loadPstnCallRuntimeContext"
       | "recordPstnPhoneTestCheckpoint"
       | "recordPstnCallLifecycle"
     >,
-    @Inject(WorkflowsService)
-    private readonly workflowsService: Pick<WorkflowsService, "getPublishedManifest">,
+    @Inject(TELEPHONY_INCREMENTAL_REPOSITORY)
+    private readonly premiumDispatchRepository: Pick<
+      TelephonyPremiumDispatchRepository,
+      "loadPremiumDispatchSnapshot"
+    >,
     @Inject(RuntimeSessionsService)
     private readonly runtimeSessionsService: Pick<
       RuntimeSessionsService,
-      "createRealtimeSession" | "getRegisteredSession" | "processProviderMessage" | "updateRegisteredSession" | "terminateRealtimeSession"
+      "createRealtimeSessionFromSnapshot" | "getRegisteredSession" | "processProviderMessage" | "updateRegisteredSession" | "terminateRealtimeSession"
     >,
     @Inject(premiumRealtimeProviderTransportToken)
     private readonly providerTransport: PremiumRealtimeProviderTransport,
@@ -264,60 +270,57 @@ export class PstnPremiumCallExecution {
 
   private async startExecution(input: StartPremiumCallExecutionInput) {
     const loaded = await runPremiumStartupStage(
-      "runtime_context_load",
+      "dispatch_snapshot_load",
       "premium_state_unavailable",
-      () => this.telephonyService.loadPstnCallRuntimeContext({
-        organizationId: input.organizationId,
+      () => this.premiumDispatchRepository.loadPremiumDispatchSnapshot({
+        tenantId: input.organizationId,
         callSessionId: input.callSessionId,
       }),
     );
-    const dispatch = loaded.outcome === "found" ? loaded.context : undefined;
+    const snapshot = loaded.outcome === "found"
+      ? loaded.snapshot
+      : undefined;
     if (
-      dispatch === undefined
-      || dispatch.dispatchId !== input.dispatchId
-      || dispatch.disposition !== "routed"
-      || dispatch.runtimePath !== "pstn-premium-realtime"
-      || dispatch.publishedVersionId === undefined
-      || dispatch.workspaceId === undefined
+      snapshot === undefined
+      || snapshot.tenantId !== input.organizationId
+      || snapshot.callSessionId !== input.callSessionId
+      || snapshot.dispatchId !== input.dispatchId
+      || snapshot.resolvedManifest.tenantId !== input.organizationId
+      || snapshot.resolvedManifest.workspaceId !== snapshot.workspaceId
+      || snapshot.resolvedManifest.publishedVersionId
+        !== snapshot.publishedVersionId
+      || snapshot.resolvedManifest.runtimeProfile !== "premium-realtime"
+      || snapshot.resolvedManifest.entryAgentId === undefined
+      || computeTelephonyPremiumDispatchSnapshotChecksum({
+        schemaVersion: snapshot.schemaVersion,
+        tenantId: snapshot.tenantId,
+        workspaceId: snapshot.workspaceId,
+        callSessionId: snapshot.callSessionId,
+        dispatchId: snapshot.dispatchId,
+        publishedVersionId: snapshot.publishedVersionId,
+        resolvedManifest: snapshot.resolvedManifest,
+        resolvedConversationPolicy:
+          snapshot.resolvedConversationPolicy,
+        workerTarget: snapshot.workerTarget,
+        createdAt: snapshot.createdAt,
+      }) !== snapshot.checksum
     ) {
       throw new PstnPremiumCallStartupError(
         "premium_dispatch_unavailable",
         "dispatch_validation",
-        { message: "Premium PSTN execution requires a routed premium dispatch with an exact workflow version." },
+        { message: "Premium PSTN execution requires an exact immutable dispatch snapshot." },
       );
     }
-    const publishedVersionId = dispatch.publishedVersionId;
-    const workspaceId = dispatch.workspaceId;
-
-    const manifest = await runPremiumStartupStage(
-      "manifest_load",
-      "premium_manifest_load_failed",
-      () => this.workflowsService.getPublishedManifest({
-        organizationId: input.organizationId,
-        publishedVersionId,
-      }),
-    );
-    if (
-      manifest === null
-      || manifest.tenantId !== input.organizationId
-      || manifest.workspaceId !== workspaceId
-      || manifest.publishedVersionId !== publishedVersionId
-      || manifest.runtimeProfile !== "premium-realtime"
-      || manifest.entryAgentId === undefined
-    ) {
-      throw new PstnPremiumCallStartupError(
-        "premium_manifest_unavailable",
-        "manifest_validation",
-        { message: "The exact premium workflow manifest for this PSTN dispatch is unavailable or invalid." },
-      );
-    }
+    const manifest = snapshot.resolvedManifest;
+    const workspaceId = snapshot.workspaceId;
     const entryAgentId = manifest.entryAgentId;
 
     const session = await runPremiumStartupStage(
       "runtime_session_create",
       "premium_runtime_session_create_failed",
-      () => this.runtimeSessionsService.createRealtimeSession({
+      () => this.runtimeSessionsService.createRealtimeSessionFromSnapshot({
         manifest,
+        conversationPolicy: snapshot.resolvedConversationPolicy,
         activeAgentId: entryAgentId,
         budgetAllowed: true,
         organizationId: input.organizationId,

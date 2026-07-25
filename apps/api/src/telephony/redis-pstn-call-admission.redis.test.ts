@@ -412,7 +412,7 @@ describeWithRedis("RedisPstnCallAdmission with real Redis", () => {
     });
   });
 
-  it("moves active ownership only when the destination worker has capacity", async () => {
+  it("fences active ownership to the claiming worker and epoch", async () => {
     const ownershipPrefix = createKeyPrefix("ownership");
     const ownershipA = new RedisPstnCallAdmission(firstClient, {
       keyPrefix: ownershipPrefix,
@@ -428,15 +428,11 @@ describeWithRedis("RedisPstnCallAdmission with real Redis", () => {
       worker: 1,
     };
     const moving = createInput(280, { limits: workerLimits });
-    const destinationOccupant = createInput(281, {
-      workerId: "worker-b",
-      limits: workerLimits,
-    });
-
     await ownershipA.reserve(moving);
-    await ownershipA.activate(moving);
-    await ownershipB.reserve(destinationOccupant);
-    await ownershipB.activate(destinationOccupant);
+    await expect(ownershipA.activate(moving)).resolves.toMatchObject({
+      outcome: "activated",
+      ownershipEpoch: 1,
+    });
 
     await expect(
       ownershipB.activate({
@@ -446,60 +442,47 @@ describeWithRedis("RedisPstnCallAdmission with real Redis", () => {
         activeTtlMs: moving.activeTtlMs,
       }),
     ).resolves.toEqual({
-      outcome: "denied",
-      reasonCode: "worker_concurrency_limit",
+      outcome: "not_owner",
     });
 
-    await ownershipB.release(destinationOccupant);
-    await expect(
-      ownershipB.activate({
-        reservationId: moving.reservationId,
-        workerId: "worker-b",
-        workerLimit: 1,
-        activeTtlMs: moving.activeTtlMs,
-      }),
-    ).resolves.toMatchObject({
-      outcome: "existing",
-    });
     await expect(
       ownershipA.renew({
         reservationId: moving.reservationId,
         workerId: "worker-a",
+        ownershipEpoch: 2,
         activeTtlMs: moving.activeTtlMs,
       }),
     ).resolves.toEqual({
       outcome: "not_owner",
     });
     await expect(
-      ownershipB.renew({
+      ownershipA.release({
         reservationId: moving.reservationId,
-        workerId: "worker-b",
+        workerId: "worker-a",
+        ownershipEpoch: 2,
+      }),
+    ).resolves.toEqual({
+      outcome: "not_owner",
+    });
+    await expect(
+      ownershipA.renew({
+        reservationId: moving.reservationId,
+        workerId: "worker-a",
+        ownershipEpoch: 1,
         activeTtlMs: moving.activeTtlMs,
       }),
     ).resolves.toMatchObject({
       outcome: "renewed",
+      ownershipEpoch: 1,
     });
     await expect(
-      ownershipA.reserve(
-        createInput(282, {
-          workerId: "worker-a",
-          limits: workerLimits,
-        }),
-      ),
-    ).resolves.toMatchObject({
-      outcome: "admitted",
-      disposition: "created",
-    });
-    await expect(
-      ownershipB.reserve(
-        createInput(283, {
-          workerId: "worker-b",
-          limits: workerLimits,
-        }),
-      ),
-    ).resolves.toMatchObject({
-      outcome: "denied",
-      reasonCode: "worker_concurrency_limit",
+      ownershipA.release({
+        reservationId: moving.reservationId,
+        workerId: "worker-a",
+        ownershipEpoch: 1,
+      }),
+    ).resolves.toEqual({
+      outcome: "released",
     });
   });
 
@@ -634,6 +617,7 @@ describeWithRedis("RedisPstnCallAdmission with real Redis", () => {
       owner.renew({
         reservationId: input.reservationId,
         workerId: input.workerId,
+        ownershipEpoch: 1,
         activeTtlMs: input.activeTtlMs,
       }),
     ).resolves.toMatchObject({

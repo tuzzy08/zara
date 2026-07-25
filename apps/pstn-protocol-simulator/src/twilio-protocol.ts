@@ -24,6 +24,9 @@ export function parseConnectStreamTwiML(xml: string) {
   let insideStream = false;
   let streamUrl: string | undefined;
   let streamToken: string | undefined;
+  let runtimePath: "pstn-sandwich" | "pstn-premium-realtime" | undefined;
+  let workerId: string | undefined;
+  let workerReleaseId: string | undefined;
   let parseError: Error | undefined;
   const parser = new SaxesParser({ xmlns: false });
 
@@ -41,6 +44,18 @@ export function parseConnectStreamTwiML(xml: string) {
       const name = readXmlAttribute(node.attributes.name);
       if (name === "zaraStreamToken") {
         streamToken = readXmlAttribute(node.attributes.value);
+      } else if (name === "zaraRuntimePath") {
+        const value = readXmlAttribute(node.attributes.value);
+        if (
+          value === "pstn-sandwich"
+          || value === "pstn-premium-realtime"
+        ) {
+          runtimePath = value;
+        }
+      } else if (name === "zaraWorkerId") {
+        workerId = readXmlAttribute(node.attributes.value);
+      } else if (name === "zaraWorkerReleaseId") {
+        workerReleaseId = readXmlAttribute(node.attributes.value);
       }
     }
   });
@@ -56,8 +71,18 @@ export function parseConnectStreamTwiML(xml: string) {
   if (parseError !== undefined) {
     throw new Error("Twilio webhook returned invalid XML.", { cause: parseError });
   }
-  if (streamUrl === undefined || streamToken === undefined) {
-    throw new Error("Twilio webhook did not return Connect Stream TwiML with zaraStreamToken.");
+  if (
+    streamUrl === undefined
+    || streamToken === undefined
+    || runtimePath === undefined
+    || (
+      runtimePath === "pstn-premium-realtime"
+      && (workerId === undefined || workerReleaseId === undefined)
+    )
+  ) {
+    throw new Error(
+      "Twilio webhook did not return Connect Stream TwiML with the required Zara parameters.",
+    );
   }
 
   const parsedUrl = new URL(streamUrl);
@@ -65,7 +90,13 @@ export function parseConnectStreamTwiML(xml: string) {
     throw new Error("Twilio Connect Stream URL must be a queryless wss URL.");
   }
 
-  return { streamUrl, streamToken };
+  return {
+    streamUrl,
+    streamToken,
+    runtimePath,
+    workerId,
+    workerReleaseId,
+  };
 }
 
 export function createCallFingerprint(callId: string) {

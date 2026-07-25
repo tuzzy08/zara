@@ -344,16 +344,22 @@ describe("InMemoryPstnCallAdmission", () => {
     await expect(admission.activate(input)).resolves.toEqual({
       outcome: "activated",
       leaseExpiresAt: "2026-07-24T12:00:05.000Z",
+      ownershipEpoch: 1,
     });
     await expect(admission.activate(input)).resolves.toEqual({
       outcome: "existing",
       leaseExpiresAt: "2026-07-24T12:00:05.000Z",
+      ownershipEpoch: 1,
     });
 
     nowMs += 4_000;
-    await expect(admission.renew(input)).resolves.toEqual({
+    await expect(admission.renew({
+      ...input,
+      ownershipEpoch: 1,
+    })).resolves.toEqual({
       outcome: "renewed",
       leaseExpiresAt: "2026-07-24T12:00:09.000Z",
+      ownershipEpoch: 1,
     });
 
     nowMs += 2_000;
@@ -371,7 +377,10 @@ describe("InMemoryPstnCallAdmission", () => {
     });
 
     nowMs += 3_001;
-    await expect(admission.renew(input)).resolves.toEqual({
+    await expect(admission.renew({
+      ...input,
+      ownershipEpoch: 1,
+    })).resolves.toEqual({
       outcome: "not_found",
     });
   });
@@ -435,7 +444,10 @@ describe("InMemoryPstnCallAdmission", () => {
     await admission.reserve(input);
     await admission.activate(input);
     nowMs += 500;
-    await admission.renew(input);
+    await admission.renew({
+      ...input,
+      ownershipEpoch: 1,
+    });
 
     nowMs = startTimeMs + 1_001;
     await expect(admission.reserve(peer)).resolves.toMatchObject({
@@ -508,9 +520,8 @@ describe("InMemoryPstnCallAdmission", () => {
     });
   });
 
-  it("moves active ownership only when the destination worker has capacity", async () => {
-    let nowMs = startTimeMs;
-    const admission = new InMemoryPstnCallAdmission(() => nowMs);
+  it("fences an active call to one worker and ownership epoch", async () => {
+    const admission = new InMemoryPstnCallAdmission(() => startTimeMs);
     const limits = {
       global: 10,
       provider: 10,
@@ -518,73 +529,64 @@ describe("InMemoryPstnCallAdmission", () => {
       runtime: 10,
       worker: 1,
     };
-    const moving = createInput({ limits });
-    const destinationOccupant = createInput({
-      reservationId: "reservation-b",
-      callSessionId: "call-b",
-      workerId: "worker-b",
-      limits,
+    const call = createInput({ limits });
+    await admission.reserve(call);
+    await expect(admission.activate(call)).resolves.toEqual({
+      outcome: "activated",
+      leaseExpiresAt: "2026-07-24T12:01:00.000Z",
+      ownershipEpoch: 1,
     });
-    await admission.reserve(moving);
-    await admission.activate(moving);
-    await admission.reserve(destinationOccupant);
-    await admission.activate(destinationOccupant);
 
     await expect(
       admission.activate({
-        reservationId: moving.reservationId,
+        reservationId: call.reservationId,
         workerId: "worker-b",
         workerLimit: 1,
-        activeTtlMs: moving.activeTtlMs,
+        activeTtlMs: call.activeTtlMs,
       }),
     ).resolves.toEqual({
-      outcome: "denied",
-      reasonCode: "worker_concurrency_limit",
+      outcome: "not_owner",
     });
 
-    await admission.release(destinationOccupant);
-    await expect(
-      admission.activate({
-        reservationId: moving.reservationId,
-        workerId: "worker-b",
-        workerLimit: 1,
-        activeTtlMs: moving.activeTtlMs,
-      }),
-    ).resolves.toMatchObject({
-      outcome: "existing",
-    });
     await expect(
       admission.renew({
-        reservationId: moving.reservationId,
+        reservationId: call.reservationId,
         workerId: "worker-a",
-        activeTtlMs: moving.activeTtlMs,
+        ownershipEpoch: 2,
+        activeTtlMs: call.activeTtlMs,
+      }),
+    ).resolves.toEqual({
+      outcome: "not_owner",
+    });
+    await expect(
+      admission.release({
+        reservationId: call.reservationId,
+        workerId: "worker-a",
+        ownershipEpoch: 2,
       }),
     ).resolves.toEqual({
       outcome: "not_owner",
     });
     await expect(
       admission.renew({
-        reservationId: moving.reservationId,
-        workerId: "worker-b",
-        activeTtlMs: moving.activeTtlMs,
+        reservationId: call.reservationId,
+        workerId: "worker-a",
+        ownershipEpoch: 1,
+        activeTtlMs: call.activeTtlMs,
       }),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       outcome: "renewed",
+      leaseExpiresAt: "2026-07-24T12:01:00.000Z",
+      ownershipEpoch: 1,
     });
-
-    nowMs += 1;
     await expect(
-      admission.reserve(
-        createInput({
-          reservationId: "reservation-c",
-          callSessionId: "call-c",
-          workerId: "worker-a",
-          limits,
-        }),
-      ),
-    ).resolves.toMatchObject({
-      outcome: "admitted",
-      disposition: "created",
+      admission.release({
+        reservationId: call.reservationId,
+        workerId: "worker-a",
+        ownershipEpoch: 1,
+      }),
+    ).resolves.toEqual({
+      outcome: "released",
     });
   });
 
@@ -624,7 +626,10 @@ describe("InMemoryPstnCallAdmission", () => {
     const outputs = [
       await admission.reserve(input),
       await admission.activate(input),
-      await admission.renew(input),
+      await admission.renew({
+        ...input,
+        ownershipEpoch: 1,
+      }),
       await admission.release(input),
       await admission.getHealth(),
     ];

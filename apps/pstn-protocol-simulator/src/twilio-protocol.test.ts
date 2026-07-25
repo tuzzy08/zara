@@ -26,10 +26,33 @@ describe("Twilio protocol simulator", () => {
     expect(parseConnectStreamTwiML(`<?xml version="1.0" encoding="UTF-8"?>
       <Response><Connect><Stream url="wss://api.example.test/telephony/twilio/media-streams/call-1">
         <Parameter name="zaraStreamToken" value="opaque-one-time-token" />
+        <Parameter name="zaraRuntimePath" value="pstn-premium-realtime" />
+        <Parameter name="zaraWorkerId" value="worker-simulator-1" />
+        <Parameter name="zaraWorkerReleaseId" value="release-simulator-1" />
       </Stream></Connect></Response>`)).toEqual({
       streamUrl: "wss://api.example.test/telephony/twilio/media-streams/call-1",
       streamToken: "opaque-one-time-token",
+      runtimePath: "pstn-premium-realtime",
+      workerId: "worker-simulator-1",
+      workerReleaseId: "release-simulator-1",
     });
+  });
+
+  it("rejects premium TwiML without the signed worker target", () => {
+    expect(() => parseConnectStreamTwiML(`<?xml version="1.0" encoding="UTF-8"?>
+      <Response><Connect><Stream url="wss://api.example.test/telephony/twilio/media-streams/call-1">
+        <Parameter name="zaraStreamToken" value="opaque-one-time-token" />
+        <Parameter name="zaraRuntimePath" value="pstn-premium-realtime" />
+      </Stream></Connect></Response>`)).toThrow("required Zara parameters");
+  });
+
+  it("rejects premium TwiML without the signed worker release", () => {
+    expect(() => parseConnectStreamTwiML(`<?xml version="1.0" encoding="UTF-8"?>
+      <Response><Connect><Stream url="wss://api.example.test/telephony/twilio/media-streams/call-1">
+        <Parameter name="zaraStreamToken" value="opaque-one-time-token" />
+        <Parameter name="zaraRuntimePath" value="pstn-premium-realtime" />
+        <Parameter name="zaraWorkerId" value="worker-simulator-1" />
+      </Stream></Connect></Response>`)).toThrow("required Zara parameters");
   });
 
   it("emits 20 ms PCMU frames with call-specific fingerprints", () => {

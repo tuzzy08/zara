@@ -62,6 +62,7 @@ function createAdmission() {
       return {
         outcome: "activated" as const,
         leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+        ownershipEpoch: 1,
       };
     }),
     renew: vi.fn(async (input) => {
@@ -69,6 +70,7 @@ function createAdmission() {
       return {
         outcome: "renewed" as const,
         leaseExpiresAt: "2026-07-24T12:02:30.000Z",
+        ownershipEpoch: 1,
       };
     }),
     release: vi.fn(async (input) => {
@@ -189,7 +191,7 @@ describe("PstnAdmissionCoordinator", () => {
     vi.useRealTimers();
   });
 
-  it("stops tracking without releasing after worker ownership transfers", async () => {
+  it("keeps the ownership epoch available while loss listeners release", async () => {
     vi.useFakeTimers();
     const { admission, calls } = createAdmission();
     admission.renew = vi.fn(async (input) => {
@@ -197,6 +199,10 @@ describe("PstnAdmissionCoordinator", () => {
       return { outcome: "not_owner" as const };
     });
     const coordinator = new PstnAdmissionCoordinator(admission, config);
+    const ownershipLost = vi.fn(async () => {
+      await coordinator.release(scope.tenantId, scope.callSessionId);
+    });
+    coordinator.onOwnershipLost(ownershipLost);
     await coordinator.reserve(scope);
     await coordinator.activate(scope.tenantId, scope.callSessionId);
 
@@ -206,13 +212,40 @@ describe("PstnAdmissionCoordinator", () => {
       {
         reservationId: "tenant-a\u0000CA123:telephony",
         workerId: "worker-a",
+        ownershipEpoch: 1,
         activeTtlMs: config.activeTtlMs,
       },
     ]);
-    expect(calls.release).toHaveLength(0);
+    expect(ownershipLost).toHaveBeenCalledOnce();
+    expect(ownershipLost).toHaveBeenCalledWith({
+      tenantId: scope.tenantId,
+      callSessionId: scope.callSessionId,
+      runtime: scope.runtime,
+      reason: "not_owner",
+    });
+    expect(calls.release).toEqual([
+      {
+        reservationId: "tenant-a\u0000CA123:telephony",
+        workerId: "worker-a",
+        ownershipEpoch: 1,
+      },
+    ]);
     expect(vi.getTimerCount()).toBe(0);
     await coordinator.shutdown();
     vi.useRealTimers();
+  });
+
+  it("reserves the selected media worker instead of the control-plane process", async () => {
+    const { admission, calls } = createAdmission();
+    const coordinator = new PstnAdmissionCoordinator(admission, config);
+
+    await coordinator.reserve({
+      ...scope,
+      workerId: "worker-media-eu-1",
+    });
+
+    expect(calls.reserve[0]?.workerId).toBe("worker-media-eu-1");
+    await coordinator.shutdown();
   });
 
   it("re-establishes an expired active lease without losing its admission scope", async () => {
@@ -234,7 +267,7 @@ describe("PstnAdmissionCoordinator", () => {
     vi.useRealTimers();
   });
 
-  it("fails new admission closed until an uncounted live call terminates", async () => {
+  it("terminates ownership when an expired active lease cannot be reconstructed", async () => {
     vi.useFakeTimers();
     const { admission, calls } = createAdmission();
     admission.renew = vi.fn(async (input) => {
@@ -247,7 +280,44 @@ describe("PstnAdmissionCoordinator", () => {
         ? {
             outcome: "activated" as const,
             leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+            ownershipEpoch: 1,
           }
+        : { outcome: "not_found" as const };
+    });
+    const coordinator = new PstnAdmissionCoordinator(admission, config);
+    const ownershipLost = vi.fn();
+    coordinator.onOwnershipLost(ownershipLost);
+    await coordinator.reserve(scope);
+    await coordinator.activate(scope.tenantId, scope.callSessionId);
+
+    await vi.advanceTimersByTimeAsync(config.renewIntervalMs);
+
+    expect(ownershipLost).toHaveBeenCalledWith({
+      tenantId: scope.tenantId,
+      callSessionId: scope.callSessionId,
+      runtime: scope.runtime,
+      reason: "lease_unrecoverable",
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    await coordinator.shutdown();
+    vi.useRealTimers();
+  });
+
+  it("fails new admission closed until an uncounted live call terminates", async () => {
+    vi.useFakeTimers();
+    const { admission, calls } = createAdmission();
+    admission.renew = vi.fn(async (input) => {
+      calls.renew.push(input);
+      return { outcome: "not_found" as const };
+    });
+    admission.activate = vi.fn(async (input) => {
+      calls.activate.push(input);
+      return calls.activate.length === 1
+          ? {
+              outcome: "activated" as const,
+              leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+              ownershipEpoch: 1,
+            }
         : {
             outcome: "denied" as const,
             reasonCode: "worker_concurrency_limit" as const,

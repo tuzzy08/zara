@@ -34,6 +34,7 @@ import type {
   TelephonyDispatchRecord,
   TelephonyHealthCheck,
 } from "../telephony/telephony.models";
+import type { TelephonyPremiumDispatchSnapshot } from "../telephony/telephony-incremental.repository";
 import type { EncryptedTelephonySecretEnvelope } from "../telephony/telephony-secret-vault";
 
 export const tenantStatus = pgEnum("tenant_status", ["active", "suspended", "archived"]);
@@ -585,6 +586,8 @@ export const telephonyMediaStreamTokens = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    ownerWorkerId: text("owner_worker_id"),
+    ownerEpoch: integer("owner_epoch").notNull().default(0),
   },
   (table) => ({
     primaryKey: primaryKey({ columns: [table.tenantId, table.callSessionId] }),
@@ -609,6 +612,61 @@ export const telephonyMediaStreamTokens = pgTable(
     tenantTokenHashUniqueIndex: uniqueIndex(
       "telephony_media_stream_tokens_tenant_token_hash_unique_idx",
     ).on(table.tenantId, table.tokenHash),
+    ownerEpochCheck: check(
+      "telephony_media_stream_tokens_owner_epoch_check",
+      sql`${table.ownerEpoch} >= 0`,
+    ),
+    ownerPairCheck: check(
+      "telephony_media_stream_tokens_owner_pair_check",
+      sql`(${table.ownerWorkerId} is null and ${table.ownerEpoch} = 0)
+          or (${table.ownerWorkerId} is not null and ${table.ownerEpoch} > 0)`,
+    ),
+  }),
+);
+
+export const telephonyPremiumDispatchSnapshots = pgTable(
+  "telephony_premium_dispatch_snapshots",
+  {
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    callSessionId: text("call_session_id").notNull(),
+    dispatchId: text("dispatch_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    publishedVersionId: text("published_version_id").notNull(),
+    schemaVersion: integer("schema_version").notNull(),
+    checksum: text("checksum").notNull(),
+    snapshot: jsonb("snapshot").$type<TelephonyPremiumDispatchSnapshot>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    primaryKey: primaryKey({ columns: [table.tenantId, table.callSessionId] }),
+    sessionForeignKey: foreignKey({
+      columns: [table.tenantId, table.callSessionId],
+      foreignColumns: [telephonyExecutionSessions.tenantId, telephonyExecutionSessions.callSessionId],
+      name: "telephony_premium_dispatch_snapshots_session_fk",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    dispatchForeignKey: foreignKey({
+      columns: [table.tenantId, table.dispatchId],
+      foreignColumns: [telephonyDispatches.tenantId, telephonyDispatches.id],
+      name: "telephony_premium_dispatch_snapshots_dispatch_fk",
+    })
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+    schemaVersionCheck: check(
+      "telephony_premium_dispatch_snapshots_schema_version_check",
+      sql`${table.schemaVersion} > 0`,
+    ),
+    checksumCheck: check(
+      "telephony_premium_dispatch_snapshots_checksum_check",
+      sql`char_length(${table.checksum}) = 64 and ${table.checksum} ~ '^[a-f0-9]{64}$'`,
+    ),
+    snapshotObjectCheck: check(
+      "telephony_premium_dispatch_snapshots_snapshot_object_check",
+      sql`jsonb_typeof(${table.snapshot}) = 'object'`,
+    ),
   }),
 );
 

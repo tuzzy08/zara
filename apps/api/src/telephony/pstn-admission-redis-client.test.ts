@@ -65,7 +65,19 @@ describe("PstnAdmissionRedisClient", () => {
   });
 
   it("connects once and destroys the client during shutdown", async () => {
-    const client = createClient({ isOpen: false, isReady: false });
+    let isOpen = false;
+    const client: NodeRedisAdmissionClient = {
+      get isOpen() {
+        return isOpen;
+      },
+      isReady: false,
+      connect: vi.fn(async () => {
+        isOpen = true;
+      }),
+      destroy: vi.fn(),
+      eval: vi.fn(async () => ["ok"]),
+      on: vi.fn(() => undefined),
+    };
     const redis = new PstnAdmissionRedisClient(client, 100);
 
     await redis.connect();
@@ -74,5 +86,15 @@ describe("PstnAdmissionRedisClient", () => {
 
     expect(client.connect).toHaveBeenCalledTimes(1);
     expect(client.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not destroy a client that never opened during failed startup", () => {
+    const client = createClient({ isOpen: false, isReady: false });
+    const redis = new PstnAdmissionRedisClient(client, 100);
+
+    expect(() => redis.destroy()).not.toThrow();
+    redis.destroy();
+
+    expect(client.destroy).not.toHaveBeenCalled();
   });
 });

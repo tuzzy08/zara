@@ -25,6 +25,7 @@ import {
   telephonyExecutionSessions,
   telephonyHealthChecks,
   telephonyMediaStreamTokens,
+  telephonyPremiumDispatchSnapshots,
   telephonyPhoneNumbers,
   telephonyPhoneTestCheckpoints,
   telephonyProviderHeartbeats,
@@ -237,6 +238,32 @@ describe("database foundations", () => {
       "updatedAt",
     ]);
     expect(getTableName(telephonyMediaStreamTokens)).toBe("telephony_media_stream_tokens");
+    expect(Object.keys(getTableColumns(telephonyMediaStreamTokens))).toEqual([
+      "tenantId",
+      "callSessionId",
+      "dispatchId",
+      "connectionId",
+      "tokenHash",
+      "expiresAt",
+      "createdAt",
+      "claimedAt",
+      "ownerWorkerId",
+      "ownerEpoch",
+    ]);
+    expect(getTableName(telephonyPremiumDispatchSnapshots)).toBe(
+      "telephony_premium_dispatch_snapshots",
+    );
+    expect(Object.keys(getTableColumns(telephonyPremiumDispatchSnapshots))).toEqual([
+      "tenantId",
+      "callSessionId",
+      "dispatchId",
+      "workspaceId",
+      "publishedVersionId",
+      "schemaVersion",
+      "checksum",
+      "snapshot",
+      "createdAt",
+    ]);
     expect(getTableName(telephonyPhoneTestCheckpoints)).toBe(
       "telephony_phone_test_checkpoints",
     );
@@ -344,6 +371,34 @@ describe("database foundations", () => {
     expect(workflowFile).toContain("has_outbound_abuse_blocked");
     expect(workflowFile).toContain("compatibility_table");
     expect(workflowFile).toContain("compatibility_write_count");
+  });
+
+  it("ships durable premium dispatch snapshots and fenced worker ownership forward", () => {
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0014_telephony_premium_dispatch_ownership.sql",
+      ),
+      "utf8",
+    );
+    const migrationJournal = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, "apps/api/src/database/migrations/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+
+    expect(migrationFile).toContain(
+      'CREATE TABLE "telephony_premium_dispatch_snapshots"',
+    );
+    expect(migrationFile).toContain('"owner_worker_id" text');
+    expect(migrationFile).toContain('"owner_epoch" integer DEFAULT 0 NOT NULL');
+    expect(migrationFile).toContain(
+      'FOREIGN KEY ("tenant_id","call_session_id") REFERENCES "public"."telephony_execution_sessions"',
+    );
+    expect(migrationJournal.entries).toContainEqual(
+      expect.objectContaining({ tag: "0014_telephony_premium_dispatch_ownership" }),
+    );
   });
 
   it("ships the execution-session policy state as an executable migration", () => {
@@ -558,5 +613,8 @@ describe("database foundations", () => {
     );
 
     expect(workflowFile).toContain("npm run db:check");
+    expect(workflowFile).toContain(
+      "apps/api/src/database/migration-0012-rolling.postgres.test.ts",
+    );
   });
 });

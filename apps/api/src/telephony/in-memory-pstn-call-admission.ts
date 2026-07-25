@@ -25,6 +25,7 @@ interface InMemoryReservation {
   expiresAtMs: number;
   limitingDimension: ConcurrencyDimension;
   remainingCapacity: number;
+  ownershipEpoch?: number | undefined;
 }
 
 interface InMemoryTokenBucket {
@@ -34,6 +35,7 @@ interface InMemoryTokenBucket {
 
 interface InMemoryRecoveryHold {
   ownerWorkerId: string;
+  ownershipEpoch: number;
   blockAtMs: number;
   expiresAtMs: number;
 }
@@ -252,6 +254,7 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
             input.workerId,
             nowMs,
             input.activeTtlMs,
+            recoveryHold.ownershipEpoch,
           );
           return {
             outcome: "denied",
@@ -267,20 +270,31 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
         expiresAtMs,
         limitingDimension: limitingCheck.limitingDimension,
         remainingCapacity: lowestRemainingCapacity - 1,
+        ownershipEpoch: recoveryHold.ownershipEpoch + 1,
       };
       this.reservations.set(input.reservationId, reservation);
+      const ownershipEpoch = recoveryHold.ownershipEpoch + 1;
+      reservation.ownershipEpoch = ownershipEpoch;
       this.setRecoveryHold(
         input.reservationId,
         input.workerId,
         expiresAtMs,
         input.activeTtlMs,
+        ownershipEpoch,
       );
       return {
         outcome: "activated",
         leaseExpiresAt: toIso(expiresAtMs),
+        ownershipEpoch,
       };
     }
 
+    if (
+      reservation.state === "active" &&
+      reservation.input.workerId !== input.workerId
+    ) {
+      return { outcome: "not_owner" };
+    }
     if (reservation.input.workerId !== input.workerId) {
       const workerLimit =
         "workerLimit" in input ? input.workerLimit : input.limits.worker;
@@ -314,23 +328,28 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
         reservation.input.workerId,
         reservation.expiresAtMs,
         input.activeTtlMs,
+        reservation.ownershipEpoch ?? 1,
       );
       return {
         outcome: "existing",
         leaseExpiresAt: toIso(reservation.expiresAtMs),
+        ownershipEpoch: reservation.ownershipEpoch ?? 1,
       };
     }
     reservation.state = "active";
+    reservation.ownershipEpoch = 1;
     reservation.expiresAtMs = nowMs + input.activeTtlMs;
     this.setRecoveryHold(
       input.reservationId,
       reservation.input.workerId,
       reservation.expiresAtMs,
       input.activeTtlMs,
+      reservation.ownershipEpoch,
     );
     return {
       outcome: "activated",
       leaseExpiresAt: toIso(reservation.expiresAtMs),
+      ownershipEpoch: reservation.ownershipEpoch,
     };
   }
 
@@ -348,7 +367,10 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
     if (reservation === undefined || reservation.state !== "active") {
       return { outcome: "not_found" };
     }
-    if (reservation.input.workerId !== input.workerId) {
+    if (
+      reservation.input.workerId !== input.workerId ||
+      reservation.ownershipEpoch !== input.ownershipEpoch
+    ) {
       return { outcome: "not_owner" };
     }
 
@@ -358,10 +380,12 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
       input.workerId,
       reservation.expiresAtMs,
       input.activeTtlMs,
+      input.ownershipEpoch,
     );
     return {
       outcome: "renewed",
       leaseExpiresAt: toIso(reservation.expiresAtMs),
+      ownershipEpoch: input.ownershipEpoch,
     };
   }
 
@@ -373,13 +397,25 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
     }
 
     const nowMs = this.now();
-    this.recoveryHolds.delete(input.reservationId);
     this.reclaimExpiredReservations(nowMs);
     this.pruneExpiredRecoveryHolds(nowMs);
-    if (!this.reservations.has(input.reservationId)) {
+    const reservation = this.reservations.get(input.reservationId);
+    if (reservation === undefined) {
+      if (!("ownershipEpoch" in input)) {
+        this.recoveryHolds.delete(input.reservationId);
+      }
       return { outcome: "not_found" };
     }
+    if (
+      "ownershipEpoch" in input &&
+      (reservation.state !== "active" ||
+        reservation.input.workerId !== input.workerId ||
+        reservation.ownershipEpoch !== input.ownershipEpoch)
+    ) {
+      return { outcome: "not_owner" };
+    }
 
+    this.recoveryHolds.delete(input.reservationId);
     this.reservations.delete(input.reservationId);
     return { outcome: "released" };
   }
@@ -418,9 +454,11 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
     ownerWorkerId: string,
     blockAtMs: number,
     activeTtlMs: number,
+    ownershipEpoch: number,
   ) {
     this.recoveryHolds.set(reservationId, {
       ownerWorkerId,
+      ownershipEpoch,
       blockAtMs,
       expiresAtMs: blockAtMs + activeTtlMs,
     });

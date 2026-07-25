@@ -428,9 +428,9 @@ Implemented baseline:
 - `npm run eval:pstn` runs deterministic `zara.pstn-media.v1` Twilio media scenarios separately from ordinary tests and non-PSTN runtime evals.
 - Premium realtime PSTN traces include `runtimePath: pstn-premium-realtime`, provider/model/conversation-policy version/media profile, readiness and resident ingress pressure, interruption/truncation counts and acknowledged duration, first outbound frame latency, provider failure classifications, and the same redaction rules as sandwich PSTN traces.
 
-### Provisional Single-Instance Capacity Posture
+### Provisional Per-Process Capacity Posture
 
-The current API process reports capacity against this exact provisional worker envelope:
+Each media-serving process reports capacity against its configured resource envelope. Cost-optimized PSTN media remains on the API process, while premium PSTN media and provider WebSockets terminate on the separately deployable realtime worker. The current provisional realtime-worker envelope is:
 
 | Resource | Provisional value |
 | --- | ---: |
@@ -442,7 +442,7 @@ The current API process reports capacity against this exact provisional worker e
 | Event-loop delay | p99 50 ms |
 | Premium WebSocket posture | 2 open legs per call: Twilio and realtime provider |
 
-These values are overload-posture denominators, not certified capacity or the source of admission limits. A deployment must set `PSTN_INSTANCE_CPU_LIMIT_MILLICORES`, `PSTN_INSTANCE_MEMORY_LIMIT_BYTES`, `PSTN_INSTANCE_FILE_DESCRIPTOR_LIMIT`, `PGPOOL_MAX`, `PSTN_EVENT_LOOP_DELAY_LIMIT_MS`, and `PSTN_CAPACITY_MAX_CONCURRENT_CALLS` to its actual worker limits when they differ from the provisional defaults. Distributed call admission is implemented separately by ISSUE-229 and enforces configured concurrency, calls-per-second, provider-health, and provider-quota gates through Redis before a new call receives Connect Stream TwiML.
+These values are overload-posture denominators, not certified capacity or the source of admission limits. A deployment must set `PSTN_INSTANCE_CPU_LIMIT_MILLICORES`, `PSTN_INSTANCE_MEMORY_LIMIT_BYTES`, `PSTN_INSTANCE_FILE_DESCRIPTOR_LIMIT`, `PGPOOL_MAX`, `PSTN_EVENT_LOOP_DELAY_LIMIT_MS`, and `PSTN_CAPACITY_MAX_CONCURRENT_CALLS` to the actual limits of each media-serving process when they differ from the provisional defaults. ISSUE-229 provides Redis-backed concurrency, calls-per-second, provider-health, and provider-quota admission before a new call receives Connect Stream TwiML. ISSUE-230 adds healthy-worker selection and worker-scoped admission for premium calls.
 
 Relevant resources classify utilization below 70 percent as healthy, from 70 percent as warning, from 85 percent as critical, and at or above 100 percent as exhausted. The posture combines call lifecycle, process pressure, both WebSocket legs, database pool/latency/lock pressure, and existing bounded media queues. Metric dimensions are limited to runtime path, provider, lifecycle state, socket leg/direction/outcome, queue, database operation, and close classification; tenant, call, stream, response, phone-number, and tool identities are forbidden.
 
@@ -528,3 +528,4 @@ Required guards:
 | ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN provider slice. Implemented. |
 | ISSUE-228 | [ZAR-230](https://linear.app/zara-voice/issue/ZAR-230/pstn-capacity-712-contract-whole-tenant-persistence-out-of-the-live) | Contract whole-tenant snapshot persistence out of live-call execution and qualify row-owned Postgres concurrency. Implemented. |
 | ISSUE-229 | [ZAR-231](https://linear.app/zara-voice/issue/ZAR-231/pstn-capacity-812-enforce-redis-backed-call-admission-on-the-current) | Enforce Redis-backed cross-replica PSTN concurrency, CPS, lease, provider-health, and provider-quota admission. Implemented. |
+| ISSUE-230 | [ZAR-232](https://linear.app/zara-voice/issue/ZAR-232/pstn-capacity-912-move-premium-pstn-execution-into-claim-based) | Move premium Twilio and provider media into claim-based realtime workers with durable dispatch snapshots, ownership fencing, worker affinity, heartbeats, and deterministic cleanup. Implemented. |

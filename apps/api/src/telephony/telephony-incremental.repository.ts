@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
+
 import type {
+  CompiledRuntimeManifest,
   ImportedTelephonyPhoneNumber,
   TelephonyCallLifecycleStage,
   TelephonyCallLifecycleState,
@@ -13,6 +16,7 @@ import type {
   PstnRuntimePath,
   RuntimeProfileId,
 } from "@zara/core";
+import type { PremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
 
 import type {
   TelephonyDispatchRecord,
@@ -49,6 +53,44 @@ export interface CreateTelephonyCallExecutionInput {
 
 export interface CreateTelephonyCallSetupInput extends CreateTelephonyCallExecutionInput {
   mediaToken: IncrementalTelephonyMediaToken;
+  premiumDispatchSnapshot?: TelephonyPremiumDispatchSnapshot | undefined;
+}
+
+export interface TelephonyPremiumDispatchSnapshot {
+  schemaVersion: 1;
+  tenantId: string;
+  workspaceId: string;
+  callSessionId: string;
+  dispatchId: string;
+  publishedVersionId: string;
+  resolvedManifest: CompiledRuntimeManifest;
+  resolvedConversationPolicy: PremiumRealtimeConversationPolicy;
+  workerTarget: {
+    workerId: string;
+    releaseId: string;
+    mediaStreamBaseUrl: string;
+  };
+  createdAt: string;
+  checksum: string;
+}
+
+export function computeTelephonyPremiumDispatchSnapshotChecksum(
+  snapshot: Omit<TelephonyPremiumDispatchSnapshot, "checksum">,
+) {
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalizeSnapshotJson(snapshot)))
+    .digest("hex");
+}
+
+function canonicalizeSnapshotJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeSnapshotJson);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalizeSnapshotJson(entry)]),
+  );
 }
 
 export interface LoadTelephonyCallMutationContextInput {
@@ -215,6 +257,7 @@ export interface ClaimTelephonyMediaTokenInput {
   dispatchId: string;
   connectionId: string;
   tokenHash: string;
+  workerId?: string | undefined;
 }
 
 export interface TelephonyMediaAuthorization {
@@ -226,8 +269,32 @@ export interface TelephonyMediaAuthorization {
 }
 
 export type TelephonyMediaTokenClaimOutcome =
-  | { outcome: "claimed"; authorization: TelephonyMediaAuthorization }
+  | {
+      outcome: "claimed";
+      authorization: TelephonyMediaAuthorization;
+      ownerEpoch?: number | undefined;
+    }
   | { outcome: "already_claimed" | "expired" | "conflict" | "not_found" };
+
+export interface LoadTelephonyPremiumDispatchSnapshotInput {
+  tenantId: string;
+  callSessionId: string;
+}
+
+export type TelephonyPremiumDispatchSnapshotOutcome =
+  | { outcome: "found"; snapshot: TelephonyPremiumDispatchSnapshot }
+  | { outcome: "not_found" };
+
+export interface FenceTelephonyPremiumCallOwnershipInput {
+  tenantId: string;
+  callSessionId: string;
+  workerId: string;
+  ownerEpoch: number;
+}
+
+export type TelephonyPremiumCallOwnershipFenceOutcome =
+  | { outcome: "owned"; ownerEpoch: number }
+  | { outcome: "not_owner" | "not_found" };
 
 export interface DeleteExpiredTelephonyMediaTokensInput {
   tenantId: string;
@@ -348,6 +415,15 @@ export interface TelephonyIncrementalRepository {
   loadLatestSuccessfulPhoneTest(
     input: LoadLatestSuccessfulPhoneTestInput,
   ): Promise<TelephonyPhoneTestResult | null>;
+}
+
+export interface TelephonyPremiumDispatchRepository extends TelephonyIncrementalRepository {
+  loadPremiumDispatchSnapshot(
+    input: LoadTelephonyPremiumDispatchSnapshotInput,
+  ): Promise<TelephonyPremiumDispatchSnapshotOutcome>;
+  fencePremiumCallOwnership(
+    input: FenceTelephonyPremiumCallOwnershipInput,
+  ): Promise<TelephonyPremiumCallOwnershipFenceOutcome>;
 }
 
 export const requiredPhoneTestCheckpoints = [

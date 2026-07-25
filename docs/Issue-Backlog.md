@@ -5260,3 +5260,31 @@ Implementation summary:
 - Added production Redis 7 admission before Twilio Connect Stream TwiML with atomic global, provider, tenant, runtime, and worker concurrency limits plus global and provider-account CPS limits.
 - Added idempotent claim and active leases, cross-replica activation metadata, bounded renewal outside media forwarding, durable terminal release, and fail-closed readiness without interrupting active media when Redis degrades.
 - Added policy-aware provider-health posture and explicit platform-owned Twilio quota clamping, retained the provisional 20-call guardrail, and qualified 351 telephony tests, 15 real-Redis cases, and the real-PostgreSQL migration, concurrency, and retention cases.
+
+### ISSUE-230: Claim-based premium PSTN realtime workers
+
+- Priority: P1
+- Area: Runtime / Telephony / Infrastructure / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, infrastructure, runtime, telephony, observability, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-223, ISSUE-229
+- Handover: [docs/Handovers/ISSUE-230-claim-based-premium-pstn-realtime-workers.md](../docs/Handovers/ISSUE-230-claim-based-premium-pstn-realtime-workers.md)
+- External: [Linear ZAR-232](https://linear.app/zara-voice/issue/ZAR-232/pstn-capacity-912-move-premium-pstn-execution-into-claim-based)
+
+Acceptance criteria:
+- The API remains the authenticated control and TwiML entry point while premium Twilio media and premium-provider WebSockets terminate on a separately deployable realtime worker.
+- A worker atomically claims an admitted call with a fencing epoch before consuming media; duplicate and stale owners cannot create provider sessions or replay tools and handoffs.
+- One worker owns both WebSocket legs, codec and buffer state, marks, interruption state, tools, handoffs, and finalization for the ownership period.
+- Workers load immutable tenant-scoped dispatch and published-manifest context from durable stores without depending on API-process memory.
+- OpenAI and Gemini premium execution preserve greeting, turn detection, barge-in, tools, same-provider and cross-provider handoff, voice selection, and caller context.
+- Worker heartbeats publish health, draining state, available slots, active calls, and bounded resource posture for admission and operations.
+- API restart after TwiML response does not terminate an owned media call, and every setup, provider, caller, and internal failure deterministically cleans up and releases admission.
+- The deterministic simulator covers admitted normal, interrupted, handoff, duplicate-media, and failure paths through the worker.
+- Media, credentials, tokens, and caller content remain redacted, and deployment, discovery, health, timeout, and minimum-resource contracts are documented.
+
+Implementation summary:
+- Added a separately deployable premium realtime worker that owns both WebSocket legs, provider-native execution, tools, handoffs, codec and bounded-buffer state, and finalization while loading durable tenant-scoped dispatch context.
+- Added fenced PostgreSQL ownership, worker-pinned one-time media tokens, validated worker-advertised endpoints, awaited drain publication, fail-stop ownership-loss handling, and no API-hosted premium media fallback.
+- Added bounded capacity-race reselection, release-fenced routing, durable duplicate-webhook replay, status-before-media lifecycle compatibility, and simulator propagation of exact worker release identity across normal and duplicate sockets.
+- Added deterministic duplicate, restart, interruption, handoff, failure, worker-routing, Redis, PostgreSQL, schema, deployment, typecheck, lint, build, and runtime/PSTN eval qualification. Deployed staging smoke and exact-worker ingress validation remain release gates.

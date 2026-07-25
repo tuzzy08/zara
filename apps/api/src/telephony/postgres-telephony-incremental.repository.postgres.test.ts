@@ -2,13 +2,19 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type {
+  CompiledRuntimeManifest,
+} from "@zara/core";
+import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
 
 import { PostgresTelephonyIncrementalRepository } from "./postgres-telephony-incremental.repository";
 import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
 import type {
   CreateTelephonyCallExecutionInput,
   CreateTelephonyCallSetupInput,
+  TelephonyPremiumDispatchSnapshot,
 } from "./telephony-incremental.repository";
+import { computeTelephonyPremiumDispatchSnapshotChecksum } from "./telephony-incremental.repository";
 import {
   PstnCapacityRecorder,
   type PstnCapacityMetricPoint,
@@ -301,6 +307,161 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       { outcome: "inserted", mediaToken: "created" },
       { outcome: "inserted", mediaToken: "created" },
     ]);
+  });
+
+  it("atomically persists one immutable premium snapshot for concurrent setup retries", async () => {
+    const setup = callSetup(tenantA, `snapshot-race-${suffix}`);
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+
+    const outcomes = await Promise.all([
+      repository.createCallSetup(structuredClone(setup)),
+      repository.createCallSetup(structuredClone(setup)),
+    ]);
+    expect(outcomes).toEqual(
+      expect.arrayContaining([
+        { outcome: "inserted", mediaToken: "created" },
+        { outcome: "existing", mediaToken: "retained" },
+      ]),
+    );
+    await expect(
+      repository.loadPremiumDispatchSnapshot({
+        tenantId: tenantA,
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({
+      outcome: "found",
+      snapshot: setup.premiumDispatchSnapshot,
+    });
+    await expect(
+      repository.loadPremiumDispatchSnapshot({
+        tenantId: tenantB,
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+
+    const conflict = structuredClone(setup);
+    conflict.premiumDispatchSnapshot!.resolvedConversationPolicy.providers.openaiRealtime.defaultModel =
+      "gpt-realtime-conflict";
+    conflict.premiumDispatchSnapshot!.checksum =
+      computeTelephonyPremiumDispatchSnapshotChecksum(
+        snapshotWithoutChecksum(conflict.premiumDispatchSnapshot!),
+      );
+    await expect(repository.createCallSetup(conflict)).resolves.toEqual({
+      outcome: "conflict",
+    });
+  });
+
+  it("rejects a corrupted premium dispatch snapshot checksum in PostgreSQL", async () => {
+    const setup = callSetup(tenantA, `snapshot-corrupt-checksum-${suffix}`);
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+    await repository.createCallSetup(setup);
+    const corruptedSnapshot = {
+      ...structuredClone(setup.premiumDispatchSnapshot),
+      checksum: "0".repeat(64),
+    };
+    await pool.query(
+      `update telephony_premium_dispatch_snapshots
+       set checksum = $1, snapshot = $2::jsonb
+       where tenant_id = $3 and call_session_id = $4`,
+      [
+        corruptedSnapshot.checksum,
+        JSON.stringify(corruptedSnapshot),
+        setup.dispatch.tenantId,
+        setup.executionSession.callSessionId,
+      ],
+    );
+
+    await expect(
+      repository.loadPremiumDispatchSnapshot({
+        tenantId: setup.dispatch.tenantId,
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).rejects.toThrow("Premium dispatch snapshot identities or checksum are invalid.");
+  });
+
+  it("rejects a premium dispatch row and payload envelope mismatch in PostgreSQL", async () => {
+    const setup = callSetup(tenantA, `snapshot-envelope-mismatch-${suffix}`);
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+    await repository.createCallSetup(setup);
+    await pool.query(
+      `update telephony_premium_dispatch_snapshots
+       set workspace_id = $1
+       where tenant_id = $2 and call_session_id = $3`,
+      [
+        "workspace-tampered",
+        setup.dispatch.tenantId,
+        setup.executionSession.callSessionId,
+      ],
+    );
+
+    await expect(
+      repository.loadPremiumDispatchSnapshot({
+        tenantId: setup.dispatch.tenantId,
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).rejects.toThrow("Premium dispatch snapshot envelope is invalid.");
+  });
+
+  it("allows one worker claim and fences stale worker epochs in PostgreSQL", async () => {
+    const setup = callSetup(tenantA, `worker-claim-${suffix}`);
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+    await repository.createCallSetup(setup);
+    const claim = {
+      tenantId: tenantA,
+      callSessionId: setup.executionSession.callSessionId,
+      dispatchId: setup.executionSession.dispatchId,
+      connectionId: setup.executionSession.connectionId,
+      tokenHash: setup.mediaToken.tokenHash,
+    };
+    const claims = await Promise.all([
+      repository.claimMediaToken({ ...claim, workerId: "premium-worker-a" }),
+      repository.claimMediaToken({ ...claim, workerId: "premium-worker-b" }),
+    ]);
+    const winner = claims.find((candidate) => candidate.outcome === "claimed");
+    expect(claims.map((candidate) => candidate.outcome)).toEqual(
+      expect.arrayContaining(["claimed", "already_claimed"]),
+    );
+    expect(winner).toMatchObject({ outcome: "claimed", ownerEpoch: 1 });
+    const owner = await pool.query<{ owner_worker_id: string; owner_epoch: number }>(
+      `select owner_worker_id, owner_epoch
+       from telephony_media_stream_tokens
+       where tenant_id = $1 and call_session_id = $2`,
+      [tenantA, setup.executionSession.callSessionId],
+    );
+    const ownerWorkerId = owner.rows[0]!.owner_worker_id;
+    await expect(
+      repository.fencePremiumCallOwnership({
+        tenantId: tenantA,
+        callSessionId: setup.executionSession.callSessionId,
+        workerId: ownerWorkerId,
+        ownerEpoch: 1,
+      }),
+    ).resolves.toEqual({ outcome: "owned", ownerEpoch: 1 });
+    await expect(
+      repository.fencePremiumCallOwnership({
+        tenantId: tenantA,
+        callSessionId: setup.executionSession.callSessionId,
+        workerId: ownerWorkerId,
+        ownerEpoch: 2,
+      }),
+    ).resolves.toEqual({ outcome: "not_owner" });
+    await pool.query(
+      `update telephony_execution_sessions
+       set lifecycle_state = jsonb_build_object(
+         'stage', 'completed',
+         'observedAt', current_timestamp
+       )
+       where tenant_id = $1 and call_session_id = $2`,
+      [tenantA, setup.executionSession.callSessionId],
+    );
+    await expect(
+      repository.fencePremiumCallOwnership({
+        tenantId: tenantA,
+        callSessionId: setup.executionSession.callSessionId,
+        workerId: ownerWorkerId,
+        ownerEpoch: 1,
+      }),
+    ).resolves.toEqual({ outcome: "not_owner" });
   });
 
   it("blocks a stale replica from creating outbound work after another replica records abuse", async () => {
@@ -935,6 +1096,46 @@ function callSetup(tenantId: string, identity: string): CreateTelephonyCallSetup
       createdAt: now,
     },
   };
+}
+
+function premiumDispatchSnapshot(
+  setup: CreateTelephonyCallSetupInput,
+): TelephonyPremiumDispatchSnapshot {
+  const snapshot = {
+    schemaVersion: 1 as const,
+    tenantId: setup.dispatch.tenantId,
+    workspaceId: setup.dispatch.workspaceId!,
+    callSessionId: setup.executionSession.callSessionId,
+    dispatchId: setup.dispatch.id,
+    publishedVersionId: setup.dispatch.publishedVersionId!,
+    resolvedManifest: {
+      tenantId: setup.dispatch.tenantId,
+      workspaceId: setup.dispatch.workspaceId,
+      publishedVersionId: setup.dispatch.publishedVersionId,
+      runtimeProfile: "premium-realtime",
+      compiledDefinitionHash: "manifest-definition-hash",
+    } as unknown as CompiledRuntimeManifest,
+    resolvedConversationPolicy: structuredClone(defaultPremiumRealtimeConversationPolicy),
+    workerTarget: {
+      workerId: "worker-test-1",
+      releaseId: "release-test-1",
+      mediaStreamBaseUrl:
+        "wss://worker-test.zara.test/telephony/twilio/media-streams",
+    },
+    createdAt: setup.executionSession.createdAt,
+  };
+  return {
+    ...snapshot,
+    checksum: computeTelephonyPremiumDispatchSnapshotChecksum(snapshot),
+  };
+}
+
+function snapshotWithoutChecksum(
+  snapshot: TelephonyPremiumDispatchSnapshot,
+): Omit<TelephonyPremiumDispatchSnapshot, "checksum"> {
+  const withoutChecksum = structuredClone(snapshot) as Partial<TelephonyPremiumDispatchSnapshot>;
+  delete withoutChecksum.checksum;
+  return withoutChecksum as Omit<TelephonyPremiumDispatchSnapshot, "checksum">;
 }
 
 function outboundCallExecution(

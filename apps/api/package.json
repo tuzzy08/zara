@@ -10,6 +10,7 @@
     "dev:raw": "concurrently -k -n tsc,api -c cyan,blue \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"dotenv -e ../../.env.example -e ../../.env -- tsx watch dist-js/main.js\"",
     "start": "npm run build --workspace @zara/core && npm run build:raw && npm run start:raw",
     "start:raw": "dotenv -e ../../.env.example -e ../../.env -- tsx dist-js/main.js",
+    "start:realtime-worker:raw": "node dist-js/realtime-worker/realtime-worker.main.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

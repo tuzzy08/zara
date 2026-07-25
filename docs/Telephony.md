@@ -238,7 +238,9 @@ Operational persistence depends on the main `DATABASE_URL` and stores telephony 
 Redis-backed PSTN admission is required in production and configured by these environment variables:
 
 - `PSTN_ADMISSION_REDIS_URL`: Redis 7 connection URL and production admission authority. Without it, production readiness is unavailable and new calls fail closed. Non-production environments may use the deterministic in-memory adapter.
-- `PSTN_WORKER_ID`: unique worker owner for lease fencing. It defaults to the container `HOSTNAME`, then to a process-local identifier outside a container.
+- `PSTN_WORKER_ID`: unique admission and ownership-fencing identity. A premium realtime-worker process requires an explicit deployment-unique value. Non-worker development and API/sandwich processes may derive a local identity from `HOSTNAME` or a process-local fallback.
+- `PSTN_WORKER_RELEASE_ID`: deployed artifact identifier required by premium realtime workers. It is signed into premium stream authorization so an older or replacement release cannot consume another release's call.
+- `PSTN_WORKER_PUBLIC_MEDIA_URL`: queryless public `wss://` endpoint advertised by a premium realtime worker. It must route back to that exact worker identity, either through a per-worker endpoint or worker-aware ingress.
 - `PSTN_ADMISSION_GLOBAL_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_PROVIDER_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_TENANT_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_WORKER_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_SANDWICH_MAX_CONCURRENT_CALLS`, and `PSTN_ADMISSION_PREMIUM_MAX_CONCURRENT_CALLS`: non-negative concurrency limits. Each defaults to the provisional guardrail of 20; explicit zero closes that dimension.
 - `PSTN_ADMISSION_GLOBAL_CPS_BURST` and `PSTN_ADMISSION_GLOBAL_CPS_RATE`: global token-bucket capacity and refill rate. Local defaults are 10 and 10 calls per second; production requires an explicit valid refill rate.
 - `PSTN_ADMISSION_PROVIDER_CPS_BURST` and `PSTN_ADMISSION_PROVIDER_CPS_RATE`: provider-account token-bucket capacity and refill rate. Local defaults are 5 and 5 calls per second; production requires an explicit valid refill rate.

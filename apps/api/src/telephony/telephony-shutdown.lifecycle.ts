@@ -5,10 +5,9 @@ import {
 } from "@nestjs/common";
 
 import { PstnAdmissionRedisLifecycle } from "./pstn-admission.module";
-import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
 
-type ShutdownStage = "media" | "premium" | "admission";
+type ShutdownStage = "media" | "admission";
 
 @Injectable()
 export class TelephonyShutdownLifecycle implements BeforeApplicationShutdown {
@@ -17,7 +16,6 @@ export class TelephonyShutdownLifecycle implements BeforeApplicationShutdown {
 
   constructor(
     private readonly mediaBridge: TwilioMediaStreamsWebSocketBridge,
-    private readonly premiumExecution: PstnPremiumCallExecution,
     private readonly admissionLifecycle: PstnAdmissionRedisLifecycle,
   ) {}
 
@@ -30,7 +28,6 @@ export class TelephonyShutdownLifecycle implements BeforeApplicationShutdown {
     const failedStages: ShutdownStage[] = [];
 
     await this.runStage("media", () => this.mediaBridge.shutdown(), failedStages);
-    await this.runStage("premium", () => this.premiumExecution.shutdown(), failedStages);
     await this.runStage("admission", () => this.admissionLifecycle.shutdown(), failedStages);
 
     if (failedStages.length > 0) {

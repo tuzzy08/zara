@@ -24,7 +24,7 @@ import {
 import { RedisPstnCallAdmission } from "./redis-pstn-call-admission";
 
 export const PSTN_ADMISSION_CONFIG = Symbol("PSTN_ADMISSION_CONFIG");
-const PSTN_ADMISSION_REDIS_CLIENT = Symbol(
+export const PSTN_ADMISSION_REDIS_CLIENT = Symbol(
   "PSTN_ADMISSION_REDIS_CLIENT",
 );
 
@@ -168,6 +168,7 @@ export class PstnAdmissionRedisLifecycle
   ],
   exports: [
     PSTN_ADMISSION_CONFIG,
+    PSTN_ADMISSION_REDIS_CLIENT,
     PSTN_CALL_ADMISSION,
     PstnCapacityObservability,
     PstnAdmissionCoordinator,

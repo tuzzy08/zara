@@ -30,6 +30,27 @@ describe("Twilio Media Streams bridge", () => {
     );
   });
 
+  it("binds premium TwiML to the selected worker release", () => {
+    const twiml = renderTwilioConnectStreamTwiML({
+      mediaStreamBaseUrl:
+        "wss://worker.zara.test/telephony/twilio/media-streams",
+      callSessionId: "CA-premium-release:telephony",
+      streamToken: "stream-token-premium",
+      organizationId: "tenant-west-africa",
+      connectionId: "connection-twilio-1",
+      publishedVersionId: "workflow-support-v1",
+      runtimePath: "pstn-premium-realtime",
+      workerId: "worker-eu-1",
+      workerReleaseId: "release-2026-07-25",
+    } as Parameters<typeof renderTwilioConnectStreamTwiML>[0] & {
+      workerReleaseId: string;
+    });
+
+    expect(twiml).toContain(
+      '<Parameter name="zaraWorkerReleaseId" value="release-2026-07-25" />',
+    );
+  });
+
   it("normalizes Twilio bidirectional stream messages and keeps provider IDs out of PSTN frames", () => {
     const bridge = createTwilioMediaStreamsBridge({
       callSessionId: "CA-webhook-1:telephony",

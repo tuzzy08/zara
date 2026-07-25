@@ -220,9 +220,9 @@ describe("RedisPstnCallAdmission", () => {
 
   it("activates, renews, and releases leases through single atomic commands", async () => {
     const redis = new FakeRedisCommands([
-      ["activated", String(nowMs + 60_000)],
-      ["existing", String(nowMs + 60_000)],
-      ["renewed", String(nowMs + 61_000)],
+      ["activated", String(nowMs + 60_000), "1"],
+      ["existing", String(nowMs + 60_000), "1"],
+      ["renewed", String(nowMs + 61_000), "1"],
       ["released"],
       ["not_found"],
     ]);
@@ -232,19 +232,33 @@ describe("RedisPstnCallAdmission", () => {
     await expect(admission.activate(input)).resolves.toEqual({
       outcome: "activated",
       leaseExpiresAt: "2026-07-24T12:01:00.000Z",
+      ownershipEpoch: 1,
     });
     await expect(admission.activate(input)).resolves.toEqual({
       outcome: "existing",
       leaseExpiresAt: "2026-07-24T12:01:00.000Z",
+      ownershipEpoch: 1,
     });
-    await expect(admission.renew(input)).resolves.toEqual({
+    await expect(admission.renew({
+      ...input,
+      ownershipEpoch: 1,
+    })).resolves.toEqual({
       outcome: "renewed",
       leaseExpiresAt: "2026-07-24T12:01:01.000Z",
+      ownershipEpoch: 1,
     });
-    await expect(admission.release(input)).resolves.toEqual({
+    await expect(admission.release({
+      reservationId: input.reservationId,
+      workerId: input.workerId,
+      ownershipEpoch: 1,
+    })).resolves.toEqual({
       outcome: "released",
     });
-    await expect(admission.release(input)).resolves.toEqual({
+    await expect(admission.release({
+      reservationId: input.reservationId,
+      workerId: input.workerId,
+      ownershipEpoch: 1,
+    })).resolves.toEqual({
       outcome: "not_found",
     });
     expect(redis.calls).toHaveLength(5);
@@ -310,12 +324,31 @@ describe("RedisPstnCallAdmission", () => {
       admission.renew({
         reservationId: input.reservationId,
         workerId: "worker-former",
+        ownershipEpoch: 1,
         activeTtlMs: input.activeTtlMs,
       }),
     ).resolves.toEqual({
       outcome: "not_owner",
     });
     expect(redis.calls[0]?.keys).toHaveLength(5);
+  });
+
+  it("maps stale ownership epochs to not_owner for renew and release", async () => {
+    const redis = new FakeRedisCommands([["not_owner"], ["not_owner"]]);
+    const admission = new RedisPstnCallAdmission(redis);
+    const input = createInput();
+
+    await expect(admission.renew({
+      reservationId: input.reservationId,
+      workerId: input.workerId,
+      ownershipEpoch: 2,
+      activeTtlMs: input.activeTtlMs,
+    })).resolves.toEqual({ outcome: "not_owner" });
+    await expect(admission.release({
+      reservationId: input.reservationId,
+      workerId: input.workerId,
+      ownershipEpoch: 2,
+    })).resolves.toEqual({ outcome: "not_owner" });
   });
 
   it("distinguishes backend outages from missing lease lifecycle state", async () => {
@@ -330,7 +363,10 @@ describe("RedisPstnCallAdmission", () => {
     await expect(unavailable.activate(input)).resolves.toEqual({
       outcome: "backend_unavailable",
     });
-    await expect(unavailable.renew(input)).resolves.toEqual({
+    await expect(unavailable.renew({
+      ...input,
+      ownershipEpoch: 1,
+    })).resolves.toEqual({
       outcome: "backend_unavailable",
     });
     await expect(unavailable.release(input)).resolves.toEqual({
@@ -339,7 +375,10 @@ describe("RedisPstnCallAdmission", () => {
     await expect(malformed.activate(input)).resolves.toEqual({
       outcome: "not_found",
     });
-    await expect(malformed.renew(input)).resolves.toEqual({
+    await expect(malformed.renew({
+      ...input,
+      ownershipEpoch: 1,
+    })).resolves.toEqual({
       outcome: "not_found",
     });
     await expect(malformed.release(input)).resolves.toEqual({

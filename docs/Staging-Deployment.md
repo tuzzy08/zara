@@ -9,10 +9,12 @@ Staging deployment units:
 - Tenant app: `apps/web` at `https://staging-app.zara.ai`
 - Platform admin app: `apps/platform-admin` at `https://staging-admin.zara.ai`
 - NestJS API: `apps/api` at `https://staging-api.zara.ai`
+- Premium PSTN realtime worker: the `realtime-worker` Docker target at a worker-specific `wss://staging-realtime-<worker-id>.zara.ai` endpoint
 
 Services that must mirror production shape:
 
 - Durable Postgres with pgvector enabled
+- Redis 7 for distributed PSTN admission and worker heartbeats
 - Better Auth with organization plugin enabled
 - Separate tenant and platform-admin origins
 - API CORS/trusted origins for staging domains only
@@ -62,8 +64,10 @@ Staging validation runs before production deployment:
 - `npm run eval:pstn`
 - `npm run db:check`
 - Apply migrations against the staging database.
-- Build `apps/api`, `apps/web`, and `apps/platform-admin`.
+- Build `apps/api`, the `realtime-worker` Docker target, `apps/web`, and `apps/platform-admin` from the same release artifact.
 - Deploy the exact release artifact intended for production.
+- Deploy each realtime worker with a unique `PSTN_WORKER_ID`, the artifact ID in `PSTN_WORKER_RELEASE_ID`, and a public media endpoint that routes back to that exact worker.
+- Confirm every worker is ready and publishing fresh Redis heartbeats with its provider capabilities, release ID, resource posture, and available slots before enabling premium traffic.
 - Run the production smoke-test list against staging domains.
 - Confirm provider webhooks target `https://staging-api.zara.ai`.
 - Confirm staging browser bundles use `https://staging-api.zara.ai`.
@@ -122,6 +126,10 @@ Run the same smoke tests as production, replacing domains with staging domains:
 - Compliance readiness returns general SaaS posture.
 - Telephony health checks use sandbox/test provider connections.
 - Unsigned provider webhooks are rejected.
+- A premium test call receives TwiML for the selected worker endpoint, connects to that exact worker/release, and completes a provider response.
+- Routing a signed premium stream to a different worker or release is rejected before the one-time token is consumed.
+- Restart the API after a premium call is owned and confirm the worker-held Twilio/provider sockets continue until normal call completion.
+- Run normal, interruption, handoff, failure, delayed-duplicate, and simultaneous-duplicate simulator scenarios through the deployed worker endpoint; duplicate sockets must produce one owner and one provider connection.
 - Observability dashboards show the staging release version and correlated `traceId` events.
 - Platform-admin runtime observability passes the LangSmith trace check and shows the latest `npm run eval:runtime` result.
 - Platform-admin PSTN call quality shows the latest `npm run eval:pstn` result and redacted PSTN trace posture.

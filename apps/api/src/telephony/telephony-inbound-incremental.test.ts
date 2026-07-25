@@ -127,9 +127,34 @@ describe("TelephonyService incremental inbound persistence", () => {
       connectionId,
     });
     expect(response).toMatchObject({
-      reasonCode: "provider_concurrency_limit",
+      dispatch: {
+        disposition: "blocked",
+        reason: expect.stringContaining("provider health checks are failing"),
+      },
     });
     expect(response.twiml).not.toContain("<Connect>");
+  });
+
+  it("routes from fresh healthy posture when cached provider health is stale", async () => {
+    const harness = await createReadyHarness({
+      failedProviderHealth: true,
+    });
+    const connectionId =
+      [...harness.incrementalRepository.connectionTenants.keys()][0]!;
+    harness.incrementalRepository.setConnectionAdmissionPosture(connectionId, {
+      status: "active",
+      healthStatus: "healthy",
+      blockRoutingOnHealthFailure: true,
+    });
+
+    const response = await answer(
+      harness.service,
+      "CA-fresh-healthy-provider",
+      "EV-fresh-healthy-provider",
+    );
+
+    expect(response).toHaveProperty("dispatch");
+    expect(response.twiml).toContain("<Connect>");
   });
 
   it("fails closed before reserve when the durable provider connection is missing", async () => {
@@ -966,7 +991,7 @@ describe("TelephonyService incremental inbound persistence", () => {
     );
     vi.spyOn(
       harness.incrementalRepository,
-      "loadCallRuntimeContext",
+      "loadCallMutationContext",
     ).mockRejectedValueOnce(new Error("call lifecycle database unavailable"));
     const restartedAdmission = createAdmissionCoordinator();
     const reserve = vi.spyOn(restartedAdmission, "reserve");
@@ -990,7 +1015,7 @@ describe("TelephonyService incremental inbound persistence", () => {
     expect(reserve).not.toHaveBeenCalled();
   });
 
-  it("reuses admission while the original duplicate call remains active", async () => {
+  it("replays an active durable call before consulting a changed route", async () => {
     const admissionCoordinator = createAdmissionCoordinator();
     const reserve = vi.spyOn(admissionCoordinator, "reserve");
     const harness = await createReadyHarness({ admissionCoordinator });
@@ -998,6 +1023,19 @@ describe("TelephonyService incremental inbound persistence", () => {
       harness.service,
       "CA-active-webhook-replay",
       "EV-active-webhook-replay",
+    );
+    const routedNumber = (
+      await harness.service.getState(organizationId)
+    ).phoneNumbers[0]!;
+    await harness.service.pauseLiveRoute({
+      organizationId,
+      numberId: routedNumber.id,
+      actorUserId: "operator-1",
+      now: "2026-07-23T10:05:00.000Z",
+    });
+    harness.incrementalRepository.loadPhoneNumberProjections(
+      organizationId,
+      (await harness.service.getState(organizationId)).phoneNumbers,
     );
 
     const replay = await answer(
@@ -1010,7 +1048,7 @@ describe("TelephonyService incremental inbound persistence", () => {
     expect(replay.twiml).toContain("<Connect>");
     expect(replay.duplicate).toBe(true);
     expect(extractStreamToken(replay.twiml)).toBe(extractStreamToken(first.twiml));
-    expect(reserve).toHaveBeenCalledTimes(2);
+    expect(reserve).toHaveBeenCalledTimes(1);
   });
 
   it("coalesces concurrent deliveries onto one durable call setup", async () => {
@@ -1307,6 +1345,54 @@ describe("TelephonyService incremental inbound persistence", () => {
         status: "terminated",
       },
     });
+  });
+
+  it("does not terminalize an existing phone-test setup when duplicate checkpoint work fails", async () => {
+    const admissionCoordinator = createAdmissionCoordinator();
+    const release = vi.spyOn(admissionCoordinator, "release");
+    const harness = await createReadyHarness({
+      admissionCoordinator,
+      testRoute: true,
+    });
+    const createCallSetup =
+      harness.incrementalRepository.createCallSetup.bind(
+        harness.incrementalRepository,
+      );
+    vi.spyOn(
+      harness.incrementalRepository,
+      "createCallSetup",
+    ).mockImplementationOnce(async (input) => {
+      await createCallSetup(input);
+      return {
+        outcome: "existing" as const,
+        mediaToken: "retained" as const,
+      };
+    });
+    vi.spyOn(
+      harness.incrementalRepository,
+      "recordPhoneTestCheckpoint",
+    ).mockRejectedValueOnce(new Error("duplicate checkpoint failed"));
+
+    const response = await answer(
+      harness.service,
+      "CA-existing-phone-test-checkpoint",
+      "EV-existing-phone-test-checkpoint",
+    );
+    const persisted =
+      await harness.incrementalRepository.loadCallRuntimeContext({
+        tenantId: organizationId,
+        callSessionId: "CA-existing-phone-test-checkpoint:telephony",
+      });
+
+    expect(response).toMatchObject({
+      reasonCode: "phone_test_checkpoint_persistence_failed",
+    });
+    expect(persisted.outcome).toBe("found");
+    if (persisted.outcome === "found") {
+      expect(persisted.context.lifecycleState.stage).not.toBe("failed");
+      expect(persisted.context.status).not.toBe("terminated");
+    }
+    expect(release).not.toHaveBeenCalled();
   });
 
   it("never returns Connect when durable call setup fails", async () => {
@@ -1683,12 +1769,21 @@ function createService(
     }),
     inventoryProvider(),
     routingProvider(),
-    incrementalRepository,
+    incrementalRepository as never,
     admissionCoordinator,
+    createUnusedPremiumSnapshotResolver(),
     auditLogService,
     undefined,
     undefined,
   );
+}
+
+function createUnusedPremiumSnapshotResolver() {
+  return {
+    async resolve() {
+      throw new Error("Premium snapshot resolution is not expected in this test.");
+    },
+  } as never;
 }
 
 function createAdmissionCoordinator(

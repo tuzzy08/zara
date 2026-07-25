@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,6 +17,9 @@ describe("TwilioVirtualCaller", () => {
       return new Response(`<?xml version="1.0"?><Response><Connect>
         <Stream url="wss://api.example.test/telephony/twilio/media-streams/call-session-1">
           <Parameter name="zaraStreamToken" value="opaque-token" />
+          <Parameter name="zaraRuntimePath" value="pstn-premium-realtime" />
+          <Parameter name="zaraWorkerId" value="worker-inline-1" />
+          <Parameter name="zaraWorkerReleaseId" value="release-inline-1" />
         </Stream></Connect></Response>`, { status: 200 });
     });
     const beforeConnect = vi.fn();
@@ -69,6 +73,10 @@ describe("TwilioVirtualCaller", () => {
       "mark",
       "stop",
     ]);
+    expect(JSON.parse(socket.sent[1]!).start.customParameters).toMatchObject({
+      zaraWorkerId: "worker-inline-1",
+      zaraWorkerReleaseId: "release-inline-1",
+    });
     expect(result.outboundFingerprintMatched).toBe(true);
     expect(result.markAcknowledgements).toBe(1);
     expect(result).toMatchObject({
@@ -162,6 +170,191 @@ describe("TwilioVirtualCaller", () => {
       webhookUrl: "https://api.example.test/telephony/webhooks/twilio",
       durationMs: 20,
     })).rejects.toThrow("reused a media stream token");
+  });
+
+  it("rejects a duplicate media socket before the owning stream sends media", async () => {
+    const primarySocket = new FakeSocket();
+    const duplicateSocket = new FakeSocket();
+    const lifecycle: string[] = [];
+    primarySocket.onSend = (message) => {
+      const sent = JSON.parse(message) as { event?: string; streamSid?: string };
+      if (sent.event === "start") {
+        queueMicrotask(() => {
+          lifecycle.push("owner-barrier");
+          primarySocket.receive(JSON.stringify({
+            event: "media",
+            streamSid: sent.streamSid,
+            media: {
+              payload: Buffer.from(
+                createCallFingerprint("call-session-duplicate"),
+                "utf8",
+              ).toString("base64"),
+            },
+          }));
+        });
+      }
+      if (sent.event === "media") {
+        lifecycle.push("owner-media");
+        primarySocket.receive(JSON.stringify({ event: "clear", streamSid: sent.streamSid }));
+      }
+    };
+    duplicateSocket.onSend = (message) => {
+      const sent = JSON.parse(message) as { event?: string };
+      if (sent.event === "start") {
+        lifecycle.push("duplicate-rejected");
+        duplicateSocket.emit("close", 4409, Buffer.from("stream_already_connected"));
+      }
+    };
+    const sockets = [primarySocket, duplicateSocket];
+    let socketIndex = 0;
+    const caller = new TwilioVirtualCaller({
+      fetch: createWebhookResponse("call-session-duplicate", "duplicate-token"),
+      websocketFactory: () => {
+        const socket = sockets[socketIndex++]!;
+        if (socket === duplicateSocket) lifecycle.push("duplicate-opened");
+        queueMicrotask(() => socket.open());
+        return socket;
+      },
+      sleep: async () => new Promise<void>((resolve) => setImmediate(resolve)),
+    });
+
+    const result = await caller.run({
+      accountSid: "AC11111111111111111111111111111111",
+      authToken: "auth-token",
+      callSid: "CA34343434343434343434343434343434",
+      from: "+15550001111",
+      to: "+15550002222",
+      webhookUrl: "https://api.example.test/telephony/webhooks/twilio",
+      durationMs: 20,
+      duplicateMediaStream: true,
+    });
+
+    expect(result.duplicateMediaStream).toEqual({ closeCode: 4409 });
+    expect(lifecycle).toEqual([
+      "owner-barrier",
+      "duplicate-opened",
+      "duplicate-rejected",
+      "owner-media",
+    ]);
+    expect(primarySocket.sent.map((message) => JSON.parse(message).event)).toContain("media");
+    expect(duplicateSocket.sent.map((message) => JSON.parse(message).event)).toEqual([
+      "connected",
+      "start",
+    ]);
+    expect([
+      JSON.parse(primarySocket.sent[1]!).start.customParameters.zaraWorkerId,
+      JSON.parse(duplicateSocket.sent[1]!).start.customParameters.zaraWorkerId,
+    ]).toEqual(["worker-simulator-1", "worker-simulator-1"]);
+    expect([
+      JSON.parse(primarySocket.sent[1]!).start.customParameters.zaraWorkerReleaseId,
+      JSON.parse(duplicateSocket.sent[1]!).start.customParameters.zaraWorkerReleaseId,
+    ]).toEqual(["release-simulator-1", "release-simulator-1"]);
+    expect(JSON.stringify(result)).not.toContain("duplicate-token");
+    expect(JSON.stringify(result)).not.toContain("stream_already_connected");
+  });
+
+  it.each([0, 1] as const)(
+    "races the same stream token when candidate %i loses",
+    async (loserIndex) => {
+      const firstSocket = new FakeSocket();
+      const secondSocket = new FakeSocket();
+      const sockets = [firstSocket, secondSocket] as const;
+      const loserSocket = sockets[loserIndex];
+      const winnerSocket = sockets[loserIndex === 0 ? 1 : 0];
+      const lifecycle: string[] = [];
+      const starts: Array<{
+        start?: {
+          customParameters?: {
+            zaraStreamToken?: string;
+            zaraWorkerId?: string;
+            zaraWorkerReleaseId?: string;
+          };
+        };
+      }> = [];
+      const handleSend = (socket: FakeSocket, label: "first" | "second") => (message: string) => {
+        const sent = JSON.parse(message) as {
+          event?: string;
+          streamSid?: string;
+          start?: {
+            customParameters?: {
+              zaraStreamToken?: string;
+              zaraWorkerId?: string;
+              zaraWorkerReleaseId?: string;
+            };
+          };
+        };
+        if (sent.event === "start") {
+          lifecycle.push(`${label}-start`);
+          starts.push(sent);
+          if (starts.length === 2) {
+            queueMicrotask(() => {
+              lifecycle.push("loser-rejected");
+              loserSocket.emit("close", 4409, Buffer.from("stream_already_connected"));
+            });
+          }
+        }
+        if (socket === winnerSocket && sent.event === "media") {
+          lifecycle.push("winner-media");
+          winnerSocket.receive(JSON.stringify({
+            event: "media",
+            streamSid: sent.streamSid,
+            media: {
+              payload: Buffer.from(
+                createCallFingerprint("call-session-simultaneous"),
+                "utf8",
+              ).toString("base64"),
+            },
+          }));
+        }
+      };
+      firstSocket.onSend = handleSend(firstSocket, "first");
+      secondSocket.onSend = handleSend(secondSocket, "second");
+      let socketIndex = 0;
+      const caller = new TwilioVirtualCaller({
+        fetch: createWebhookResponse("call-session-simultaneous", "simultaneous-token"),
+        websocketFactory: () => {
+          const socket = sockets[socketIndex++]!;
+          queueMicrotask(() => socket.open());
+          return socket;
+        },
+        sleep: async () => new Promise<void>((resolve) => setImmediate(resolve)),
+      });
+
+      const result = await caller.run({
+        accountSid: "AC11111111111111111111111111111111",
+        authToken: "auth-token",
+        callSid: "CA56565656565656565656565656565656",
+        from: "+15550001111",
+        to: "+15550002222",
+        webhookUrl: "https://api.example.test/telephony/webhooks/twilio",
+        durationMs: 20,
+        simultaneousDuplicateMediaStream: true,
+      });
+
+      const tokenHashes = starts.map((start) => createHash("sha256")
+        .update(start.start?.customParameters?.zaraStreamToken ?? "")
+        .digest("hex"));
+      expect(starts).toHaveLength(2);
+      expect(new Set(tokenHashes).size).toBe(1);
+      expect(starts.map((start) => start.start?.customParameters?.zaraWorkerId)).toEqual([
+        "worker-simulator-1",
+        "worker-simulator-1",
+      ]);
+      expect(starts.map(
+        (start) => start.start?.customParameters?.zaraWorkerReleaseId,
+      )).toEqual([
+        "release-simulator-1",
+        "release-simulator-1",
+      ]);
+      expect(result.duplicateMediaStream).toEqual({ closeCode: 4409 });
+      expect(lifecycle).toEqual([
+        "first-start",
+        "second-start",
+        "loser-rejected",
+        "winner-media",
+      ]);
+      expect(loserSocket.received).toHaveLength(0);
+      expect(winnerSocket.sent.map((message) => JSON.parse(message).event)).toContain("media");
   });
 
   it.each(["abrupt", "remote"] as const)("records %s socket termination", async (mode) => {
@@ -373,11 +566,15 @@ function createWebhookResponse(callSessionId: string, token: string) {
   return vi.fn(async () => new Response(`<?xml version="1.0"?><Response><Connect>
     <Stream url="wss://api.example.test/telephony/twilio/media-streams/${callSessionId}">
       <Parameter name="zaraStreamToken" value="${token}" />
+      <Parameter name="zaraRuntimePath" value="pstn-premium-realtime" />
+      <Parameter name="zaraWorkerId" value="worker-simulator-1" />
+      <Parameter name="zaraWorkerReleaseId" value="release-simulator-1" />
     </Stream></Connect></Response>`, { status: 200 }));
 }
 
 class FakeSocket extends EventEmitter {
   readonly sent: string[] = [];
+  readonly received: string[] = [];
   readyState = 0;
   closeRequests = 0;
   terminateRequests = 0;
@@ -404,6 +601,7 @@ class FakeSocket extends EventEmitter {
   }
 
   receive(message: string) {
+    this.received.push(message);
     this.emit("message", Buffer.from(message));
   }
 }

@@ -49,7 +49,10 @@ jobs:
       - name: Verify incremental telephony persistence on PostgreSQL
         env:
           ZARA_TEST_POSTGRES_URL: ${{ env.DATABASE_URL }}
-        run: npm exec -- vitest run apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts
+        run: >-
+          npm exec -- vitest run
+          apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts
+          apps/api/src/database/migration-0012-rolling.postgres.test.ts
 
       - name: Create rollback test database
         run: |
