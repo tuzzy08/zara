@@ -38,6 +38,7 @@ export type PstnCapacityDatabaseOperation =
   | "telephony_phone_number_delete"
   | "telephony_outbound_abuse_block"
   | "telephony_retention_delete"
+  | "telephony_connection_health_observation"
   | "telephony_connection_delete"
   | "telephony_execution_session_transition"
   | "telephony_call_runtime_context_load"
@@ -265,6 +266,78 @@ export class PstnCapacityRecorder {
     this.calls.set(input.callId, next);
     this.emit("zara.pstn.calls.active", "up_down_counter", 1, callAttributes(next));
     this.emit("zara.pstn.calls.transitions", "counter", 1, callAttributes(next));
+  }
+
+  recordAdmission(input: {
+    outcome: string;
+    reasonCode?: string | undefined;
+    limitingDimension?: string | undefined;
+    runtimePath: string;
+    provider: string;
+    latencyMs: number;
+    remainingCapacity?: number | undefined;
+  }) {
+    const attributes = {
+      runtime_path: normalizeRuntimePath(input.runtimePath),
+      provider: normalizeProvider(input.provider),
+      outcome: normalizeAdmissionOutcome(input.outcome),
+      reason_code: normalizeAdmissionReason(input.reasonCode),
+      limiting_dimension: normalizeAdmissionDimension(
+        input.limitingDimension,
+      ),
+    };
+    this.emit(
+      "zara.pstn.admission.requests",
+      "counter",
+      1,
+      attributes,
+    );
+    this.emit(
+      "zara.pstn.admission.duration",
+      "histogram",
+      nonNegative(input.latencyMs),
+      attributes,
+    );
+    if (input.remainingCapacity !== undefined) {
+      this.emit(
+        "zara.pstn.admission.remaining_capacity",
+        "gauge",
+        nonNegative(input.remainingCapacity),
+        {
+          runtime_path: attributes.runtime_path,
+          provider: attributes.provider,
+          limiting_dimension: attributes.limiting_dimension,
+        },
+      );
+    }
+  }
+
+  recordAdmissionLease(input: {
+    operation: string;
+    outcome: string;
+    runtimePath: string;
+    provider: string;
+  }) {
+    this.emit("zara.pstn.admission.lease_operations", "counter", 1, {
+      operation: normalizeAdmissionLeaseOperation(input.operation),
+      outcome: normalizeAdmissionLeaseOutcome(input.outcome),
+      runtime_path: normalizeRuntimePath(input.runtimePath),
+      provider: normalizeProvider(input.provider),
+    });
+  }
+
+  recordAdmissionBackendHealth(input: {
+    status: "healthy" | "unavailable";
+    reasonCode?: string | undefined;
+  }) {
+    this.emit(
+      "zara.pstn.admission.backend_ready",
+      "gauge",
+      input.status === "healthy" ? 1 : 0,
+      {
+        reason_code: normalizeAdmissionReason(input.reasonCode),
+      },
+    );
   }
 
   endCall(input: { callId: string; outcome: "completed" | "failed" }) {
@@ -996,6 +1069,70 @@ function normalizeProvider(value: string): PstnCapacityProvider {
     return value;
   }
   return "other";
+}
+
+function normalizeAdmissionOutcome(value: string) {
+  return [
+    "admitted_created",
+    "admitted_existing",
+    "denied",
+  ].includes(value)
+    ? value
+    : "unknown";
+}
+
+function normalizeAdmissionReason(value: string | undefined) {
+  return value !== undefined &&
+    [
+      "global_concurrency_limit",
+      "provider_concurrency_limit",
+      "tenant_concurrency_limit",
+      "runtime_concurrency_limit",
+      "worker_concurrency_limit",
+      "global_cps_limit",
+      "provider_account_cps_limit",
+      "backend_unavailable",
+      "indeterminate_result",
+    ].includes(value)
+    ? value
+    : "none";
+}
+
+function normalizeAdmissionDimension(value: string | undefined) {
+  return value !== undefined &&
+    [
+      "global_concurrency",
+      "provider_concurrency",
+      "tenant_concurrency",
+      "runtime_concurrency",
+      "worker_concurrency",
+      "global_cps",
+      "provider_account_cps",
+      "backend",
+    ].includes(value)
+    ? value
+    : "none";
+}
+
+function normalizeAdmissionLeaseOperation(value: string) {
+  return ["activate", "renew", "release"].includes(value)
+    ? value
+    : "unknown";
+}
+
+function normalizeAdmissionLeaseOutcome(value: string) {
+  return [
+    "activated",
+    "existing",
+    "renewed",
+    "released",
+    "not_found",
+    "not_owner",
+    "denied",
+    "backend_unavailable",
+  ].includes(value)
+    ? value
+    : "unknown";
 }
 
 function classifyWebSocketCloseCode(code: number | undefined) {

@@ -5210,7 +5210,7 @@ Acceptance criteria:
 Implementation summary:
 - Added durable one-time media claims, versioned row-owned lifecycle transitions, restart-safe premium context loading, idempotent provider callbacks, and a single classified terminal authority for clean, abnormal, provider, and shutdown paths.
 - Added independent per-call phone-test checkpoints with nonblocking retry and protected incremental call state from stale whole-tenant snapshot replacement.
-- Added backward-safe lifecycle/index migration coverage and verified 206 scoped tests, including 10 real-PostgreSQL concurrency and constraint tests, plus Core/API typechecks, focused lint, schema drift, and diff hygiene.
+- Added backward-safe lifecycle/index migration coverage and verified 351 telephony tests with real Redis and PostgreSQL enabled, plus API typecheck, focused lint, schema drift, and diff hygiene.
 
 ### ISSUE-228: Contract live-call snapshot persistence
 
@@ -5231,3 +5231,32 @@ Acceptance criteria:
 - Concurrent lifecycle and terminal events remain monotonic and cannot revive completed calls.
 - Qualification evidence includes database pool wait, transaction latency, lock wait, deadlock, and retry metrics.
 - Migration, backfill, deployment, rollback, dependency, telephony regression, runtime, persistence, and tenant-isolation gates pass.
+
+Implementation summary:
+- Contracted live-call writes onto tenant-and-call scoped incremental repository methods while retaining whole-tenant persistence only for configuration ownership.
+- Added rolling-safe migrations and strict rollback qualification, row-owned phone-test projections, and a durable outbound-abuse marker that stale replicas must check under a connection-row lock before queuing work.
+- Qualified 351 telephony tests with real Redis and PostgreSQL enabled, including the real-PostgreSQL migration, concurrency, and retention qualification.
+
+### ISSUE-229: Redis-backed PSTN call admission
+
+- Priority: P1
+- Area: Runtime / Telephony / Infrastructure / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, infrastructure, runtime, telephony, observability, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-222, ISSUE-228
+- Handover: [docs/Handovers/ISSUE-229-redis-backed-pstn-call-admission.md](../docs/Handovers/ISSUE-229-redis-backed-pstn-call-admission.md)
+- External: [Linear ZAR-231](https://linear.app/zara-voice/issue/ZAR-231/pstn-capacity-812-enforce-redis-backed-call-admission-on-the-current)
+
+Acceptance criteria:
+- Production Redis admission runs before Twilio Connect Stream TwiML and fails new calls closed with a stable operator reason when unavailable or indeterminate.
+- Atomic reservations enforce global, provider, tenant, runtime, and worker concurrency limits plus global and provider-account CPS limits without duplicate consumption.
+- Claim and active leases expire safely, renew outside media forwarding, recover abandoned capacity, and release idempotently on every terminal path.
+- Provider health and quota signals can reduce or close new-call admission without terminating active calls.
+- The provisional platform cap remains configurable at 20 and is not represented as certified capacity.
+- Race, oversubscription, duplicate, lease expiry, crash recovery, Redis outage, terminal release, health, telemetry, and tenant-isolation tests pass.
+
+Implementation summary:
+- Added production Redis 7 admission before Twilio Connect Stream TwiML with atomic global, provider, tenant, runtime, and worker concurrency limits plus global and provider-account CPS limits.
+- Added idempotent claim and active leases, cross-replica activation metadata, bounded renewal outside media forwarding, durable terminal release, and fail-closed readiness without interrupting active media when Redis degrades.
+- Added policy-aware provider-health posture and explicit platform-owned Twilio quota clamping, retained the provisional 20-call guardrail, and qualified 351 telephony tests, 15 real-Redis cases, and the real-PostgreSQL migration, concurrency, and retention cases.

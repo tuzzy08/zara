@@ -28,16 +28,24 @@ import {
 } from "./twilio-number-routing.provider";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
 import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
+import { PstnAdmissionModule } from "./pstn-admission.module";
+import { TelephonyShutdownLifecycle } from "./telephony-shutdown.lifecycle";
 
 @Module({
-  imports: [AuditLogModule, BillingModule, RuntimeSessionsModule, WorkflowsModule],
+  imports: [
+    AuditLogModule,
+    BillingModule,
+    PstnAdmissionModule,
+    RuntimeSessionsModule,
+    WorkflowsModule,
+  ],
   controllers: [TelephonyController],
   providers: [
     PostgresPoolService,
-    PstnCapacityObservability,
     TelephonyService,
     PstnPremiumCallExecution,
     TwilioMediaStreamsWebSocketBridge,
+    TelephonyShutdownLifecycle,
     {
       provide: TWILIO_NUMBER_INVENTORY_PROVIDER,
       useFactory: () => new TwilioRestNumberInventoryProvider(),
@@ -78,6 +86,6 @@ import { PstnPremiumCallExecution } from "./pstn-premium-call-execution";
       useFactory: () => createConfiguredPstnCallObservabilityRecorder(process.env),
     },
   ],
-  exports: [PstnCapacityObservability, TelephonyService],
+  exports: [TelephonyService],
 })
 export class TelephonyModule {}

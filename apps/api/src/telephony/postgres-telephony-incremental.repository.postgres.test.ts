@@ -4,7 +4,11 @@ import type { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { PostgresTelephonyIncrementalRepository } from "./postgres-telephony-incremental.repository";
-import type { CreateTelephonyCallSetupInput } from "./telephony-incremental.repository";
+import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
+import type {
+  CreateTelephonyCallExecutionInput,
+  CreateTelephonyCallSetupInput,
+} from "./telephony-incremental.repository";
 import {
   PstnCapacityRecorder,
   type PstnCapacityMetricPoint,
@@ -18,6 +22,9 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
   const suffix = randomUUID();
   const tenantA = `incremental-a-${suffix}`;
   const tenantB = `incremental-b-${suffix}`;
+  const snapshotTenant = `incremental-snapshot-${suffix}`;
+  const abuseTenant = `incremental-abuse-${suffix}`;
+  const abuseRaceTenant = `incremental-abuse-race-${suffix}`;
 
   beforeAll(async () => {
     const { Pool: PostgresPool } = await import("pg");
@@ -25,11 +32,17 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
     repository = new PostgresTelephonyIncrementalRepository(pool);
     await seedTenant(pool, tenantA);
     await seedTenant(pool, tenantB);
+    await seedTenant(pool, snapshotTenant);
+    await seedTenant(pool, abuseTenant);
+    await seedTenant(pool, abuseRaceTenant);
   });
 
   afterAll(async () => {
     if (pool !== undefined) {
-      await pool.query("delete from tenants where id = any($1::text[])", [[tenantA, tenantB]]);
+      await pool.query(
+        "delete from tenants where id = any($1::text[])",
+        [[tenantA, tenantB, snapshotTenant, abuseTenant, abuseRaceTenant]],
+      );
       await pool.end();
     }
   });
@@ -53,6 +66,132 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       [tenantA, setup.executionSession.callSessionId],
     );
     expect(rows.rows[0]?.count).toBe(1);
+  });
+
+  it("keeps incremental phone-test and abuse posture after a stale configuration save", async () => {
+    const stateRepository = new PostgresTelephonyStateRepository(pool);
+    const staleSnapshot = await stateRepository.load(snapshotTenant);
+    expect(staleSnapshot).not.toBeNull();
+    const phoneNumberId = `number-${snapshotTenant}`;
+    const connectionId = `connection-${snapshotTenant}`;
+    const currentTestRoute = {
+      mode: "test_route" as const,
+      publishedVersionId: "workflow-current-v2",
+      workflowLabel: "Current phone test",
+      workspaceId: "workspace-current",
+      runtimeProfile: "premium-realtime" as const,
+      createdAt: "2026-07-24T12:00:00.000Z",
+      allowedCallerNumbers: ["+233201110001"],
+      waitingSession: {
+        id: `waiting-${suffix}`,
+        status: "completed" as const,
+        allowedCallerNumbers: ["+233201110001"],
+        checklist: {
+          verifiedWebhook: true,
+          allowedCallerMatched: true,
+          mediaWebSocketConnected: true,
+          inboundFrameReceived: true,
+          transcriptCreated: true,
+          agentResponseGenerated: true,
+          outboundAudioSent: true,
+          cleanEnd: true,
+          noFatalError: true,
+        },
+        createdAt: "2026-07-24T12:00:00.000Z",
+        expiresAt: "2026-07-24T12:15:00.000Z",
+      },
+    };
+    const currentPhoneTestResults = [{
+      id: `phone-test-${suffix}`,
+      tenantId: snapshotTenant,
+      numberId: phoneNumberId,
+      sessionId: `waiting-${suffix}`,
+      status: "passed" as const,
+      reason: "All checkpoints passed.",
+      checklist: {
+        verifiedWebhook: true,
+        allowedCallerMatched: true,
+        mediaWebSocketConnected: true,
+        inboundFrameReceived: true,
+        transcriptCreated: true,
+        agentResponseGenerated: true,
+        outboundAudioSent: true,
+        cleanEnd: true,
+        noFatalError: true,
+      },
+      publishedVersionId: currentTestRoute.publishedVersionId,
+      runtimeProfile: currentTestRoute.runtimeProfile,
+      createdAt: "2026-07-24T12:00:00.000Z",
+      completedAt: "2026-07-24T12:05:00.000Z",
+    }];
+    await expect(
+      repository.updatePhoneTestProjection({
+        tenantId: snapshotTenant,
+        phoneNumberId,
+        expectedTestRoute: null,
+        expectedPhoneTestResults: null,
+        testRoute: currentTestRoute,
+        phoneTestResults: currentPhoneTestResults,
+      }),
+    ).resolves.toEqual({ outcome: "updated" });
+
+    const abuseDispatch = structuredClone(
+      callSetup(snapshotTenant, `snapshot-abuse-${suffix}`).dispatch,
+    );
+    abuseDispatch.direction = "outbound";
+    abuseDispatch.disposition = "blocked";
+    abuseDispatch.reason = "Outbound abuse threshold exceeded.";
+    delete abuseDispatch.callSessionId;
+    await expect(
+      repository.recordOutboundAbuseBlock({
+        dispatch: abuseDispatch,
+        connectionIds: [connectionId],
+      }),
+    ).resolves.toEqual({ outcome: "inserted", connectionCount: 1 });
+
+    staleSnapshot!.connections[0] = {
+      ...staleSnapshot!.connections[0]!,
+      label: "Updated provider label",
+      status: "active",
+      healthStatus: "healthy",
+    };
+    staleSnapshot!.phoneNumbers[0] = {
+      ...staleSnapshot!.phoneNumbers[0]!,
+      friendlyName: "Updated support line",
+      phoneTestResults: [],
+    };
+    delete staleSnapshot!.phoneNumbers[0]!.testRoute;
+    await stateRepository.save(staleSnapshot!);
+
+    await expect(
+      pool.query(
+        `select label, status, health_status, outbound_abuse_blocked
+         from telephony_connections
+         where tenant_id = $1 and id = $2`,
+        [snapshotTenant, connectionId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{
+        label: "Updated provider label",
+        status: "disabled",
+        health_status: "failed",
+        outbound_abuse_blocked: true,
+      }],
+    });
+    await expect(
+      pool.query(
+        `select friendly_name, test_route, phone_test_results
+         from telephony_phone_numbers
+         where tenant_id = $1 and id = $2`,
+        [snapshotTenant, phoneNumberId],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{
+        friendly_name: "Updated support line",
+        test_route: currentTestRoute,
+        phone_test_results: currentPhoneTestResults,
+      }],
+    });
   });
 
   it("allows only one competing lifecycle compare-and-swap", async () => {
@@ -162,6 +301,101 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
       { outcome: "inserted", mediaToken: "created" },
       { outcome: "inserted", mediaToken: "created" },
     ]);
+  });
+
+  it("blocks a stale replica from creating outbound work after another replica records abuse", async () => {
+    const postureWriter = new PostgresTelephonyIncrementalRepository(pool);
+    const staleReplica = new PostgresTelephonyIncrementalRepository(pool);
+    const blockedDispatch = structuredClone(
+      callSetup(abuseTenant, `abuse-marker-${suffix}`).dispatch,
+    );
+    blockedDispatch.direction = "outbound";
+    blockedDispatch.disposition = "blocked";
+    blockedDispatch.reason = "Outbound abuse threshold exceeded.";
+    delete blockedDispatch.callSessionId;
+
+    await expect(
+      postureWriter.recordOutboundAbuseBlock({
+        dispatch: blockedDispatch,
+        connectionIds: [`connection-${abuseTenant}`],
+      }),
+    ).resolves.toEqual({ outcome: "inserted", connectionCount: 1 });
+
+    const execution = outboundCallExecution(
+      abuseTenant,
+      `stale-replica-${suffix}`,
+    );
+    await expect(staleReplica.createCallExecution(execution)).resolves.toEqual({
+      outcome: "blocked",
+      reasonCode: "outbound_abuse_blocked",
+    });
+
+    const created = await pool.query(
+      `select
+         (select count(*)::int from telephony_dispatches
+          where tenant_id = $1 and id = $2) as dispatches,
+         (select count(*)::int from telephony_execution_sessions
+          where tenant_id = $1 and id = $3) as sessions,
+         (select count(*)::int from telephony_execution_commands
+          where tenant_id = $1 and session_id = $3) as commands`,
+      [
+        abuseTenant,
+        execution.dispatch.id,
+        execution.executionSession.id,
+      ],
+    );
+    expect(created.rows[0]).toEqual({
+      dispatches: 0,
+      sessions: 0,
+      commands: 0,
+    });
+  });
+
+  it("serializes outbound execution behind an in-flight abuse posture update", async () => {
+    const blocker = await pool.connect();
+    const { Pool: PostgresPool } = await import("pg");
+    const applicationName = `abuse-race-${suffix}`;
+    const staleReplicaPool = new PostgresPool({
+      connectionString,
+      max: 1,
+      application_name: applicationName,
+    });
+    const staleReplica = new PostgresTelephonyIncrementalRepository(staleReplicaPool);
+    const execution = outboundCallExecution(
+      abuseRaceTenant,
+      `abuse-race-${suffix}`,
+    );
+    let settled = false;
+
+    try {
+      await blocker.query("begin");
+      await blocker.query(
+        `update telephony_connections
+         set outbound_abuse_blocked = true
+         where tenant_id = $1 and id = $2`,
+        [abuseRaceTenant, `connection-${abuseRaceTenant}`],
+      );
+      const attempted = staleReplica.createCallExecution(execution).finally(() => {
+        settled = true;
+      });
+
+      await expect(
+        waitForBlockedConnectionPostureRead(pool, applicationName),
+      ).resolves.toBe("Lock");
+      expect(settled).toBe(false);
+      await blocker.query("commit");
+
+      await expect(attempted).resolves.toEqual({
+        outcome: "blocked",
+        reasonCode: "outbound_abuse_blocked",
+      });
+    } finally {
+      if (!settled) {
+        await blocker.query("rollback").catch(() => undefined);
+      }
+      blocker.release();
+      await staleReplicaPool.end();
+    }
   });
 
   it("deletes one tenant-owned tested number and cascades only its checkpoints", async () => {
@@ -502,6 +736,82 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
     setup.mediaToken.connectionId = `connection-${tenantB}`;
     await expect(repository.createCallSetup(setup)).resolves.toEqual({ outcome: "conflict" });
   });
+
+  it("retains routed pre-session dispatches while deleting terminal graphs and blocked orphans", async () => {
+    const cutoff = "2026-07-24T00:00:00.000Z";
+    const oldTimestamp = "2026-07-23T12:00:00.000Z";
+    const terminal = callSetup(tenantA, `retention-terminal-${suffix}`);
+    const routedPreSession = structuredClone(
+      callSetup(tenantA, `retention-routed-${suffix}`).dispatch,
+    );
+    const blockedOrphan = structuredClone(
+      callSetup(tenantA, `retention-blocked-${suffix}`).dispatch,
+    );
+    const otherTenantRouted = structuredClone(
+      callSetup(tenantB, `retention-other-${suffix}`).dispatch,
+    );
+    routedPreSession.createdAt = oldTimestamp;
+    blockedOrphan.createdAt = oldTimestamp;
+    blockedOrphan.disposition = "blocked";
+    delete blockedOrphan.callSessionId;
+    otherTenantRouted.createdAt = oldTimestamp;
+
+    await repository.createCallSetup(terminal);
+    await pool.query(
+      `update telephony_execution_sessions
+       set status = 'completed',
+           lifecycle_state = $3::jsonb,
+           updated_at = $4
+       where tenant_id = $1 and call_session_id = $2`,
+      [
+        tenantA,
+        terminal.executionSession.callSessionId,
+        JSON.stringify({
+          stage: "completed",
+          observedAt: oldTimestamp,
+        }),
+        oldTimestamp,
+      ],
+    );
+    await repository.insertDispatch(routedPreSession);
+    await repository.insertDispatch(blockedOrphan);
+    await repository.insertDispatch(otherTenantRouted);
+
+    await expect(
+      repository.deleteRetainedCallData({
+        tenantId: tenantA,
+        retainAfter: cutoff,
+      }),
+    ).resolves.toMatchObject({
+      tenantId: tenantA,
+      retainAfter: cutoff,
+      deletedCounts: {
+        executionSessions: 1,
+        dispatches: 2,
+      },
+    });
+    await expect(
+      pool.query(
+        `select id from telephony_dispatches
+         where tenant_id = $1 and id = any($2::text[])
+         order by id`,
+        [
+          tenantA,
+          [terminal.dispatch.id, routedPreSession.id, blockedOrphan.id],
+        ],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ id: routedPreSession.id }],
+    });
+    await expect(
+      pool.query(
+        "select id from telephony_dispatches where tenant_id = $1 and id = $2",
+        [tenantB, otherTenantRouted.id],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ id: otherTenantRouted.id }],
+    });
+  });
 });
 
 async function seedTenant(pool: Pool, tenantId: string) {
@@ -627,6 +937,44 @@ function callSetup(tenantId: string, identity: string): CreateTelephonyCallSetup
   };
 }
 
+function outboundCallExecution(
+  tenantId: string,
+  identity: string,
+): CreateTelephonyCallExecutionInput {
+  const setup = callSetup(tenantId, identity);
+  setup.dispatch.direction = "outbound";
+  setup.dispatch.disposition = "queued";
+  setup.dispatch.reason = "Outbound call queued.";
+  setup.executionSession.direction = "outbound";
+  return {
+    dispatch: setup.dispatch,
+    executionSession: setup.executionSession,
+    executionCommands: setup.executionCommands,
+  };
+}
+
 function recordingPolicy() {
   return { enabled: false, consentMode: "disabled" as const, consentMessage: "" };
+}
+
+async function waitForBlockedConnectionPostureRead(
+  pool: Pool,
+  applicationName: string,
+) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const activity = await pool.query<{ wait_event_type: string | null }>(
+      `select wait_event_type
+       from pg_stat_activity
+       where application_name = $1
+         and state = 'active'
+         and query like 'select outbound_abuse_blocked%'`,
+      [applicationName],
+    );
+    if (activity.rows[0]?.wait_event_type != null) {
+      return activity.rows[0].wait_event_type;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Timed out waiting for the outbound posture row lock.");
 }

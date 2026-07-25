@@ -6,13 +6,17 @@ import type {
   TelephonyExecutionCommand,
   TelephonyExecutionSession,
   TelephonyExecutionSessionStatus,
+  TelephonyConnection,
+  TelephonyHealthStatus,
   TelephonyPhoneTestResult,
+  TelephonyProviderHeartbeat,
   PstnRuntimePath,
   RuntimeProfileId,
 } from "@zara/core";
 
 import type {
   TelephonyDispatchRecord,
+  TelephonyHealthCheck,
   TelephonyMediaStreamTokenRecord,
   TelephonyWebhookEvent,
 } from "./telephony.models";
@@ -27,9 +31,9 @@ export type TelephonyCallSetupOutcome =
   | { outcome: "existing"; mediaToken: "retained" | "rotated" }
   | { outcome: "conflict" };
 
-export type TelephonyCallExecutionOutcome = {
-  outcome: "inserted" | "existing" | "conflict";
-};
+export type TelephonyCallExecutionOutcome =
+  | { outcome: "inserted" | "existing" | "conflict" }
+  | { outcome: "blocked"; reasonCode: "outbound_abuse_blocked" };
 
 export interface IncrementalTelephonyMediaToken extends TelephonyMediaStreamTokenRecord {
   tenantId: string;
@@ -131,6 +135,39 @@ export interface DeleteTelephonyRetainedCallDataOutcome {
   retainAfter: string;
   deletedCounts: TelephonyRuntimeDeletionCounts;
 }
+
+export interface RecordTelephonyConnectionHealthObservationInput {
+  tenantId: string;
+  connectionId: string;
+  connectionStatus: TelephonyConnection["status"];
+  healthStatus: TelephonyHealthStatus;
+  healthCheck: TelephonyHealthCheck;
+  heartbeat?: TelephonyProviderHeartbeat | undefined;
+}
+
+export type RecordTelephonyConnectionHealthObservationOutcome =
+  | {
+      outcome: "updated";
+      connectionStatus: TelephonyConnection["status"];
+      healthStatus: TelephonyHealthStatus;
+    }
+  | { outcome: "not_found" };
+
+export interface LoadTelephonyConnectionAdmissionPostureInput {
+  tenantId: string;
+  connectionId: string;
+}
+
+export type TelephonyConnectionAdmissionPostureOutcome =
+  | {
+      outcome: "found";
+      posture: {
+        status: TelephonyConnection["status"];
+        healthStatus: TelephonyHealthStatus;
+        blockRoutingOnHealthFailure: boolean;
+      };
+    }
+  | { outcome: "not_found" };
 
 export interface DeleteTelephonyConnectionInput {
   tenantId: string;
@@ -275,6 +312,12 @@ export interface TelephonyIncrementalRepository {
   deleteRetainedCallData(
     input: DeleteTelephonyRetainedCallDataInput,
   ): Promise<DeleteTelephonyRetainedCallDataOutcome>;
+  recordConnectionHealthObservation(
+    input: RecordTelephonyConnectionHealthObservationInput,
+  ): Promise<RecordTelephonyConnectionHealthObservationOutcome>;
+  loadConnectionAdmissionPosture(
+    input: LoadTelephonyConnectionAdmissionPostureInput,
+  ): Promise<TelephonyConnectionAdmissionPostureOutcome>;
   deleteConnection(
     input: DeleteTelephonyConnectionInput,
   ): Promise<DeleteTelephonyConnectionOutcome>;

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional, type OnApplicationShutdown } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { resolveRuntimeAgent, type PstnAudioFrame } from "@zara/core";
 
 import {
@@ -100,6 +100,11 @@ interface ActivePremiumCallExecution {
   activeGeminiResponseId?: string | undefined;
   providerFailure?: PremiumProviderFailureContext | undefined;
   terminalFailureCode?: string | undefined;
+  terminalLifecycle?: {
+    stage: "completed" | "failed";
+    reasonCode?: string | undefined;
+    persistence?: Promise<void> | undefined;
+  } | undefined;
   expectedProviderResponse?: ExpectedProviderResponse | undefined;
   recordedMilestones: Set<string>;
   observabilityFailureLogged: boolean;
@@ -134,10 +139,20 @@ interface PendingProviderTransition {
   deadline?: ReturnType<typeof setTimeout> | undefined;
 }
 
+interface PendingStartupTerminalLifecycle {
+  organizationId: string;
+  dispatchId: string;
+  callSessionId: string;
+  stage: "completed" | "failed";
+  reasonCode: string;
+  persistence?: Promise<void> | undefined;
+}
+
 const completedPlaybackResponseLimit = 64;
 const providerHandoffTimeoutMs = 5_000;
 const providerResponseStartTimeoutMs = 8_000;
 const terminalCallSessionLimit = 1_024;
+const pendingStartupTerminalLimit = 1_024;
 const providerOutputByteLimit = 64 * 1_024;
 const providerOutputCountLimit = 256;
 const playbackByteLimit = 240_000;
@@ -152,10 +167,15 @@ interface StartPremiumCallExecutionInput {
 }
 
 @Injectable()
-export class PstnPremiumCallExecution implements OnApplicationShutdown {
+export class PstnPremiumCallExecution {
   private readonly executions = new Map<string, ActivePremiumCallExecution>();
   private readonly startingCallSessionIds = new Set<string>();
-  private readonly cancelledCallSessions = new Map<string, string>();
+  private readonly startingCallCompletions = new Map<string, Promise<void>>();
+  private readonly cancelledCallSessions = new Map<
+    string,
+    { outcome: "completed" | "failed"; reasonCode: string }
+  >();
+  private readonly pendingStartupTerminals = new Map<string, PendingStartupTerminalLifecycle>();
   private readonly terminalCallSessionIds = new Set<string>();
   private readonly ingressAdmission = new PstnPremiumIngressAdmission();
   private readonly playbackAdmission = new PstnPremiumPlaybackAdmission();
@@ -191,12 +211,27 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     if (this.shuttingDown) {
       throw new Error("Premium PSTN execution is shutting down.");
     }
-    if (this.executions.has(input.callSessionId) || this.startingCallSessionIds.has(input.callSessionId)) {
+    if (
+      this.executions.has(input.callSessionId)
+      || this.startingCallSessionIds.has(input.callSessionId)
+      || this.pendingStartupTerminals.has(input.callSessionId)
+    ) {
       throw new Error(`Premium PSTN execution already exists for '${input.callSessionId}'.`);
+    }
+    if (
+      this.pendingStartupTerminals.size + this.startingCallSessionIds.size
+      >= pendingStartupTerminalLimit
+    ) {
+      throw new Error("Premium PSTN startup terminal ownership capacity reached.");
     }
 
     this.terminalCallSessionIds.delete(input.callSessionId);
     this.startingCallSessionIds.add(input.callSessionId);
+    let completeStart!: () => void;
+    const startCompletion = new Promise<void>((resolve) => {
+      completeStart = resolve;
+    });
+    this.startingCallCompletions.set(input.callSessionId, startCompletion);
     this.capacityObservability?.trackCall({
       callId: input.callSessionId,
       state: "starting",
@@ -206,30 +241,24 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     try {
       await this.startExecution(input);
     } catch (error) {
-      this.capacityObservability?.endCall({ callId: input.callSessionId, outcome: "failed" });
-      if (!this.terminalCallSessionIds.has(input.callSessionId)) {
-        const failure = classifyPremiumCallStartupFailure(error);
-        try {
-          await this.telephonyService.recordPstnCallLifecycle({
-            organizationId: input.organizationId,
-            callSessionId: input.callSessionId,
-            stage: "failed",
-            reasonCode: failure.failureCode,
-          });
-        } catch {
-          this.logger.warn(`[twilio-pstn] lifecycle_persistence_failed ${JSON.stringify({
-            organizationId: input.organizationId,
-            dispatchId: input.dispatchId,
-            callSessionId: input.callSessionId,
-            stage: "failed",
-            failureCode: "call_lifecycle_persistence_failed",
-          })}`);
+      const installed = this.executions.get(input.callSessionId);
+      if (installed?.terminalLifecycle !== undefined) {
+        await this.persistTerminalLifecycle(installed);
+      } else if (!this.terminalCallSessionIds.has(input.callSessionId)) {
+        const existingPending = this.pendingStartupTerminals.get(input.callSessionId);
+        if (existingPending !== undefined) {
+          throw error;
         }
+        const failure = classifyPremiumCallStartupFailure(error);
+        const pending = this.retainPendingStartupTerminal(input, "failed", failure.failureCode);
+        await this.persistPendingStartupTerminal(pending);
       }
       throw error;
     } finally {
       this.startingCallSessionIds.delete(input.callSessionId);
       this.cancelledCallSessions.delete(input.callSessionId);
+      this.startingCallCompletions.delete(input.callSessionId);
+      completeStart();
     }
   }
 
@@ -376,20 +405,33 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       runtimePath: "pstn-premium-realtime",
       provider: registered.session.runtime,
     });
-    const cancellationReason = this.cancelledCallSessions.get(input.callSessionId);
-    if (cancellationReason !== undefined) {
+    const cancellation = this.cancelledCallSessions.get(input.callSessionId);
+    if (cancellation !== undefined) {
       this.cancelledCallSessions.delete(input.callSessionId);
       this.runtimeSessionsService.terminateRealtimeSession(registered.session.sessionId);
-      providerConnection.close(1000, cancellationReason);
-      this.capacityObservability?.closeSocket({
-        socketId: initialProviderSocketId,
-        initiator: "local",
-        code: 1000,
-      });
-      this.capacityObservability?.endCall({
-        callId: input.callSessionId,
-        outcome: "completed",
-      });
+      const pending = this.retainPendingStartupTerminal(
+        input,
+        cancellation.outcome,
+        cancellation.reasonCode,
+      );
+      try {
+        await this.persistPendingStartupTerminal(pending);
+      } finally {
+        try {
+          providerConnection.close(1000, cancellation.reasonCode);
+        } catch {
+          this.logger.warn(`[twilio-pstn] premium_provider_close_failed ${JSON.stringify({
+            organizationId: input.organizationId,
+            dispatchId: input.dispatchId,
+            callSessionId: input.callSessionId,
+          })}`);
+        }
+        this.capacityObservability?.closeSocket({
+          socketId: initialProviderSocketId,
+          initiator: "local",
+          code: 1000,
+        });
+      }
       return;
     }
     const readinessStartedAt = providerHandshakeStartedAt;
@@ -478,24 +520,12 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       onTerminal: (state) => {
         const installed = this.executions.get(input.callSessionId);
         if (installed?.actor === actor) {
-          this.recordLifecycle(
+          const persistence = this.beginTerminalLifecycle(
             installed,
             state === "failed" ? "failed" : "completed",
             installed.terminalFailureCode,
           );
-          this.clearExpectedProviderResponse(installed);
-          installed.playback.dispose();
-          this.recordCleanup(installed, actor.getState());
-          this.clearProviderTransition(installed, "provider_handoff_cancelled");
-          this.executions.delete(input.callSessionId);
-          this.rememberTerminalCallSession(input.callSessionId);
-          for (const socketId of installed.providerSocketIds) {
-            this.capacityObservability?.closeSocket({ socketId, initiator: "local", code: 1000 });
-          }
-          this.capacityObservability?.endCall({
-            callId: input.callSessionId,
-            outcome: state === "failed" ? "failed" : "completed",
-          });
+          void persistence.catch(() => undefined);
         }
       },
     });
@@ -683,6 +713,9 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
       }
       throw new Error(`Premium PSTN execution '${input.callSessionId}' is not active.`);
     }
+    if (execution.terminalLifecycle !== undefined) {
+      return { accepted: false, reason: "terminal" } as const;
+    }
     if (
       input.frame.codec.name !== "g711_mulaw"
       || input.frame.codec.sampleRateHz !== 8_000
@@ -761,18 +794,37 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     const outcome = input.outcome ?? "completed";
     const reasonCode =
       input.reasonCode ?? (outcome === "failed" ? "premium_call_failed" : "pstn_stream_stopped");
-    const execution = this.executions.get(input.callSessionId);
+    let execution = this.executions.get(input.callSessionId);
     if (execution === undefined) {
       if (this.startingCallSessionIds.has(input.callSessionId)) {
-        this.cancelledCallSessions.set(input.callSessionId, reasonCode);
+        const existingCancellation = this.cancelledCallSessions.get(input.callSessionId);
+        if (existingCancellation?.outcome !== "failed") {
+          this.cancelledCallSessions.set(input.callSessionId, { outcome, reasonCode });
+        }
+        await this.startingCallCompletions.get(input.callSessionId);
       }
+      const pending = this.pendingStartupTerminals.get(input.callSessionId);
+      if (pending !== undefined) {
+        await this.persistPendingStartupTerminal(pending);
+        return;
+      }
+      execution = this.executions.get(input.callSessionId);
+      if (execution === undefined) {
+        if (this.terminalCallSessionIds.has(input.callSessionId)) return;
+        throw new Error(
+          `Premium PSTN execution '${input.callSessionId}' is not active.`,
+        );
+      }
+    }
+    if (execution.terminalLifecycle !== undefined) {
+      await this.persistTerminalLifecycle(execution);
       return;
     }
 
     if (outcome === "failed") {
       execution.terminalFailureCode = reasonCode;
       execution.actor.fail(reasonCode);
-      await execution.providerLifecycleMessages;
+      await this.persistTerminalLifecycle(execution);
       return;
     }
 
@@ -784,25 +836,40 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     });
     this.recordLifecycle(execution, "draining");
     await execution.actor.stop(reasonCode);
-    await execution.providerLifecycleMessages;
-    this.clearProviderTransition(execution, reasonCode);
-    if (this.executions.get(input.callSessionId) === execution) {
-      this.executions.delete(input.callSessionId);
-    }
+    await this.persistTerminalLifecycle(execution);
   }
 
-  async onApplicationShutdown() {
+  async shutdown() {
     this.shuttingDown = true;
+    const startCompletions = [...this.startingCallCompletions.values()];
     for (const callSessionId of this.startingCallSessionIds) {
-      this.cancelledCallSessions.set(callSessionId, "app_shutdown");
+      this.cancelledCallSessions.set(callSessionId, {
+        outcome: "failed",
+        reasonCode: "app_shutdown",
+      });
     }
-    const executions = [...this.executions.values()];
-    for (const execution of executions) {
+    const executionsAtShutdown = [...this.executions.values()];
+    for (const execution of executionsAtShutdown) {
+      if (execution.terminalLifecycle !== undefined) continue;
       execution.terminalFailureCode = "app_shutdown";
       execution.actor.fail("app_shutdown");
     }
-    await Promise.all(executions.map((execution) => execution.providerLifecycleMessages));
-    this.executions.clear();
+    await Promise.all(startCompletions);
+    const executions = [...new Set([
+      ...executionsAtShutdown,
+      ...this.executions.values(),
+    ])];
+    for (const execution of executions) {
+      if (execution.terminalLifecycle === undefined) {
+        execution.terminalFailureCode = "app_shutdown";
+        execution.actor.fail("app_shutdown");
+      }
+    }
+    await Promise.all(executions.map((execution) => this.persistTerminalLifecycle(execution)));
+    await Promise.all(
+      [...this.pendingStartupTerminals.values()]
+        .map((pending) => this.persistPendingStartupTerminal(pending)),
+    );
   }
 
   private failExecution(
@@ -818,7 +885,6 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     if (execution.actor.getState() !== "failed") {
       return;
     }
-    this.executions.delete(execution.callSessionId);
   }
 
   private async handleProviderMessage(
@@ -1137,6 +1203,7 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
     providerEpoch: number,
   ) {
     return this.executions.get(execution.callSessionId) === execution
+      && execution.terminalLifecycle === undefined
       && execution.providerEpoch === providerEpoch;
   }
 
@@ -1684,6 +1751,144 @@ export class PstnPremiumCallExecution implements OnApplicationShutdown {
           failureCode: "call_lifecycle_persistence_failed",
         })}`);
       });
+  }
+
+  private beginTerminalLifecycle(
+    execution: ActivePremiumCallExecution,
+    stage: "completed" | "failed",
+    reasonCode?: string,
+  ) {
+    execution.terminalLifecycle ??= {
+      stage,
+      ...(reasonCode === undefined ? {} : { reasonCode }),
+    };
+    return this.persistTerminalLifecycle(execution);
+  }
+
+  private retainPendingStartupTerminal(
+    input: StartPremiumCallExecutionInput,
+    stage: "completed" | "failed",
+    reasonCode: string,
+  ) {
+    const existing = this.pendingStartupTerminals.get(input.callSessionId);
+    if (existing !== undefined) return existing;
+
+    const pending: PendingStartupTerminalLifecycle = {
+      organizationId: input.organizationId,
+      dispatchId: input.dispatchId,
+      callSessionId: input.callSessionId,
+      stage,
+      reasonCode,
+    };
+    this.pendingStartupTerminals.set(input.callSessionId, pending);
+    return pending;
+  }
+
+  private persistPendingStartupTerminal(pending: PendingStartupTerminalLifecycle) {
+    if (this.pendingStartupTerminals.get(pending.callSessionId) !== pending) {
+      return Promise.resolve();
+    }
+    if (pending.persistence !== undefined) {
+      return pending.persistence;
+    }
+
+    const persistence = this.telephonyService.recordPstnCallLifecycle({
+      organizationId: pending.organizationId,
+      callSessionId: pending.callSessionId,
+      stage: pending.stage,
+      reasonCode: pending.reasonCode,
+    })
+      .then(() => {
+        if (this.pendingStartupTerminals.get(pending.callSessionId) !== pending) return;
+        this.pendingStartupTerminals.delete(pending.callSessionId);
+        this.rememberTerminalCallSession(pending.callSessionId);
+        this.capacityObservability?.endCall({
+          callId: pending.callSessionId,
+          outcome: pending.stage,
+        });
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(`[twilio-pstn] lifecycle_persistence_failed ${JSON.stringify({
+          organizationId: pending.organizationId,
+          dispatchId: pending.dispatchId,
+          callSessionId: pending.callSessionId,
+          stage: pending.stage,
+          failureCode: "call_lifecycle_persistence_failed",
+        })}`);
+        throw error;
+      })
+      .finally(() => {
+        if (pending.persistence === persistence) {
+          pending.persistence = undefined;
+        }
+      });
+    pending.persistence = persistence;
+    return persistence;
+  }
+
+  private persistTerminalLifecycle(execution: ActivePremiumCallExecution) {
+    const terminal = execution.terminalLifecycle;
+    if (terminal === undefined) {
+      return Promise.reject(new Error(
+        `Premium PSTN execution '${execution.callSessionId}' has no terminal lifecycle to persist.`,
+      ));
+    }
+    if (terminal.persistence !== undefined) {
+      return terminal.persistence;
+    }
+
+    const persistence = execution.providerLifecycleMessages
+      .catch(() => undefined)
+      .then(() =>
+        this.telephonyService.recordPstnCallLifecycle({
+          organizationId: execution.organizationId,
+          callSessionId: execution.callSessionId,
+          stage: terminal.stage,
+          ...(terminal.reasonCode === undefined ? {} : { reasonCode: terminal.reasonCode }),
+        }),
+      )
+      .then(() => {
+        this.finalizeTerminalExecution(execution, terminal.stage);
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(`[twilio-pstn] lifecycle_persistence_failed ${JSON.stringify({
+          organizationId: execution.organizationId,
+          dispatchId: execution.dispatchId,
+          callSessionId: execution.callSessionId,
+          stage: terminal.stage,
+          failureCode: "call_lifecycle_persistence_failed",
+        })}`);
+        throw error;
+      })
+      .finally(() => {
+        if (terminal.persistence === persistence) {
+          terminal.persistence = undefined;
+        }
+      });
+    terminal.persistence = persistence;
+    execution.providerLifecycleMessages = persistence;
+    return persistence;
+  }
+
+  private finalizeTerminalExecution(
+    execution: ActivePremiumCallExecution,
+    outcome: "completed" | "failed",
+  ) {
+    if (this.executions.get(execution.callSessionId) !== execution) return;
+
+    this.clearExpectedProviderResponse(execution);
+    execution.playback.dispose();
+    this.recordCleanup(execution, execution.actor.getState());
+    this.clearProviderTransition(execution, "provider_handoff_cancelled");
+    this.executions.delete(execution.callSessionId);
+    this.rememberTerminalCallSession(execution.callSessionId);
+    for (const socketId of execution.providerSocketIds) {
+      this.capacityObservability?.closeSocket({ socketId, initiator: "local", code: 1000 });
+    }
+    this.capacityObservability?.endCall({
+      callId: execution.callSessionId,
+      outcome,
+    });
   }
 
   private rememberTerminalCallSession(callSessionId: string) {

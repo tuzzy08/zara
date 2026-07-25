@@ -25,6 +25,7 @@
     "@opentelemetry/sdk-trace-node": "^2.7.1",
     "@polar-sh/better-auth": "^1.8.4",
     "@polar-sh/sdk": "^0.47.1",
+    "@redis/client": "6.1.0",
     "@zara/core": "file:../../packages/core",
     "better-auth": "^1.6.10",
     "drizzle-kit": "^0.31.10",

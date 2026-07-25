@@ -43,6 +43,90 @@ function createRecorder(metricPoints: PstnCapacityMetricPoint[] = []) {
 }
 
 describe("PstnCapacityRecorder", () => {
+  it("emits bounded admission outcome, latency, allowance, and lease metrics", () => {
+    const metricPoints: PstnCapacityMetricPoint[] = [];
+    const recorder = createRecorder(metricPoints);
+
+    recorder.recordAdmission({
+      outcome: "denied",
+      reasonCode: "tenant_concurrency_limit",
+      limitingDimension: "tenant_concurrency",
+      runtimePath: "pstn-premium-realtime",
+      provider: "twilio",
+      latencyMs: 12,
+      remainingCapacity: 0,
+    });
+    recorder.recordAdmissionLease({
+      operation: "renew",
+      outcome: "backend_unavailable",
+      runtimePath: "pstn-premium-realtime",
+      provider: "twilio",
+    });
+    recorder.recordAdmissionBackendHealth({
+      status: "unavailable",
+      reasonCode: "backend_unavailable",
+    });
+
+    expect(metricPoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "zara.pstn.admission.requests",
+          attributes: expect.objectContaining({
+            outcome: "denied",
+            reason_code: "tenant_concurrency_limit",
+            limiting_dimension: "tenant_concurrency",
+          }),
+        }),
+        expect.objectContaining({
+          name: "zara.pstn.admission.duration",
+          value: 12,
+        }),
+        expect.objectContaining({
+          name: "zara.pstn.admission.remaining_capacity",
+          value: 0,
+        }),
+        expect.objectContaining({
+          name: "zara.pstn.admission.lease_operations",
+          attributes: expect.objectContaining({
+            operation: "renew",
+            outcome: "backend_unavailable",
+          }),
+        }),
+        expect.objectContaining({
+          name: "zara.pstn.admission.backend_ready",
+          value: 0,
+          attributes: {
+            reason_code: "backend_unavailable",
+          },
+        }),
+      ]),
+    );
+    expect(JSON.stringify(metricPoints)).not.toContain("tenant-a");
+    expect(JSON.stringify(metricPoints)).not.toContain("call-a");
+  });
+
+  it.each(["not_owner", "denied"])(
+    "preserves the bounded %s admission lease outcome",
+    (outcome) => {
+      const metricPoints: PstnCapacityMetricPoint[] = [];
+      const recorder = createRecorder(metricPoints);
+
+      recorder.recordAdmissionLease({
+        operation: "activate",
+        outcome,
+        runtimePath: "pstn-premium-realtime",
+        provider: "twilio",
+      });
+
+      expect(metricPoints).toContainEqual(
+        expect.objectContaining({
+          name: "zara.pstn.admission.lease_operations",
+          attributes: expect.objectContaining({ outcome }),
+        }),
+      );
+    },
+  );
+
   it("classifies declared resource use at warning, critical, and exhausted thresholds", () => {
     const recorder = createRecorder();
 

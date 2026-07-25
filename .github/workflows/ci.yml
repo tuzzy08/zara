@@ -11,8 +11,19 @@ on:
 jobs:
   quality-gates:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.2.14-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zara
+      ZARA_TEST_REDIS_URL: redis://localhost:6379
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,6 +45,9 @@ jobs:
 
       - name: Test
         run: npm run test:run
+
+      - name: Redis PSTN admission qualification
+        run: npm exec -- vitest run apps/api/src/telephony/redis-pstn-call-admission.redis.test.ts
 
       - name: Runtime eval gate
         run: npm run eval:runtime

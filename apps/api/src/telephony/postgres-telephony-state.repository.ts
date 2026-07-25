@@ -119,7 +119,7 @@ export class PostgresTelephonyStateRepository {
       advisoryLockWaitMs = Math.max(0, Date.now() - lockStartedAt);
       await ensureTenantShell(client, record.organizationId);
 
-      await clearReplaceableConfigurationState(client, record.organizationId);
+      await clearCredentialEnvelopes(client, record.organizationId);
 
       for (const connection of record.connections) {
         await client.query(
@@ -137,8 +137,6 @@ export class PostgresTelephonyStateRepository {
             ownership_mode = excluded.ownership_mode,
             provider = excluded.provider,
             region = excluded.region,
-            status = excluded.status,
-            health_status = excluded.health_status,
             recording_policy = excluded.recording_policy,
             block_routing_on_health_failure = excluded.block_routing_on_health_failure,
             credential_reference = excluded.credential_reference,
@@ -192,8 +190,6 @@ export class PostgresTelephonyStateRepository {
             status = excluded.status,
             webhook_status = excluded.webhook_status,
             live_route = excluded.live_route,
-            test_route = excluded.test_route,
-            phone_test_results = excluded.phone_test_results,
             recording_policy = excluded.recording_policy
           where telephony_phone_numbers.tenant_id = excluded.tenant_id`,
           [
@@ -213,57 +209,6 @@ export class PostgresTelephonyStateRepository {
             jsonOrNull(phoneNumber.testRoute),
             jsonOrNull(phoneNumber.phoneTestResults),
             jsonOrNull(phoneNumber.recordingPolicy),
-          ],
-        );
-      }
-
-      for (const healthCheck of record.healthChecks) {
-        await client.query(
-          `insert into telephony_health_checks (
-            id, tenant_id, connection_id, status, blocking, checked_at,
-            message, scheduled, latency_ms, diagnostics
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10::jsonb
-          )`,
-          [
-            healthCheck.id,
-            record.organizationId,
-            healthCheck.connectionId,
-            healthCheck.status,
-            healthCheck.blocking,
-            healthCheck.checkedAt,
-            healthCheck.message,
-            healthCheck.scheduled ?? null,
-            healthCheck.latencyMs ?? null,
-            jsonOrNull(healthCheck.diagnostics),
-          ],
-        );
-      }
-
-      for (const heartbeat of record.providerHeartbeats ?? []) {
-        await client.query(
-          `insert into telephony_provider_heartbeats (
-            id, tenant_id, connection_id, provider, ownership_mode, status,
-            blocking, scheduled, latency_ms, routed_number_count, at, message, diagnostics
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10, $11, $12, $13::jsonb
-          )`,
-          [
-            heartbeat.id,
-            heartbeat.tenantId,
-            heartbeat.connectionId,
-            heartbeat.provider,
-            heartbeat.ownershipMode,
-            heartbeat.status,
-            heartbeat.blocking,
-            heartbeat.scheduled,
-            heartbeat.latencyMs,
-            heartbeat.routedNumberCount,
-            heartbeat.at,
-            heartbeat.message,
-            JSON.stringify(heartbeat.diagnostics),
           ],
         );
       }
@@ -359,14 +304,7 @@ async function ensureTenantShell(client: PoolClient, organizationId: string) {
   );
 }
 
-async function clearReplaceableConfigurationState(
-  client: PoolClient,
-  organizationId: string,
-) {
-  await client.query("delete from telephony_provider_heartbeats where tenant_id = $1", [
-    organizationId,
-  ]);
-  await client.query("delete from telephony_health_checks where tenant_id = $1", [organizationId]);
+async function clearCredentialEnvelopes(client: PoolClient, organizationId: string) {
   await client.query("delete from telephony_credential_envelopes where tenant_id = $1", [
     organizationId,
   ]);

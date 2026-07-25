@@ -4,6 +4,7 @@ import { DataType, newDb } from "pg-mem";
 import { defaultRecordingPolicy, importTwilioPhoneNumbers, type TelephonyConnection } from "@zara/core";
 
 import type { PersistedTelephonyStateRecord } from "./telephony-state.repository";
+import { PostgresTelephonyIncrementalRepository } from "./postgres-telephony-incremental.repository";
 import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
 
 describe("PostgresTelephonyStateRepository", () => {
@@ -306,6 +307,8 @@ describe("PostgresTelephonyStateRepository", () => {
     await expect(repository.listOrganizationIds()).resolves.toEqual(["tenant-west-africa"]);
     await expect(repository.load("tenant-west-africa")).resolves.toEqual({
       ...record,
+      healthChecks: [],
+      providerHeartbeats: [],
       dispatches: [],
       executionSessions: [],
       executionCommands: [],
@@ -684,6 +687,290 @@ describe("PostgresTelephonyStateRepository", () => {
     });
   });
 
+  it("preserves incrementally owned phone-test projections while applying stale configuration changes", async () => {
+    const { repository, pool } = await createHarness();
+    lastPool = pool;
+    const incrementalRepository = new PostgresTelephonyIncrementalRepository(pool);
+    const staleSnapshot = createTwilioImportRecord({
+      organizationId: "tenant-phone-test-owner",
+      connectionId: "connection-phone-test-owner",
+    });
+    const phoneNumber = staleSnapshot.phoneNumbers[0]!;
+    await repository.save(staleSnapshot);
+
+    const currentTestRoute = {
+      mode: "test_route" as const,
+      publishedVersionId: "workflow-current-v2",
+      workflowLabel: "Current phone test",
+      workspaceId: "workspace-current",
+      runtimeProfile: "premium-realtime" as const,
+      createdAt: "2026-07-24T10:00:00.000Z",
+      allowedCallerNumbers: ["+233201110001"],
+      waitingSession: {
+        id: "waiting-current",
+        status: "completed" as const,
+        allowedCallerNumbers: ["+233201110001"],
+        checklist: {
+          verifiedWebhook: true,
+          allowedCallerMatched: true,
+          mediaWebSocketConnected: true,
+          inboundFrameReceived: true,
+          transcriptCreated: true,
+          agentResponseGenerated: true,
+          outboundAudioSent: true,
+          cleanEnd: true,
+          noFatalError: true,
+        },
+        createdAt: "2026-07-24T10:00:00.000Z",
+        expiresAt: "2026-07-24T10:15:00.000Z",
+      },
+    };
+    const currentPhoneTestResults = [{
+      id: "phone-test-current",
+      tenantId: staleSnapshot.organizationId,
+      numberId: phoneNumber.id,
+      sessionId: "waiting-current",
+      status: "passed" as const,
+      reason: "All checkpoints passed.",
+      checklist: currentTestRoute.waitingSession.checklist,
+      publishedVersionId: currentTestRoute.publishedVersionId,
+      runtimeProfile: currentTestRoute.runtimeProfile,
+      createdAt: "2026-07-24T10:00:00.000Z",
+      completedAt: "2026-07-24T10:05:00.000Z",
+    }];
+
+    await expect(
+      incrementalRepository.updatePhoneTestProjection({
+        tenantId: staleSnapshot.organizationId,
+        phoneNumberId: phoneNumber.id,
+        expectedTestRoute: null,
+        expectedPhoneTestResults: null,
+        testRoute: currentTestRoute,
+        phoneTestResults: currentPhoneTestResults,
+      }),
+    ).resolves.toEqual({ outcome: "updated" });
+
+    staleSnapshot.phoneNumbers[0] = {
+      ...phoneNumber,
+      friendlyName: "Updated support line",
+      phoneTestResults: [],
+    };
+    delete staleSnapshot.phoneNumbers[0]!.testRoute;
+    await repository.save(staleSnapshot);
+
+    await expect(repository.load(staleSnapshot.organizationId)).resolves.toMatchObject({
+      phoneNumbers: [{
+        id: phoneNumber.id,
+        friendlyName: "Updated support line",
+        testRoute: currentTestRoute,
+        phoneTestResults: currentPhoneTestResults,
+      }],
+    });
+  });
+
+  it("preserves an atomic outbound-abuse posture while applying provider configuration", async () => {
+    const { repository, pool } = await createHarness();
+    lastPool = pool;
+    const incrementalRepository = new PostgresTelephonyIncrementalRepository(pool);
+    const staleSnapshot = createTwilioImportRecord({
+      organizationId: "tenant-abuse-owner",
+      connectionId: "connection-abuse-owner",
+    });
+    await repository.save(staleSnapshot);
+
+    await expect(
+      incrementalRepository.recordOutboundAbuseBlock({
+        dispatch: {
+          id: "dispatch-abuse-owner",
+          tenantId: staleSnapshot.organizationId,
+          direction: "outbound",
+          disposition: "blocked",
+          reason: "Outbound abuse threshold exceeded.",
+          connectionId: staleSnapshot.connections[0]!.id,
+          recording: defaultRecordingPolicy(),
+          recordingConsent: {
+            state: "not_required",
+            noticeRequired: false,
+            consentMode: "disabled",
+            message: "",
+            recordedAt: "2026-07-24T11:00:00.000Z",
+            reason: "Recording is disabled.",
+          },
+          toPhoneNumber: "+14155550100",
+          fromPhoneNumber: "+14155550101",
+          createdAt: "2026-07-24T11:00:00.000Z",
+          source: "manual",
+        },
+        connectionIds: [staleSnapshot.connections[0]!.id],
+      }),
+    ).resolves.toEqual({ outcome: "inserted", connectionCount: 1 });
+
+    staleSnapshot.connections[0] = {
+      ...staleSnapshot.connections[0]!,
+      label: "Updated provider label",
+      status: "active",
+      healthStatus: "healthy",
+    };
+    await repository.save(staleSnapshot);
+
+    await expect(
+      pool.query(
+        `select label, status, health_status, outbound_abuse_blocked
+         from telephony_connections
+         where tenant_id = $1 and id = $2`,
+        [staleSnapshot.organizationId, staleSnapshot.connections[0]!.id],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{
+        label: "Updated provider label",
+        status: "disabled",
+        health_status: "failed",
+        outbound_abuse_blocked: true,
+      }],
+    });
+  });
+
+  it("preserves incrementally owned health evidence while applying stale configuration changes", async () => {
+    const { repository, pool } = await createHarness();
+    lastPool = pool;
+    const staleSnapshot = createTwilioImportRecord({
+      organizationId: "tenant-provider-health-owner",
+      connectionId: "connection-provider-health-owner",
+    });
+    await repository.save(staleSnapshot);
+
+    await pool.query(
+      `update telephony_connections
+       set status = 'disabled', health_status = 'failed'
+       where tenant_id = $1 and id = $2`,
+      [staleSnapshot.organizationId, staleSnapshot.connections[0]!.id],
+    );
+    await pool.query(
+      `insert into telephony_health_checks (
+        id, tenant_id, connection_id, status, blocking, checked_at,
+        message, scheduled, latency_ms, diagnostics
+      ) values ($1, $2, $3, 'failed', true, $4, $5, true, 81, $6::jsonb)`,
+      [
+        "connection-provider-health-owner:health:failed",
+        staleSnapshot.organizationId,
+        staleSnapshot.connections[0]!.id,
+        "2026-07-24T12:00:00.000Z",
+        "Provider credentials are invalid.",
+        JSON.stringify(["Provider authentication failed."]),
+      ],
+    );
+    await pool.query(
+      `insert into telephony_provider_heartbeats (
+        id, tenant_id, connection_id, provider, ownership_mode, status,
+        blocking, scheduled, latency_ms, routed_number_count, at, message, diagnostics
+      ) values ($1, $2, $3, 'twilio', 'byo_provider_account', 'failed',
+        true, true, 81, 1, $4, $5, $6::jsonb)`,
+      [
+        "connection-provider-health-owner:heartbeat:failed",
+        staleSnapshot.organizationId,
+        staleSnapshot.connections[0]!.id,
+        "2026-07-24T12:00:00.000Z",
+        "Scheduled provider heartbeat failed.",
+        JSON.stringify(["Provider authentication failed."]),
+      ],
+    );
+    const loadHealthEvidence = async () => ({
+      healthChecks: (
+        await pool.query(
+          `select *
+           from telephony_health_checks
+           where tenant_id = $1
+           order by id`,
+          [staleSnapshot.organizationId],
+        )
+      ).rows,
+      providerHeartbeats: (
+        await pool.query(
+          `select *
+           from telephony_provider_heartbeats
+           where tenant_id = $1
+           order by id`,
+          [staleSnapshot.organizationId],
+        )
+      ).rows,
+    });
+    const currentHealthEvidence = await loadHealthEvidence();
+
+    staleSnapshot.connections[0] = {
+      ...staleSnapshot.connections[0]!,
+      label: "Updated provider label",
+      status: "active",
+      healthStatus: "healthy",
+    };
+    staleSnapshot.healthChecks = [{
+      id: "connection-provider-health-owner:health:stale",
+      connectionId: staleSnapshot.connections[0]!.id,
+      status: "healthy",
+      blocking: false,
+      checkedAt: "2026-07-24T11:00:00.000Z",
+      message: "Stale configuration evidence.",
+    }];
+    staleSnapshot.providerHeartbeats = [{
+      id: "connection-provider-health-owner:heartbeat:stale",
+      tenantId: staleSnapshot.organizationId,
+      connectionId: staleSnapshot.connections[0]!.id,
+      provider: "twilio",
+      ownershipMode: "byo_provider_account",
+      status: "healthy",
+      blocking: false,
+      scheduled: false,
+      latencyMs: 20,
+      routedNumberCount: 1,
+      at: "2026-07-24T11:00:00.000Z",
+      message: "Stale configuration heartbeat.",
+      diagnostics: [],
+    }];
+    staleSnapshot.credentials = [{
+      connectionId: staleSnapshot.connections[0]!.id,
+      envelope: {
+        algorithm: "aes-256-gcm",
+        keyVersion: 2,
+        iv: "iv-v2",
+        authTag: "auth-tag-v2",
+        ciphertext: "ciphertext-v2",
+      },
+    }];
+    await repository.save(staleSnapshot);
+
+    await expect(loadHealthEvidence()).resolves.toEqual(currentHealthEvidence);
+    await expect(repository.load(staleSnapshot.organizationId)).resolves.toMatchObject({
+      connections: [{
+        id: staleSnapshot.connections[0]!.id,
+        label: "Updated provider label",
+        status: "disabled",
+        healthStatus: "failed",
+      }],
+      credentials: [{
+        connectionId: staleSnapshot.connections[0]!.id,
+        envelope: {
+          keyVersion: 2,
+          ciphertext: "ciphertext-v2",
+        },
+      }],
+    });
+
+    staleSnapshot.connections[0] = {
+      ...staleSnapshot.connections[0]!,
+      label: "Updated provider label again",
+    };
+    staleSnapshot.healthChecks = [];
+    staleSnapshot.providerHeartbeats = [];
+    await repository.save(staleSnapshot);
+
+    await expect(loadHealthEvidence()).resolves.toEqual(currentHealthEvidence);
+    await expect(repository.load(staleSnapshot.organizationId)).resolves.toMatchObject({
+      connections: [{
+        id: staleSnapshot.connections[0]!.id,
+        label: "Updated provider label again",
+      }],
+    });
+  });
+
   it("returns null for organizations with no telephony state", async () => {
     const { repository, pool } = await createHarness();
     lastPool = pool;
@@ -894,6 +1181,7 @@ async function applySchema(pool: Pool) {
       region text NOT NULL,
       status text NOT NULL,
       health_status text NOT NULL,
+      outbound_abuse_blocked boolean NOT NULL DEFAULT false,
       recording_policy jsonb NOT NULL,
       block_routing_on_health_failure boolean NOT NULL,
       credential_reference jsonb,

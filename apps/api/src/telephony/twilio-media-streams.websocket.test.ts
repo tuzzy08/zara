@@ -35,6 +35,8 @@ import {
   type PstnPremiumCallOutput,
 } from "./pstn-premium-call-execution";
 import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
+import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
+import { TelephonyService } from "./telephony.service";
 
 describe("Twilio Media Streams websocket bridge", () => {
   const sockets: WebSocket[] = [];
@@ -44,6 +46,48 @@ describe("Twilio Media Streams websocket bridge", () => {
       sockets.pop()?.close();
     }
     vi.restoreAllMocks();
+  });
+
+  it("retains only recent completed session histories without evicting active session history", () => {
+    const bridge = new TwilioMediaStreamsWebSocketBridge(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const internals = bridge as unknown as {
+      attachments: Map<string, unknown>;
+      registerActiveEventHistory(
+        callSessionId: string,
+        events: Array<{
+          type: "connected";
+          protocol: string;
+          version: string;
+          receivedAt: string;
+        }>,
+      ): void;
+      retainCompletedEventHistory(callSessionId: string): void;
+    };
+    const event = {
+      type: "connected" as const,
+      protocol: "Call",
+      version: "1.0.0",
+      receivedAt: "2026-07-24T12:00:00.000Z",
+    };
+
+    internals.registerActiveEventHistory("reused-active-call", [event]);
+    internals.retainCompletedEventHistory("reused-active-call");
+    internals.registerActiveEventHistory("reused-active-call", [event]);
+    internals.attachments.set("reused-active-call", {});
+    for (let index = 0; index < 65; index += 1) {
+      const callSessionId = `completed-call-${index}`;
+      internals.registerActiveEventHistory(callSessionId, [event]);
+      internals.retainCompletedEventHistory(callSessionId);
+    }
+
+    expect(bridge.getSessionEvents("completed-call-0")).toEqual([]);
+    expect(bridge.getSessionEvents("completed-call-64")).toEqual([event]);
+    expect(bridge.getSessionEvents("reused-active-call")).toEqual([event]);
   });
 
   it("bridges verified Twilio media streams and sends only Twilio media mark and clear messages outbound", async () => {
@@ -69,11 +113,18 @@ describe("Twilio Media Streams websocket bridge", () => {
         recordQueue() {},
         recordQueueDrop() {},
         clearCallQueues() {},
+        recordAdmission() {},
+        recordAdmissionLease() {},
+        recordAdmissionBackendHealth() {},
       } as never,
     });
     const callSid = "CA-websocket-1";
     const callSessionId = `${callSid}:telephony`;
     const streamSid = "MZ-websocket-1";
+    const activateAdmission = vi.spyOn(
+      moduleRef.get(PstnAdmissionCoordinator),
+      "activate",
+    );
 
     const webhookResponse = await answerViaVerifiedWebhook({
       app,
@@ -142,6 +193,15 @@ describe("Twilio Media Streams websocket bridge", () => {
 
     const bridge = moduleRef.get(TwilioMediaStreamsWebSocketBridge);
     await withTimeout(waitFor(() => bridge.getSessionEvents(callSessionId).some((event) => event.type === "media")), "media event");
+    expect(activateAdmission).toHaveBeenCalledWith(
+      "tenant-west-africa",
+      callSessionId,
+      {
+        provider: "twilio",
+        providerAccountId: "AC1234567890abcdef1234567890abcd",
+        runtime: "pstn-sandwich",
+      },
+    );
     const incrementalRepository = moduleRef.get(
       TELEPHONY_INCREMENTAL_REPOSITORY,
     ) as InMemoryTelephonyIncrementalRepository;
@@ -339,6 +399,584 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
+  it("durably terminates an active sandwich call before application shutdown clears it", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const lifecycle = vi.spyOn(
+      app.get(TelephonyService),
+      "recordPstnCallLifecycle",
+    );
+    const callSid = "CA-sandwich-shutdown";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-sandwich-shutdown",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "sandwich shutdown websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-sandwich-shutdown",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "sandwich shutdown start",
+    );
+    lifecycle.mockClear();
+
+    await bridge.shutdown();
+
+    expect(lifecycle).toHaveBeenCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "app_shutdown",
+    });
+    socket.terminate();
+    await app.close();
+  }, 30_000);
+
+  it("retries an active sandwich terminalization that first fails during shutdown", async () => {
+    const endCall = vi.fn();
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      capacityObservability: {
+        openSocket() {},
+        updateSocketContext() {},
+        recordSocketHandshake() {},
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        trackCall() {},
+        endCall,
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+        recordAdmission() {},
+        recordAdmissionLease() {},
+        recordAdmissionBackendHealth() {},
+      },
+    });
+    const callSid = "CA-sandwich-shutdown-terminal-retry";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-sandwich-shutdown-terminal-retry",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "sandwich shutdown retry websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-sandwich-shutdown-terminal-retry",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "sandwich shutdown retry start",
+    );
+    const lifecycle = vi
+      .spyOn(app.get(TelephonyService), "recordPstnCallLifecycle")
+      .mockRejectedValueOnce(new Error("lifecycle database unavailable"));
+    const closed = nextClose(socket);
+
+    await expect(bridge.shutdown()).resolves.toBeUndefined();
+    await withTimeout(closed, "sandwich shutdown retry close");
+
+    expect(lifecycle).toHaveBeenCalledTimes(2);
+    expect(lifecycle).toHaveBeenLastCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "app_shutdown",
+    });
+    expect(endCall).toHaveBeenCalledTimes(1);
+    expect(endCall).toHaveBeenCalledWith({
+      callId: callSessionId,
+      outcome: "failed",
+    });
+
+    socket.terminate();
+    await app.close();
+    expect(lifecycle).toHaveBeenCalledTimes(2);
+    expect(endCall).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it("waits for queued media authorization before terminalizing application shutdown", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const telephonyService = app.get(TelephonyService);
+    const authorize = telephonyService.authorizeTwilioMediaStream.bind(
+      telephonyService,
+    );
+    const authorizationGate = deferred<void>();
+    const authorizeSpy = vi
+      .spyOn(telephonyService, "authorizeTwilioMediaStream")
+      .mockImplementation(async (input) => {
+        await authorizationGate.promise;
+        return authorize(input);
+      });
+    const lifecycle = vi.spyOn(
+      telephonyService,
+      "recordPstnCallLifecycle",
+    );
+    const callSid = "CA-sandwich-shutdown-queued-authorization";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-sandwich-shutdown-queued-authorization",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(
+      nextOpen(socket),
+      "queued authorization websocket open",
+    );
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-sandwich-shutdown-queued-authorization",
+      token: streamToken,
+    })));
+    await withTimeout(
+      waitFor(() => authorizeSpy.mock.calls.length === 1),
+      "queued authorization started",
+    );
+
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    let shutdownFinished = false;
+    const shutdown = bridge.shutdown().then(() => {
+      shutdownFinished = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(shutdownFinished).toBe(false);
+
+    authorizationGate.resolve();
+    await shutdown;
+    expect(lifecycle).toHaveBeenCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "app_shutdown",
+    });
+    socket.terminate();
+    await app.close();
+  }, 30_000);
+
+  it("surfaces durable lifecycle failures during application shutdown", async () => {
+    const errors: string[] = [];
+    vi.spyOn(Logger.prototype, "error").mockImplementation((message: unknown) => {
+      errors.push(String(message));
+    });
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const callSid = "CA-sandwich-shutdown-failure";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-sandwich-shutdown-failure",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "sandwich shutdown failure websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-sandwich-shutdown-failure",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "sandwich shutdown failure start",
+    );
+    const lifecycle = vi
+      .spyOn(app.get(TelephonyService), "recordPstnCallLifecycle")
+      .mockRejectedValue(new Error("lifecycle database unavailable"));
+    const closed = nextClose(socket);
+
+    await expect(bridge.shutdown()).rejects.toThrow(
+      "Twilio media shutdown failed",
+    );
+    await withTimeout(closed, "sandwich shutdown failure close");
+    expect(lifecycle).toHaveBeenCalledTimes(2);
+    expect(
+      errors.filter((message) =>
+        message.includes("media_terminalization_failed"),
+      ),
+    ).toEqual([]);
+
+    lifecycle.mockRestore();
+    socket.terminate();
+    await app.close();
+  }, 30_000);
+
+  it("automatically retries failed sandwich close terminalization and releases capacity once", async () => {
+    const endCall = vi.fn();
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      capacityObservability: {
+        openSocket() {},
+        updateSocketContext() {},
+        recordSocketHandshake() {},
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        trackCall() {},
+        endCall,
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+        recordAdmission() {},
+        recordAdmissionLease() {},
+        recordAdmissionBackendHealth() {},
+      },
+    });
+    const callSid = "CA-sandwich-close-terminal-retry";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-sandwich-close-terminal-retry",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "sandwich terminal retry socket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-sandwich-close-terminal-retry",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "sandwich terminal retry start",
+    );
+    const lifecycle = vi
+      .spyOn(app.get(TelephonyService), "recordPstnCallLifecycle")
+      .mockRejectedValueOnce(new Error("lifecycle database unavailable"));
+
+    const closed = nextClose(socket);
+    socket.terminate();
+    await withTimeout(closed, "sandwich terminal retry socket close");
+    await withTimeout(
+      waitFor(() => lifecycle.mock.calls.length === 1),
+      "sandwich terminal retry first persistence attempt",
+    );
+    expect(endCall).not.toHaveBeenCalled();
+
+    await withTimeout(
+      waitFor(() => lifecycle.mock.calls.length === 2, 3_000),
+      "sandwich terminal automatic retry",
+      4_000,
+    );
+    expect(lifecycle).toHaveBeenCalledTimes(2);
+    expect(lifecycle).toHaveBeenLastCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "twilio_media_socket_closed_1006",
+    });
+    expect(endCall).toHaveBeenCalledTimes(1);
+    expect(endCall).toHaveBeenCalledWith({
+      callId: callSessionId,
+      outcome: "failed",
+    });
+
+    await expect(bridge.shutdown()).resolves.toBeUndefined();
+    await app.close();
+    expect(lifecycle).toHaveBeenCalledTimes(2);
+    expect(endCall).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it("keeps a repeatedly failing sandwich terminalization owned for shutdown retry", async () => {
+    const endCall = vi.fn();
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      capacityObservability: {
+        openSocket() {},
+        updateSocketContext() {},
+        recordSocketHandshake() {},
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        trackCall() {},
+        endCall,
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+        recordAdmission() {},
+        recordAdmissionLease() {},
+        recordAdmissionBackendHealth() {},
+      },
+    });
+    const callSid = "CA-sandwich-close-terminal-exhausted";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-sandwich-close-terminal-exhausted",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "sandwich exhausted retry socket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-sandwich-close-terminal-exhausted",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "sandwich exhausted retry start",
+    );
+    let persistenceAvailable = false;
+    const lifecycle = vi
+      .spyOn(app.get(TelephonyService), "recordPstnCallLifecycle")
+      .mockImplementation(async () => {
+        if (!persistenceAvailable) {
+          throw new Error("lifecycle database unavailable");
+        }
+        return { outcome: "not_found" };
+      });
+
+    const closed = nextClose(socket);
+    socket.terminate();
+    await withTimeout(closed, "sandwich exhausted retry socket close");
+    await withTimeout(
+      waitFor(() => lifecycle.mock.calls.length === 2, 3_000),
+      "sandwich terminal retries continue at bounded backoff",
+      4_000,
+    );
+    expect(lifecycle).toHaveBeenCalledTimes(2);
+    expect(endCall).not.toHaveBeenCalled();
+
+    persistenceAvailable = true;
+    await expect(bridge.shutdown()).resolves.toBeUndefined();
+    expect(lifecycle).toHaveBeenCalledTimes(3);
+    expect(endCall).toHaveBeenCalledTimes(1);
+
+    await app.close();
+    expect(lifecycle).toHaveBeenCalledTimes(3);
+    expect(endCall).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it("durably terminates an active premium call before application shutdown clears it", async () => {
+    let finishStop: (() => void) | undefined;
+    const stop = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishStop = resolve;
+        }),
+    );
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        async start() {},
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        stop,
+      },
+    });
+    const callSid = "CA-premium-shutdown";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-shutdown",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium shutdown websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-shutdown",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "premium shutdown start",
+    );
+
+    let shutdownFinished = false;
+    const shutdown = bridge.shutdown().then(() => {
+      shutdownFinished = true;
+    });
+    await withTimeout(waitFor(() => stop.mock.calls.length === 1), "premium shutdown stop");
+
+    expect(stop).toHaveBeenCalledWith({
+      callSessionId,
+      outcome: "failed",
+      reasonCode: "app_shutdown",
+    });
+    expect(shutdownFinished).toBe(false);
+    finishStop?.();
+    await shutdown;
+    expect(shutdownFinished).toBe(true);
+    socket.terminate();
+    await app.close();
+  }, 30_000);
+
+  it("retries a premium terminalization failure before admission shutdown completes", async () => {
+    const stop = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("premium terminal persistence failed"))
+      .mockResolvedValue(undefined);
+    const shutdownPremiumExecution = vi.fn(async () => {
+      await stop({
+        callSessionId: "CA-premium-close-terminal-failure:telephony",
+        outcome: "failed",
+        reasonCode: "app_shutdown",
+      });
+    });
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+      premiumExecution: {
+        async start() {},
+        async appendInboundFrame() {},
+        acknowledgePlaybackMark() {},
+        stop,
+        shutdown: shutdownPremiumExecution,
+      },
+    });
+    const callSid = "CA-premium-close-terminal-failure";
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-close-terminal-failure",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium terminal failure socket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-close-terminal-failure",
+      token: streamToken,
+    })));
+    const coordinator = app.get(PstnAdmissionCoordinator);
+    const shutdownAdmission = vi.spyOn(coordinator, "shutdown");
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(`${callSid}:telephony`)
+          .some((event) => event.type === "started")),
+      "premium terminal failure start",
+    );
+
+    const closed = nextClose(socket);
+    socket.terminate();
+    await withTimeout(closed, "premium terminal failure socket close");
+    await withTimeout(
+      waitFor(() => stop.mock.calls.length === 1),
+      "premium terminal failure stop",
+    );
+
+    await expect(app.close()).resolves.toBeUndefined();
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(shutdownPremiumExecution).toHaveBeenCalledOnce();
+    expect(shutdownAdmission).toHaveBeenCalledOnce();
+  }, 30_000);
+
   it("logs a safe premium startup failure code before closing the Twilio media stream", async () => {
     const warnings: string[] = [];
     vi.spyOn(Logger.prototype, "warn").mockImplementation((message: unknown) => {
@@ -431,6 +1069,9 @@ describe("Twilio Media Streams websocket bridge", () => {
         recordQueue() {},
         recordQueueDrop() {},
         clearCallQueues() {},
+        recordAdmission() {},
+        recordAdmissionLease() {},
+        recordAdmissionBackendHealth() {},
       },
     });
     const callSid = "CA-premium-execution";
@@ -516,7 +1157,20 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
-  it("fails premium execution when an authorized Twilio media socket closes abnormally", async () => {
+  it.each([
+    {
+      title: "fails premium execution when an authorized Twilio media socket closes abnormally",
+      suffix: "abnormal-close",
+      closeCode: 1001,
+      expectedReasonCode: "twilio_media_socket_closed_1001",
+    },
+    {
+      title: "fails premium execution when code 1000 arrives without a validated Twilio stop",
+      suffix: "clean-close-without-stop",
+      closeCode: 1000,
+      expectedReasonCode: "twilio_media_socket_closed_without_stop",
+    },
+  ])("$title", async ({ suffix, closeCode, expectedReasonCode }) => {
     const stops: Array<{
       callSessionId: string;
       outcome?: "completed" | "failed";
@@ -537,40 +1191,90 @@ describe("Twilio Media Streams websocket bridge", () => {
         },
       },
     });
-    const callSid = "CA-premium-abnormal-close";
+    const callSid = `CA-premium-${suffix}`;
     const callSessionId = `${callSid}:telephony`;
     const webhookResponse = await answerViaVerifiedWebhook({
       app,
       accountSid: "AC1234567890abcdef1234567890abcd",
       authToken,
       callSid,
-      eventSid: "EVT-premium-abnormal-close",
+      eventSid: `EVT-premium-${suffix}`,
       phoneNumber,
     });
     const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
     const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
     const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`);
     sockets.push(socket);
-    await withTimeout(nextOpen(socket), "premium abnormal-close websocket open");
+    await withTimeout(nextOpen(socket), `premium ${suffix} websocket open`);
     socket.send(JSON.stringify(createStartMessage({
       callSid,
-      streamSid: "MZ-premium-abnormal-close",
+      streamSid: `MZ-premium-${suffix}`,
       token: streamToken,
     })));
     const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
     await withTimeout(
       waitFor(() => bridge.getSessionEvents(callSessionId).some((event) => event.type === "started")),
-      "premium abnormal-close start",
+      `premium ${suffix} start`,
     );
 
-    socket.close(1001, "client_shutdown");
-    await withTimeout(nextClose(socket), "premium abnormal-close websocket close");
-    await withTimeout(waitFor(() => stops.length === 1), "premium abnormal-close execution stop");
+    socket.close(closeCode, "client_shutdown");
+    await withTimeout(nextClose(socket), `premium ${suffix} websocket close`);
+    await withTimeout(waitFor(() => stops.length === 1), `premium ${suffix} execution stop`);
     expect(stops).toEqual([{
       callSessionId,
       outcome: "failed",
-      reasonCode: "twilio_media_socket_closed_1001",
+      reasonCode: expectedReasonCode,
     }]);
+
+    await app.close();
+  }, 30_000);
+
+  it("durably terminates a premium call when distributed activation fails before execution starts", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      runtimeProfile: "premium-realtime",
+    });
+    vi.spyOn(
+      app.get(PstnAdmissionCoordinator),
+      "activate",
+    ).mockResolvedValue({ outcome: "backend_unavailable" });
+    const lifecycle = vi.spyOn(
+      app.get(TelephonyService),
+      "recordPstnCallLifecycle",
+    );
+    const callSid = "CA-premium-admission-activation";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-premium-admission-activation",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "premium admission websocket open");
+    const closePromise = nextClose(socket);
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-premium-admission-activation",
+      token: streamToken,
+    })));
+
+    await withTimeout(closePromise, "premium admission websocket close");
+    expect(lifecycle).toHaveBeenCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "pstn_admission_activation_failed",
+    });
 
     await app.close();
   }, 30_000);
@@ -665,6 +1369,60 @@ describe("Twilio Media Streams websocket bridge", () => {
       reason: "missing_stream_token",
     });
 
+    const mismatchedAccountSocket = new WebSocket(
+      `ws://127.0.0.1:${port}${otherStreamUrl.pathname}`,
+    );
+    sockets.push(mismatchedAccountSocket);
+    await withTimeout(nextOpen(mismatchedAccountSocket), "mismatched account websocket open");
+    mismatchedAccountSocket.send(JSON.stringify(createStartMessage({
+      accountSid: "ACffffffffffffffffffffffffffffffff",
+      callSid: "CA-websocket-token-other",
+      streamSid: "MZ-websocket-mismatched-account",
+      token: otherStreamToken,
+    })));
+    await expect(
+      withTimeout(nextClose(mismatchedAccountSocket), "mismatched account close"),
+    ).resolves.toEqual({
+      code: 4401,
+      reason: "provider_account_mismatch",
+    });
+
+    const missingAccountWebhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid: "CA-websocket-token-missing-account",
+      eventSid: "EVT-websocket-token-missing-account",
+      phoneNumber,
+    });
+    const missingAccountStreamUrl = extractTwilioStreamUrl(
+      missingAccountWebhookResponse.text,
+    );
+    const missingAccountStreamToken = extractTwilioStreamParameter(
+      missingAccountWebhookResponse.text,
+      "zaraStreamToken",
+    );
+    const missingAccountSocket = new WebSocket(
+      `ws://127.0.0.1:${port}${missingAccountStreamUrl.pathname}`,
+    );
+    sockets.push(missingAccountSocket);
+    await withTimeout(
+      nextOpen(missingAccountSocket),
+      "missing account websocket open",
+    );
+    missingAccountSocket.send(JSON.stringify(createStartMessage({
+      callSid: "CA-websocket-token-missing-account",
+      omitAccountSid: true,
+      streamSid: "MZ-websocket-missing-account",
+      token: missingAccountStreamToken,
+    })));
+    await expect(
+      withTimeout(nextClose(missingAccountSocket), "missing account close"),
+    ).resolves.toEqual({
+      code: 4401,
+      reason: "provider_account_mismatch",
+    });
+
     const mismatchedTokenSocket = new WebSocket(
       `ws://127.0.0.1:${port}${otherStreamUrl.pathname}`,
     );
@@ -719,7 +1477,7 @@ async function createRoutedTwilioApp(options?: {
   premiumExecution?: Pick<
     PstnPremiumCallExecution,
     "start" | "appendInboundFrame" | "acknowledgePlaybackMark" | "stop"
-  >;
+  > & Partial<Pick<PstnPremiumCallExecution, "shutdown">>;
   capacityObservability?: Pick<
     PstnCapacityObservability,
     | "openSocket"
@@ -733,6 +1491,9 @@ async function createRoutedTwilioApp(options?: {
     | "recordQueue"
     | "recordQueueDrop"
     | "clearCallQueues"
+    | "recordAdmission"
+    | "recordAdmissionLease"
+    | "recordAdmissionBackendHealth"
   >;
 }) {
   const moduleRef = await Test.createTestingModule({
@@ -751,11 +1512,13 @@ async function createRoutedTwilioApp(options?: {
     .overrideProvider(TWILIO_NUMBER_ROUTING_PROVIDER)
     .useValue(createNoopTwilioRoutingProvider())
     .overrideProvider(PstnPremiumCallExecution)
-    .useValue(options?.premiumExecution ?? {
+    .useValue({
       async start() {},
       async appendInboundFrame() {},
       acknowledgePlaybackMark() {},
       async stop() {},
+      async shutdown() {},
+      ...options?.premiumExecution,
     })
     .overrideProvider(PstnCapacityObservability)
     .useValue(options?.capacityObservability ?? {
@@ -770,6 +1533,9 @@ async function createRoutedTwilioApp(options?: {
       recordQueue() {},
       recordQueueDrop() {},
       clearCallQueues() {},
+      recordAdmission() {},
+      recordAdmissionLease() {},
+      recordAdmissionBackendHealth() {},
     })
     .compile();
 
@@ -792,6 +1558,11 @@ async function createRoutedTwilioApp(options?: {
       authToken,
     });
   const connectionId = connectResponse.body.state.connections[0].id as string;
+  moduleRef
+    .get<InMemoryTelephonyIncrementalRepository>(
+      TELEPHONY_INCREMENTAL_REPOSITORY,
+    )
+    .loadConnections("tenant-west-africa", [connectionId]);
 
   const importResponse = await request(app.getHttpServer())
     .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
@@ -961,7 +1732,9 @@ function extractTwilioStreamParameter(twiml: string, name: string) {
 }
 
 function createStartMessage(input: {
+  accountSid?: string | undefined;
   callSid: string;
+  omitAccountSid?: boolean | undefined;
   streamSid: string;
   token?: string | undefined;
 }) {
@@ -970,7 +1743,12 @@ function createStartMessage(input: {
     sequenceNumber: "1",
     streamSid: input.streamSid,
     start: {
-      accountSid: "AC1234567890abcdef1234567890abcd",
+      ...(input.omitAccountSid
+        ? {}
+        : {
+            accountSid:
+              input.accountSid ?? "AC1234567890abcdef1234567890abcd",
+          }),
       callSid: input.callSid,
       streamSid: input.streamSid,
       tracks: ["inbound"],
@@ -1039,7 +1817,10 @@ function nextClose(socket: WebSocket): Promise<{ code: number; reason: string }>
   });
 }
 
-function waitFor(predicate: () => boolean | Promise<boolean>) {
+function waitFor(
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs = 2_000,
+) {
   return new Promise<void>((resolve, reject) => {
     const startedAt = Date.now();
     const poll = async () => {
@@ -1053,7 +1834,7 @@ function waitFor(predicate: () => boolean | Promise<boolean>) {
         return;
       }
 
-      if (Date.now() - startedAt > 2_000) {
+      if (Date.now() - startedAt > timeoutMs) {
         reject(new Error("Condition was not met before timeout."));
         return;
       }

@@ -6,6 +6,8 @@ import type {
   TelephonyExecutionCommand,
   TelephonyExecutionSession,
   TelephonyExecutionSessionStatus,
+  TelephonyConnection,
+  TelephonyHealthStatus,
   TelephonyPhoneTestResult,
   PstnRuntimePath,
 } from "@zara/core";
@@ -18,11 +20,13 @@ import type {
   DeleteTelephonyPhoneNumberInput,
   DeleteTelephonyRetainedCallDataInput,
   DeleteExpiredTelephonyMediaTokensInput,
+  LoadTelephonyConnectionAdmissionPostureInput,
   LoadLatestSuccessfulPhoneTestInput,
   LoadTelephonyCallMutationContextInput,
   LoadTelephonyCallRuntimeContextInput,
   RecordTelephonyPhoneTestCheckpointByCallInput,
   RecordTelephonyCallControlMutationInput,
+  RecordTelephonyConnectionHealthObservationInput,
   RecordTelephonyOutboundAbuseBlockInput,
   TelephonyCallMutationContext,
   TelephonyCallRuntimeContext,
@@ -230,6 +234,18 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
 
     try {
       await client.query("begin");
+      const outboundPosture = await lockOutboundExecutionConnection(client, input);
+      if (outboundPosture === "not_owned") {
+        await client.query("rollback");
+        return { outcome: "conflict" as const };
+      }
+      if (outboundPosture === "blocked") {
+        await client.query("rollback");
+        return {
+          outcome: "blocked" as const,
+          reasonCode: "outbound_abuse_blocked" as const,
+        };
+      }
       if (!(await callSetupReferencesAreOwned(client, input))) {
         await client.query("rollback");
         return { outcome: "conflict" as const };
@@ -278,6 +294,29 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
     return {
       outcome: "found" as const,
       context: callMutationContextFromRow(row, input.callSessionId),
+    };
+  }
+
+  async loadConnectionAdmissionPosture(
+    input: LoadTelephonyConnectionAdmissionPostureInput,
+  ) {
+    const result = await this.database.query<ConnectionAdmissionPostureRow>(
+      `select status, health_status, block_routing_on_health_failure
+       from telephony_connections
+       where tenant_id = $1 and id = $2`,
+      [input.tenantId, input.connectionId],
+    );
+    const row = result.rows[0];
+    if (row === undefined) {
+      return { outcome: "not_found" as const };
+    }
+    return {
+      outcome: "found" as const,
+      posture: {
+        status: row.status,
+        healthStatus: row.health_status,
+        blockRoutingOnHealthFailure: row.block_routing_on_health_failure,
+      },
     };
   }
 
@@ -487,7 +526,9 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       }
       await client.query(
         `update telephony_connections
-         set status = 'disabled', health_status = 'failed'
+         set status = 'disabled',
+             health_status = 'failed',
+             outbound_abuse_blocked = true
          where tenant_id = $1 and id in (${placeholders})`,
         [input.dispatch.tenantId, ...connectionIds],
       );
@@ -514,101 +555,120 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
       await client.query("begin");
       const webhookEvents = await client.query(
         `delete from telephony_webhook_events
-         where tenant_id = $1 and received_at < $2
+         where tenant_id = $1
+           and received_at < $2
+           and (
+             call_sid in (
+               select call_session_id from telephony_execution_sessions
+               where tenant_id = $1
+                 and lifecycle_state->>'stage' in ('completed', 'failed', 'expired')
+                 and updated_at < $2
+             )
+             or call_sid || ':telephony' in (
+               select call_session_id from telephony_execution_sessions
+               where tenant_id = $1
+                 and lifecycle_state->>'stage' in ('completed', 'failed', 'expired')
+                 and updated_at < $2
+             )
+             or call_sid || ':telephony:webhook' in (
+               select id from telephony_dispatches
+               where tenant_id = $1
+                 and disposition = 'blocked'
+                 and created_at < $2
+                 and id not in (
+                   select dispatch_id from telephony_execution_sessions
+                   where tenant_id = $1
+                 )
+             )
+           )
          returning id`,
         [input.tenantId, input.retainAfter],
       );
       const callControlEvents = await client.query(
         `delete from telephony_call_control_events
          where tenant_id = $1
-           and (
-             at < $2
-             or dispatch_id in (
-               select id from telephony_dispatches
-               where tenant_id = $1 and created_at < $2
-             )
-             or call_session_id in (
-               select call_session_id from telephony_execution_sessions
-               where tenant_id = $1
-                 and (
-                   created_at < $2
-                   or dispatch_id in (
-                     select id from telephony_dispatches
-                     where tenant_id = $1 and created_at < $2
-                   )
-                 )
-             )
-           )
-         returning id`,
+            and call_session_id in (
+              select call_session_id from telephony_execution_sessions
+              where tenant_id = $1
+                and lifecycle_state->>'stage' in ('completed', 'failed', 'expired')
+                and updated_at < $2
+            )
+          returning id`,
         [input.tenantId, input.retainAfter],
       );
       const executionCommands = await client.query(
         `delete from telephony_execution_commands
          where tenant_id = $1
-           and (
-             requested_at < $2
-             or dispatch_id in (
-               select id from telephony_dispatches
-               where tenant_id = $1 and created_at < $2
-             )
-             or session_id in (
-               select id from telephony_execution_sessions
-               where tenant_id = $1
-                 and (
-                   created_at < $2
-                   or dispatch_id in (
-                     select id from telephony_dispatches
-                     where tenant_id = $1 and created_at < $2
-                   )
-                 )
-             )
-           )
-         returning id`,
+            and session_id in (
+              select id from telephony_execution_sessions
+              where tenant_id = $1
+                and lifecycle_state->>'stage' in ('completed', 'failed', 'expired')
+                and updated_at < $2
+            )
+          returning id`,
         [input.tenantId, input.retainAfter],
       );
       const mediaTokens = await client.query(
         `delete from telephony_media_stream_tokens
          where tenant_id = $1
-           and (
-             created_at < $2
-             or dispatch_id in (
-               select id from telephony_dispatches
-               where tenant_id = $1 and created_at < $2
-             )
-             or call_session_id in (
-               select call_session_id from telephony_execution_sessions
-               where tenant_id = $1
-                 and (
-                   created_at < $2
-                   or dispatch_id in (
-                     select id from telephony_dispatches
-                     where tenant_id = $1 and created_at < $2
-                   )
-                 )
-             )
-           )
-         returning call_session_id`,
+            and call_session_id in (
+              select call_session_id from telephony_execution_sessions
+              where tenant_id = $1
+                and lifecycle_state->>'stage' in ('completed', 'failed', 'expired')
+                and updated_at < $2
+            )
+          returning call_session_id`,
         [input.tenantId, input.retainAfter],
       );
-      const executionSessions = await client.query(
+      const executionSessions = await client.query<{
+        id: string;
+        dispatch_id: string;
+      }>(
         `delete from telephony_execution_sessions
          where tenant_id = $1
-           and (
-             created_at < $2
-             or dispatch_id in (
-               select id from telephony_dispatches
-               where tenant_id = $1 and created_at < $2
-             )
-           )
-         returning id`,
+            and lifecycle_state->>'stage' in ('completed', 'failed', 'expired')
+            and updated_at < $2
+          returning id, dispatch_id`,
         [input.tenantId, input.retainAfter],
       );
-      const dispatches = await client.query(
+      const terminalDispatchIds = executionSessions.rows.map(
+        (row) => row.dispatch_id,
+      );
+      const dispatchDeleteBatchSize = 1_000;
+      let deletedDispatchCount = 0;
+      for (
+        let offset = 0;
+        offset < terminalDispatchIds.length;
+        offset += dispatchDeleteBatchSize
+      ) {
+        const dispatchIdChunk = terminalDispatchIds.slice(
+          offset,
+          offset + dispatchDeleteBatchSize,
+        );
+        const terminalDispatches = await client.query(
+          `delete from telephony_dispatches
+           where tenant_id = $1
+             and id in (${dispatchIdChunk
+               .map((_, index) => `$${index + 2}`)
+               .join(", ")})
+           returning id`,
+          [input.tenantId, ...dispatchIdChunk],
+        );
+        deletedDispatchCount += terminalDispatches.rows.length;
+      }
+      const blockedDispatches = await client.query(
         `delete from telephony_dispatches
-         where tenant_id = $1 and created_at < $2
-         returning id`,
+          where tenant_id = $1
+            and disposition = 'blocked'
+            and created_at < $2
+            and id not in (
+              select dispatch_id from telephony_execution_sessions
+              where tenant_id = $1
+            )
+          returning id`,
         [input.tenantId, input.retainAfter],
       );
+      deletedDispatchCount += blockedDispatches.rows.length;
       await client.query("commit");
       return {
         tenantId: input.tenantId,
@@ -619,8 +679,109 @@ export class PostgresTelephonyIncrementalRepository implements TelephonyIncremen
           executionCommands: executionCommands.rows.length,
           executionSessions: executionSessions.rows.length,
           mediaTokens: mediaTokens.rows.length,
-          dispatches: dispatches.rows.length,
+          dispatches: deletedDispatchCount,
         },
+      };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async recordConnectionHealthObservation(
+    input: RecordTelephonyConnectionHealthObservationInput,
+  ) {
+    const client = await this.database.connect();
+    setInstrumentedTransactionContext(client, {
+      operation: "telephony_connection_health_observation",
+    });
+    try {
+      await client.query("begin");
+      const owned = await client.query<{
+        status: string;
+        health_status: string;
+        outbound_abuse_blocked: boolean;
+      }>(
+        `select status, health_status, outbound_abuse_blocked
+         from telephony_connections
+         where tenant_id = $1 and id = $2
+         for update`,
+        [input.tenantId, input.connectionId],
+      );
+      if (owned.rows.length === 0) {
+        await client.query("rollback");
+        return { outcome: "not_found" as const };
+      }
+
+      const current = owned.rows[0]!;
+      const connectionStatus = current.outbound_abuse_blocked
+        ? (current.status as typeof input.connectionStatus)
+        : input.connectionStatus;
+      const healthStatus = current.outbound_abuse_blocked
+        ? (current.health_status as typeof input.healthStatus)
+        : input.healthStatus;
+      await client.query(
+        `update telephony_connections
+         set status = $3, health_status = $4
+         where tenant_id = $1 and id = $2`,
+        [
+          input.tenantId,
+          input.connectionId,
+          connectionStatus,
+          healthStatus,
+        ],
+      );
+      await client.query(
+        `insert into telephony_health_checks (
+          id, tenant_id, connection_id, status, blocking, checked_at,
+          message, scheduled, latency_ms, diagnostics
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        on conflict (id) do nothing`,
+        [
+          input.healthCheck.id,
+          input.tenantId,
+          input.connectionId,
+          input.healthCheck.status,
+          input.healthCheck.blocking,
+          input.healthCheck.checkedAt,
+          input.healthCheck.message,
+          input.healthCheck.scheduled ?? null,
+          input.healthCheck.latencyMs ?? null,
+          input.healthCheck.diagnostics ?? null,
+        ],
+      );
+      if (input.heartbeat !== undefined) {
+        await client.query(
+          `insert into telephony_provider_heartbeats (
+            id, tenant_id, connection_id, provider, ownership_mode, status,
+            blocking, scheduled, latency_ms, routed_number_count, at, message,
+            diagnostics
+          ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          on conflict (id) do nothing`,
+          [
+            input.heartbeat.id,
+            input.tenantId,
+            input.connectionId,
+            input.heartbeat.provider,
+            input.heartbeat.ownershipMode,
+            input.heartbeat.status,
+            input.heartbeat.blocking,
+            input.heartbeat.scheduled,
+            input.heartbeat.latencyMs,
+            input.heartbeat.routedNumberCount,
+            input.heartbeat.at,
+            input.heartbeat.message,
+            input.heartbeat.diagnostics,
+          ],
+        );
+      }
+      await client.query("commit");
+      return {
+        outcome: "updated" as const,
+        connectionStatus,
+        healthStatus,
       };
     } catch (error) {
       await rollbackQuietly(client);
@@ -1481,6 +1642,35 @@ interface ConnectionPostureRow extends QueryResultRow {
   id: string;
   status: string;
   health_status: string;
+}
+
+interface ConnectionAdmissionPostureRow extends QueryResultRow {
+  status: TelephonyConnection["status"];
+  health_status: TelephonyHealthStatus;
+  block_routing_on_health_failure: boolean;
+}
+
+async function lockOutboundExecutionConnection(
+  client: Pick<PoolClient, "query">,
+  input: CreateTelephonyCallExecutionInput,
+) {
+  if (input.dispatch.direction !== "outbound") {
+    return "allowed" as const;
+  }
+
+  const connection = await client.query<{ outbound_abuse_blocked: boolean }>(
+    `select outbound_abuse_blocked
+     from telephony_connections
+     where tenant_id = $1 and id = $2
+     for update`,
+    [input.dispatch.tenantId, input.executionSession.connectionId],
+  );
+  if (connection.rows.length === 0) {
+    return "not_owned" as const;
+  }
+  return connection.rows[0]!.outbound_abuse_blocked
+    ? ("blocked" as const)
+    : ("allowed" as const);
 }
 
 async function callSetupReferencesAreOwned(

@@ -53,6 +53,45 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     ).resolves.toEqual({ outcome: "conflict" });
   });
 
+  it("loads fresh tenant-scoped connection admission posture", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    await harness.pool.query(
+      `update telephony_connections
+       set status = 'disabled',
+           health_status = 'failed',
+           block_routing_on_health_failure = true
+       where tenant_id = $1 and id = $2`,
+      ["tenant-a", "connection-tenant-a"],
+    );
+
+    await expect(
+      harness.repository.loadConnectionAdmissionPosture({
+        tenantId: "tenant-a",
+        connectionId: "connection-tenant-a",
+      }),
+    ).resolves.toEqual({
+      outcome: "found",
+      posture: {
+        status: "disabled",
+        healthStatus: "failed",
+        blockRoutingOnHealthFailure: true,
+      },
+    });
+    await expect(
+      harness.repository.loadConnectionAdmissionPosture({
+        tenantId: "tenant-b",
+        connectionId: "connection-tenant-a",
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+    await expect(
+      harness.repository.loadConnectionAdmissionPosture({
+        tenantId: "tenant-a",
+        connectionId: "missing-connection",
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
+  });
+
   it("persists a blocked dispatch idempotently without creating call setup rows", async () => {
     const harness = await createHarness();
     const dispatch = structuredClone(callSetup("tenant-a", "blocked-call").dispatch);
@@ -221,6 +260,48 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       { table_name: "commands", count: "1" },
       { table_name: "tokens", count: "0" },
     ]);
+  });
+
+  it("rejects an outbound execution when its tenant-owned connection is abuse blocked", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    const execution = outboundCallExecution("tenant-a", "abuse-blocked-execution");
+    await harness.pool.query(
+      `update telephony_connections
+       set outbound_abuse_blocked = true
+       where tenant_id = $1 and id = $2`,
+      [execution.dispatch.tenantId, execution.executionSession.connectionId],
+    );
+
+    await expect(harness.repository.createCallExecution(execution)).resolves.toEqual({
+      outcome: "blocked",
+      reasonCode: "outbound_abuse_blocked",
+    });
+
+    const counts = await harness.pool.query<{ table_name: string; count: string }>(`
+      SELECT 'dispatches' AS table_name, count(*)::text AS count FROM telephony_dispatches
+      UNION ALL SELECT 'sessions', count(*)::text FROM telephony_execution_sessions
+      UNION ALL SELECT 'commands', count(*)::text FROM telephony_execution_commands
+    `);
+    expect(counts.rows).toEqual([
+      { table_name: "dispatches", count: "0" },
+      { table_name: "sessions", count: "0" },
+      { table_name: "commands", count: "0" },
+    ]);
+
+    await expect(
+      harness.repository.createCallExecution(
+        outboundCallExecution("tenant-b", "other-tenant-outbound"),
+      ),
+    ).resolves.toEqual({ outcome: "inserted" });
+    const inbound = callSetup("tenant-a", "abuse-blocked-inbound");
+    await expect(
+      harness.repository.createCallExecution({
+        dispatch: inbound.dispatch,
+        executionSession: inbound.executionSession,
+        executionCommands: inbound.executionCommands,
+      }),
+    ).resolves.toEqual({ outcome: "inserted" });
   });
 
   it("rejects duplicate setup after the established session has progressed", async () => {
@@ -800,11 +881,93 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         )
       ).rows,
     ).toEqual([]);
+    const tenantA = await harness.pool.query(
+      `select status, health_status, outbound_abuse_blocked
+       from telephony_connections
+       where tenant_id = $1
+       order by id`,
+      ["tenant-a"],
+    );
+    expect(tenantA.rows).toEqual([
+      {
+        status: "disabled",
+        health_status: "failed",
+        outbound_abuse_blocked: true,
+      },
+      {
+        status: "disabled",
+        health_status: "failed",
+        outbound_abuse_blocked: true,
+      },
+    ]);
     const tenantB = await harness.pool.query(
       "select status, health_status from telephony_connections where tenant_id = $1",
       ["tenant-b"],
     );
     expect(tenantB.rows).toEqual([{ status: "active", health_status: "healthy" }]);
+  });
+
+  it("records one health observation without clearing a durable abuse block", async () => {
+    const harness = await createHarness();
+    pool = harness.pool;
+    await harness.pool.query(
+      `update telephony_connections
+       set status = 'disabled', health_status = 'failed', outbound_abuse_blocked = true
+       where tenant_id = $1 and id = $2`,
+      ["tenant-a", "connection-tenant-a"],
+    );
+
+    await expect(
+      harness.repository.recordConnectionHealthObservation({
+        tenantId: "tenant-a",
+        connectionId: "connection-tenant-a",
+        connectionStatus: "active",
+        healthStatus: "healthy",
+        healthCheck: {
+          id: "connection-tenant-a:health:2026-07-24T12:00:00.000Z",
+          connectionId: "connection-tenant-a",
+          status: "healthy",
+          blocking: false,
+          checkedAt: "2026-07-24T12:00:00.000Z",
+          message: "Provider credentials are valid.",
+        },
+        heartbeat: {
+          id: "connection-tenant-a:heartbeat:2026-07-24T12:00:00.000Z",
+          tenantId: "tenant-a",
+          connectionId: "connection-tenant-a",
+          provider: "twilio",
+          ownershipMode: "byo_provider_account",
+          status: "healthy",
+          blocking: false,
+          scheduled: false,
+          latencyMs: 12,
+          routedNumberCount: 1,
+          at: "2026-07-24T12:00:00.000Z",
+          message: "Provider heartbeat succeeded.",
+          diagnostics: [],
+        },
+      }),
+    ).resolves.toEqual({
+      outcome: "updated",
+      connectionStatus: "disabled",
+      healthStatus: "failed",
+    });
+    await expect(
+      harness.pool.query(
+        `select status, health_status, outbound_abuse_blocked
+         from telephony_connections
+         where tenant_id = $1 and id = $2`,
+        ["tenant-a", "connection-tenant-a"],
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          status: "disabled",
+          health_status: "failed",
+          outbound_abuse_blocked: true,
+        },
+      ],
+    });
   });
 
   it("records the same checkpoint for separate calls in one waiting session", async () => {
@@ -1019,17 +1182,45 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     const harness = await createHarness();
     pool = harness.pool;
     const expired = callSetup("tenant-a", "retention-expired");
+    expired.executionSession.status = "completed";
+    expired.executionSession.lifecycleState = {
+      stage: "completed",
+      observedAt: "2026-07-23T12:30:00.000Z",
+    };
+    expired.executionSession.updatedAt = "2026-07-23T12:30:00.000Z";
+    const active = callSetup("tenant-a", "retention-active");
     const retained = callSetup("tenant-a", "retention-retained");
     const otherTenant = callSetup("tenant-b", "retention-other-tenant");
+    const blockedDispatch = {
+      ...structuredClone(expired.dispatch),
+      id: "CA-retention-blocked:telephony:webhook",
+      disposition: "blocked" as const,
+      callSessionId: undefined,
+    };
+    const routedPreSessionDispatch = {
+      ...structuredClone(active.dispatch),
+      id: "CA-retention-routed-pre-session:telephony",
+      callSessionId: "CA-retention-routed-pre-session:telephony",
+    };
     setCallSetupTimestamps(retained, "2026-07-25T12:00:00.000Z");
     await harness.repository.createCallSetup(expired);
+    await harness.repository.createCallSetup(active);
     await harness.repository.createCallSetup(retained);
     await harness.repository.createCallSetup(otherTenant);
+    await harness.repository.insertDispatch(blockedDispatch);
+    await harness.repository.insertDispatch(routedPreSessionDispatch);
     const expiredWebhook = webhookEvent("tenant-a", "retention-expired");
+    expiredWebhook.callSid = expired.executionSession.callSessionId;
+    const activeWebhook = webhookEvent("tenant-a", "retention-active");
+    activeWebhook.callSid = active.executionSession.callSessionId;
     const retainedWebhook = webhookEvent("tenant-a", "retention-retained");
     retainedWebhook.receivedAt = "2026-07-25T12:00:00.000Z";
+    const blockedWebhook = webhookEvent("tenant-a", "retention-blocked");
+    blockedWebhook.callSid = "CA-retention-blocked";
     await harness.repository.insertWebhookEvent(expiredWebhook);
+    await harness.repository.insertWebhookEvent(activeWebhook);
     await harness.repository.insertWebhookEvent(retainedWebhook);
+    await harness.repository.insertWebhookEvent(blockedWebhook);
     await harness.pool.query(
       `insert into telephony_call_control_events
          (id, tenant_id, dispatch_id, call_session_id, event_type, at, summary, payload)
@@ -1056,21 +1247,29 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       tenantId: "tenant-a",
       retainAfter: "2026-07-24T00:00:00.000Z",
       deletedCounts: {
-        webhookEvents: 1,
+        webhookEvents: 2,
         callControlEvents: 1,
         executionCommands: 1,
         executionSessions: 1,
         mediaTokens: 1,
-        dispatches: 1,
+        dispatches: 2,
       },
     });
     await expect(runtimeRowCounts(harness.pool, "tenant-a")).resolves.toEqual({
-      webhookEvents: 1,
+      webhookEvents: 2,
       callControlEvents: 1,
-      executionCommands: 1,
-      executionSessions: 1,
-      mediaTokens: 1,
-      dispatches: 1,
+      executionCommands: 2,
+      executionSessions: 2,
+      mediaTokens: 2,
+      dispatches: 3,
+    });
+    await expect(
+      harness.pool.query(
+        "select id from telephony_dispatches where tenant_id = $1 and id = $2",
+        ["tenant-a", routedPreSessionDispatch.id],
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ id: routedPreSessionDispatch.id }],
     });
     await expect(runtimeRowCounts(harness.pool, "tenant-b")).resolves.toMatchObject({
       callControlEvents: 1,
@@ -1079,6 +1278,12 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       mediaTokens: 1,
       dispatches: 1,
     });
+    await expect(
+      harness.repository.loadCallMutationContext({
+        tenantId: "tenant-a",
+        callSessionId: active.executionSession.callSessionId,
+      }),
+    ).resolves.toMatchObject({ outcome: "found" });
     await expect(
       harness.repository.deleteRetainedCallData({
         tenantId: "tenant-a",
@@ -1271,6 +1476,22 @@ function callSetup(tenantId: string, suffix: string): CreateTelephonyCallSetupIn
   };
 }
 
+function outboundCallExecution(
+  tenantId: string,
+  suffix: string,
+): CreateTelephonyCallExecutionInput {
+  const setup = callSetup(tenantId, suffix);
+  setup.dispatch.direction = "outbound";
+  setup.dispatch.disposition = "queued";
+  setup.dispatch.reason = "Outbound call queued.";
+  setup.executionSession.direction = "outbound";
+  return {
+    dispatch: setup.dispatch,
+    executionSession: setup.executionSession,
+    executionCommands: setup.executionCommands,
+  };
+}
+
 function setCallSetupTimestamps(
   setup: CreateTelephonyCallSetupInput,
   timestamp: string,
@@ -1320,7 +1541,25 @@ async function createHarness(
       id text PRIMARY KEY,
       tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
       status text NOT NULL DEFAULT 'active',
-      health_status text NOT NULL DEFAULT 'healthy'
+      health_status text NOT NULL DEFAULT 'healthy',
+      block_routing_on_health_failure boolean NOT NULL DEFAULT true,
+      outbound_abuse_blocked boolean NOT NULL DEFAULT false
+    );
+    CREATE TABLE telephony_health_checks (
+      id text PRIMARY KEY,
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      connection_id text NOT NULL REFERENCES telephony_connections(id) ON DELETE CASCADE,
+      status text NOT NULL, blocking boolean NOT NULL, checked_at timestamptz NOT NULL,
+      message text NOT NULL, scheduled boolean, latency_ms integer, diagnostics jsonb
+    );
+    CREATE TABLE telephony_provider_heartbeats (
+      id text PRIMARY KEY,
+      tenant_id text NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      connection_id text NOT NULL REFERENCES telephony_connections(id) ON DELETE CASCADE,
+      provider text NOT NULL, ownership_mode text NOT NULL, status text NOT NULL,
+      blocking boolean NOT NULL, scheduled boolean NOT NULL, latency_ms integer NOT NULL,
+      routed_number_count integer NOT NULL, at timestamptz NOT NULL,
+      message text NOT NULL, diagnostics jsonb NOT NULL
     );
     CREATE TABLE telephony_phone_numbers (
       id text PRIMARY KEY,

@@ -73,11 +73,93 @@ jobs:
           import { readFile } from "node:fs/promises";
           import pg from "pg";
           const pool = new pg.Pool({ connectionString: process.env.ROLLBACK_DATABASE_URL });
-          const rollback = await readFile(
+          const abusePostureRollback = await readFile(
+            "docs/Runbooks/rollback-0013-telephony-outbound-abuse-posture.sql",
+            "utf8",
+          );
+          const obsoleteDedupeRollback = await readFile(
+            "docs/Runbooks/rollback-0012-obsolete-webhook-dedupe.sql",
+            "utf8",
+          );
+          const tenantCompositeIdentityRollback = await readFile(
+            "docs/Runbooks/rollback-0011-telephony-tenant-composite-identities.sql",
+            "utf8",
+          );
+          const lifecycleRollback = await readFile(
+            "docs/Runbooks/rollback-0010-telephony-call-lifecycle.sql",
+            "utf8",
+          );
+          const incrementalRollback = await readFile(
             "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
             "utf8",
           );
-          await pool.query(rollback);
+          await pool.query(abusePostureRollback);
+          await pool.query(obsoleteDedupeRollback);
+          await pool.query(tenantCompositeIdentityRollback);
+          await pool.query(lifecycleRollback);
+          await pool.query(incrementalRollback);
+          await pool.query(`
+            insert into tenants (id, slug, name)
+            values ('rollback-tenant', 'rollback-tenant', 'Rollback tenant');
+
+            insert into telephony_connections (
+              id, tenant_id, label, ownership_mode, provider, region, status,
+              health_status, recording_policy, block_routing_on_health_failure,
+              webhook_status, created_by
+            ) values (
+              'rollback-connection', 'rollback-tenant', 'Rollback connection',
+              'byo_provider_account', 'twilio', 'us1', 'active', 'healthy',
+              '{}'::jsonb, true, 'configured', 'migration-check'
+            );
+
+            insert into telephony_dispatches (
+              id, tenant_id, direction, disposition, reason, call_session_id,
+              connection_id, recording, to_phone_number, from_phone_number,
+              created_at, source
+            ) values (
+              'rollback-dispatch', 'rollback-tenant', 'inbound', 'routed',
+              'migration-check', 'rollback-call', 'rollback-connection',
+              '{}'::jsonb, '+15555550100', '+15555550101', now(), 'twilio'
+            );
+
+            insert into telephony_execution_sessions (
+              id, tenant_id, dispatch_id, call_session_id, connection_id,
+              provider, ownership_mode, direction, status, to_phone_number,
+              from_phone_number, test_call, bridge_kind, bridge_target,
+              media_path, diagnostics, created_at, updated_at
+            ) values (
+              'rollback-session', 'rollback-tenant', 'rollback-dispatch',
+              'rollback-call', 'rollback-connection', 'twilio',
+              'byo_provider_account', 'inbound', 'active', '+15555550100',
+              '+15555550101', false, 'media-stream', 'rollback-target',
+              'pstn-premium-realtime', '[]'::jsonb, now(), now()
+            );
+
+            insert into telephony_processed_webhook_events (
+              id, tenant_id, event_sid, processed_at
+            ) values (
+              'rollback-processed-event', 'rollback-tenant',
+              'EV-rollback-processed-event', now()
+            );
+
+            insert into telephony_execution_commands (
+              id, tenant_id, session_id, dispatch_id, call_session_id,
+              provider, action, status, target, payload, requested_at
+            ) values (
+              'rollback-command', 'rollback-tenant', 'rollback-session',
+              'rollback-dispatch', 'rollback-call', 'twilio', 'hangup',
+              'requested', 'caller', '{}'::jsonb, now()
+            );
+
+            insert into telephony_call_control_events (
+              id, tenant_id, dispatch_id, call_session_id, event_type,
+              at, summary, payload
+            ) values (
+              'rollback-control', 'rollback-tenant', 'rollback-dispatch',
+              'rollback-call', 'hangup_requested', now(),
+              'Previous revision control write', '{}'::jsonb
+            );
+          `);
           const result = await pool.query(
             `select
                to_regclass('telephony_media_stream_tokens') as token_table,
@@ -86,10 +168,21 @@ jobs:
                to_regclass('telephony_execution_sessions_tenant_call_session_unique_idx') as tenant_session_index,
                to_regclass('telephony_webhook_events_tenant_event_sid_unique_idx') as legacy_webhook_index,
                to_regclass('telephony_webhook_events_tenant_connection_event_sid_unique_idx') as tenant_webhook_index,
+               to_regclass('telephony_processed_webhook_events') as compatibility_table,
+               exists (
+                 select 1 from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name = 'telephony_connections'
+                   and column_name = 'outbound_abuse_blocked'
+               ) as has_outbound_abuse_blocked,
                exists (
                  select 1 from information_schema.columns
                  where table_name = 'telephony_execution_sessions' and column_name = 'version'
                ) as has_version,
+               exists (
+                 select 1 from information_schema.columns
+                 where table_name = 'telephony_execution_sessions' and column_name = 'lifecycle_state'
+               ) as has_lifecycle_state,
                exists (
                  select 1 from information_schema.columns
                  where table_name = 'telephony_dispatches' and column_name = 'runtime_path'
@@ -118,7 +211,47 @@ jobs:
                    'telephony_execution_sessions_dispatch_fk',
                    'telephony_execution_commands_session_fk'
                  )
-               ) as has_incremental_constraints`,
+               ) as has_incremental_constraints,
+               (
+                 select count(*) from telephony_execution_sessions
+                 where id = 'rollback-session'
+               ) as legacy_insert_count,
+               (
+                 select count(*) from telephony_processed_webhook_events
+                 where id = 'rollback-processed-event'
+               ) as compatibility_write_count,
+               (
+                 select string_agg(attribute.attname, ',' order by key.ordinality)
+                 from pg_constraint constraint_record
+                 cross join lateral unnest(constraint_record.conkey)
+                   with ordinality as key(attribute_number, ordinality)
+                 join pg_attribute attribute
+                   on attribute.attrelid = constraint_record.conrelid
+                  and attribute.attnum = key.attribute_number
+                 where constraint_record.conrelid =
+                   'telephony_execution_commands'::regclass
+                   and constraint_record.contype = 'p'
+               ) as execution_command_primary_key_columns,
+               (
+                 select string_agg(attribute.attname, ',' order by key.ordinality)
+                 from pg_constraint constraint_record
+                 cross join lateral unnest(constraint_record.conkey)
+                   with ordinality as key(attribute_number, ordinality)
+                 join pg_attribute attribute
+                   on attribute.attrelid = constraint_record.conrelid
+                  and attribute.attnum = key.attribute_number
+                 where constraint_record.conrelid =
+                   'telephony_call_control_events'::regclass
+                   and constraint_record.contype = 'p'
+               ) as call_control_primary_key_columns,
+               (
+                 select count(*) from telephony_execution_commands
+                 where id = 'rollback-command'
+               ) as previous_revision_command_write_count,
+               (
+                 select count(*) from telephony_call_control_events
+                 where id = 'rollback-control'
+               ) as previous_revision_control_write_count`,
           );
           const row = result.rows[0];
           if (
@@ -128,13 +261,24 @@ jobs:
             row.tenant_session_index !== null ||
             row.legacy_webhook_index === null ||
             row.tenant_webhook_index !== null ||
+            row.compatibility_table === null ||
+            row.has_outbound_abuse_blocked ||
             row.has_version ||
+            row.has_lifecycle_state ||
             row.has_runtime_path ||
             row.has_recording_consent ||
             !row.has_legacy_constraints ||
-            row.has_incremental_constraints
+            row.has_incremental_constraints ||
+            row.legacy_insert_count !== "1" ||
+            row.compatibility_write_count !== "1" ||
+            row.execution_command_primary_key_columns !== "id" ||
+            row.call_control_primary_key_columns !== "id" ||
+            row.previous_revision_command_write_count !== "1" ||
+            row.previous_revision_control_write_count !== "1"
           ) {
-            throw new Error(`Incremental telephony rollback parity failed: ${JSON.stringify(row)}`);
+            throw new Error(
+              `legacy execution-session insert compatibility failed: ${JSON.stringify(row)}`,
+            );
           }
           await pool.end();
           NODE

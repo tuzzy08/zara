@@ -233,14 +233,31 @@ Optional local environment variables:
 
 Operational persistence depends on the main `DATABASE_URL` and stores telephony state across normalized control-plane tables for connections, numbers, health checks, dispatches, execution sessions, execution commands, webhook events, and encrypted credential envelopes.
 
+### PSTN Call Admission
+
+Redis-backed PSTN admission is required in production and configured by these environment variables:
+
+- `PSTN_ADMISSION_REDIS_URL`: Redis 7 connection URL and production admission authority. Without it, production readiness is unavailable and new calls fail closed. Non-production environments may use the deterministic in-memory adapter.
+- `PSTN_WORKER_ID`: unique worker owner for lease fencing. It defaults to the container `HOSTNAME`, then to a process-local identifier outside a container.
+- `PSTN_ADMISSION_GLOBAL_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_PROVIDER_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_TENANT_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_WORKER_MAX_CONCURRENT_CALLS`, `PSTN_ADMISSION_SANDWICH_MAX_CONCURRENT_CALLS`, and `PSTN_ADMISSION_PREMIUM_MAX_CONCURRENT_CALLS`: non-negative concurrency limits. Each defaults to the provisional guardrail of 20; explicit zero closes that dimension.
+- `PSTN_ADMISSION_GLOBAL_CPS_BURST` and `PSTN_ADMISSION_GLOBAL_CPS_RATE`: global token-bucket capacity and refill rate. Local defaults are 10 and 10 calls per second; production requires an explicit valid refill rate.
+- `PSTN_ADMISSION_PROVIDER_CPS_BURST` and `PSTN_ADMISSION_PROVIDER_CPS_RATE`: provider-account token-bucket capacity and refill rate. Local defaults are 5 and 5 calls per second; production requires an explicit valid refill rate.
+- `PSTN_ADMISSION_TWILIO_QUOTA_MAX_CONCURRENT_CALLS`: optional platform-owned Twilio quota allowance. When set, it can only tighten the configured provider concurrency limit.
+- `PSTN_ADMISSION_CLAIM_TTL_MS`, `PSTN_ADMISSION_ACTIVE_TTL_MS`, and `PSTN_ADMISSION_RENEW_INTERVAL_MS`: reservation and active-lease timing. Defaults are 30,000 ms, 120,000 ms, and 30,000 ms; the active TTL must be at least three renewal intervals.
+- `PSTN_ADMISSION_COMMAND_TIMEOUT_MS`: Redis command timeout. The default is 750 ms.
+
+In production, missing Redis, Redis readiness failure, malformed or out-of-range concurrency/CPS/lease/quota configuration, or a failed provider-health observation whose connection policy blocks routing makes admission unavailable for new calls. The readiness endpoint exposes backend and configuration unavailability. Existing active media continues independently of synchronous Redis availability, and admission is released only through durable terminal lifecycle handling. The Twilio quota allowance is explicit platform configuration; Zara does not infer it from balance, heartbeat, or unrelated provider data.
+
 ## Persistence Ownership
 
 Telephony configuration and active-call runtime state have separate write contracts:
 
-- Configuration snapshots are limited to operator-owned provider connections, imported numbers, route configuration, health checks, provider heartbeats, and encrypted credential envelopes. The remaining per-tenant serialization queue is named and used as configuration persistence only.
+- Configuration snapshots are limited to operator-owned provider connections, imported numbers, route configuration, provider labels, and encrypted credential envelopes. The remaining per-tenant serialization queue is named and used as configuration persistence only.
+- Provider status, provider health posture, health checks, and provider heartbeats are operational evidence written through tenant-scoped incremental repository methods. Configuration snapshots cannot replace, omit, or revive that evidence.
 - Inbound and outbound dispatches, signed webhook deduplication, execution sessions and commands, media-token creation and claims, phone-test projections and checkpoints, call controls, lifecycle and policy transitions, handoffs, status callbacks, and termination are persisted with tenant-and-call scoped incremental repository methods.
 - Runtime rows are never deleted and recreated by a configuration save. Call workers do not fall back to whole-tenant snapshots or in-memory state when an incremental write conflicts or fails.
-- `telephony_webhook_events` is the sole durable webhook deduplication record. Migration `0012_superb_stellaris.sql` removes the obsolete `telephony_processed_webhook_events` fallback table; `docs/Runbooks/rollback-0012-obsolete-webhook-dedupe.sql` restores it only for release rollback.
+- `telephony_webhook_events` is the sole durable webhook deduplication authority. The compatibility-only `telephony_processed_webhook_events` table is retained while the immediately preceding application revision may still run during a rolling deploy; migration `0013_telephony_outbound_abuse_posture.sql` repairs databases where the original destructive `0012` already removed it.
 - Connection and imported-number deletion are explicit tenant-scoped operations. Their dependent runtime/checkpoint rows follow the declared foreign-key and transactional deletion policy instead of being inferred from a replacement snapshot.
+- Retention deletes a call graph only when its execution session is terminal and older than the configured cutoff. Active calls are never eligible for retention, even when their creation time predates the cutoff.
 
 The Postgres qualification starts 50 concurrent calls for one tenant while 10 calls run for another tenant. It verifies unique call ownership, cross-tenant isolation, monotonic terminal lifecycle, idempotent replay, phone-number checkpoint cascade, and pool, transaction, row-lock, deadlock, and retry telemetry. This is a persistence-concurrency qualification, not a certified worker call-capacity number.

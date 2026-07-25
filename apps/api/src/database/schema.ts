@@ -333,6 +333,7 @@ export const telephonyConnections = pgTable(
     region: text("region").notNull(),
     status: text("status").$type<TelephonyConnection["status"]>().notNull(),
     healthStatus: text("health_status").$type<TelephonyConnection["healthStatus"]>().notNull(),
+    outboundAbuseBlocked: boolean("outbound_abuse_blocked").notNull().default(false),
     recordingPolicy: jsonb("recording_policy").$type<TelephonyRecordingPolicy>().notNull(),
     blockRoutingOnHealthFailure: boolean("block_routing_on_health_failure").notNull(),
     credentialReference: jsonb("credential_reference").$type<EncryptedCredentialReference | null>(),

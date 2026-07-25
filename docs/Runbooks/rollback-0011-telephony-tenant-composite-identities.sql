@@ -1,3 +1,8 @@
+BEGIN;
+
+LOCK TABLE "telephony_execution_commands", "telephony_call_control_events"
+  IN ACCESS EXCLUSIVE MODE;
+
 DO $$
 BEGIN
   IF EXISTS (
@@ -31,3 +36,5 @@ ALTER TABLE "telephony_call_control_events"
   DROP CONSTRAINT "telephony_call_control_events_tenant_id_id_pk";
 ALTER TABLE "telephony_call_control_events"
   ADD CONSTRAINT "telephony_call_control_events_pkey" PRIMARY KEY ("id");
+
+COMMIT;

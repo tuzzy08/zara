@@ -1,4 +1,8 @@
-import type { ImportedTelephonyPhoneNumber } from "@zara/core";
+import type {
+  ImportedTelephonyPhoneNumber,
+  TelephonyConnection,
+  TelephonyHealthStatus,
+} from "@zara/core";
 
 import type {
   CreateTelephonyCallExecutionInput,
@@ -26,6 +30,14 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     phoneTestResults: UpdateTelephonyPhoneTestProjectionInput["phoneTestResults"];
   }> = [];
   readonly connectionTenants = new Map<string, string>();
+  readonly connectionAdmissionPostures = new Map<
+    string,
+    {
+      status: TelephonyConnection["status"];
+      healthStatus: TelephonyHealthStatus;
+      blockRoutingOnHealthFailure: boolean;
+    }
+  >();
   readonly disabledConnectionIds = new Set<string>();
   readonly phoneTestCheckpoints:
     Parameters<TelephonyIncrementalRepository["recordPhoneTestCheckpoint"]>[0][] = [];
@@ -35,8 +47,11 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     Parameters<TelephonyIncrementalRepository["transitionCallLifecycle"]>[0][] = [];
   readonly mediaTokenClaims:
     Parameters<TelephonyIncrementalRepository["claimMediaToken"]>[0][] = [];
+  readonly connectionHealthObservations:
+    Parameters<TelephonyIncrementalRepository["recordConnectionHealthObservation"]>[0][] = [];
   failCallSetup = false;
   failPhoneTestCheckpoint = false;
+  failPhoneTestProjection = false;
   callLifecycleConflictsRemaining = 0;
 
   loadPhoneNumberProjections(
@@ -66,7 +81,23 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
   loadConnections(tenantId: string, connectionIds: readonly string[]) {
     for (const connectionId of connectionIds) {
       this.connectionTenants.set(connectionId, tenantId);
+      this.connectionAdmissionPostures.set(connectionId, {
+        status: "active",
+        healthStatus: "healthy",
+        blockRoutingOnHealthFailure: true,
+      });
     }
+  }
+
+  setConnectionAdmissionPosture(
+    connectionId: string,
+    posture: {
+      status: TelephonyConnection["status"];
+      healthStatus: TelephonyHealthStatus;
+      blockRoutingOnHealthFailure: boolean;
+    },
+  ) {
+    this.connectionAdmissionPostures.set(connectionId, structuredClone(posture));
   }
 
   async insertWebhookEvent(event: Parameters<TelephonyIncrementalRepository["insertWebhookEvent"]>[0]) {
@@ -191,6 +222,9 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
   async updatePhoneTestProjection(
     input: Parameters<TelephonyIncrementalRepository["updatePhoneTestProjection"]>[0],
   ) {
+    if (this.failPhoneTestProjection) {
+      throw new Error("phone-test projection database unavailable");
+    }
     const projection = this.phoneTestProjections.find(
       (candidate) =>
         candidate.tenantId === input.tenantId &&
@@ -367,6 +401,45 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     };
   }
 
+  async recordConnectionHealthObservation(
+    input: Parameters<TelephonyIncrementalRepository["recordConnectionHealthObservation"]>[0],
+  ) {
+    if (this.connectionTenants.get(input.connectionId) !== input.tenantId) {
+      return { outcome: "not_found" as const };
+    }
+    this.connectionHealthObservations.push(structuredClone(input));
+    const abuseBlocked = this.disabledConnectionIds.has(input.connectionId);
+    const existingPosture = this.connectionAdmissionPostures.get(input.connectionId);
+    if (existingPosture !== undefined) {
+      this.connectionAdmissionPostures.set(input.connectionId, {
+        ...existingPosture,
+        status: abuseBlocked ? "disabled" : input.connectionStatus,
+        healthStatus: abuseBlocked ? "failed" : input.healthStatus,
+      });
+    }
+    return {
+      outcome: "updated" as const,
+      connectionStatus: abuseBlocked ? ("disabled" as const) : input.connectionStatus,
+      healthStatus: abuseBlocked ? ("failed" as const) : input.healthStatus,
+    };
+  }
+
+  async loadConnectionAdmissionPosture(
+    input: Parameters<TelephonyIncrementalRepository["loadConnectionAdmissionPosture"]>[0],
+  ) {
+    if (this.connectionTenants.get(input.connectionId) !== input.tenantId) {
+      return { outcome: "not_found" as const };
+    }
+    const posture = this.connectionAdmissionPostures.get(input.connectionId);
+    if (posture === undefined) {
+      return { outcome: "not_found" as const };
+    }
+    return {
+      outcome: "found" as const,
+      posture: structuredClone(posture),
+    };
+  }
+
   async deleteConnection(
     input: Parameters<TelephonyIncrementalRepository["deleteConnection"]>[0],
   ) {
@@ -462,6 +535,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
         dispatch.connectionId === input.connectionId,
     );
     this.connectionTenants.delete(input.connectionId);
+    this.connectionAdmissionPostures.delete(input.connectionId);
     return {
       outcome: "deleted" as const,
       deletedCounts: {
@@ -612,10 +686,9 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     }
     const loaded = await this.loadCallRuntimeContext(input);
     if (loaded.outcome === "not_found") return loaded;
-    const setup = this.callSetups.find(
-      (candidate) =>
-        candidate.executionSession.tenantId === input.tenantId &&
-        candidate.executionSession.callSessionId === input.callSessionId,
+    const setup = this.findCallExecution(
+      input.tenantId,
+      input.callSessionId,
     )!;
     if (
       loaded.context.version === input.expectedVersion + 1 &&
@@ -649,7 +722,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     const existing = this.phoneTestCheckpoints.find(
       (candidate) =>
         candidate.tenantId === checkpoint.tenantId &&
-        candidate.testRouteSessionId === checkpoint.testRouteSessionId &&
+        candidate.callSessionId === checkpoint.callSessionId &&
         candidate.checkpoint === checkpoint.checkpoint,
     );
     if (existing !== undefined) return { outcome: "existing" as const };
@@ -670,7 +743,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
       return { outcome: "not_applicable" as const };
     }
     const checkpoint = {
-      id: `${input.callSessionId}:${input.checkpoint}`,
+      id: `${input.tenantId}:${input.callSessionId}:${input.checkpoint}`,
       tenantId: input.tenantId,
       phoneNumberId: setup.dispatch.phoneNumberId,
       callSessionId: input.callSessionId,
@@ -681,7 +754,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyIncremen
     const existing = this.phoneTestCheckpoints.find(
       (candidate) =>
         candidate.tenantId === checkpoint.tenantId &&
-        candidate.testRouteSessionId === checkpoint.testRouteSessionId &&
+        candidate.callSessionId === checkpoint.callSessionId &&
         candidate.checkpoint === checkpoint.checkpoint,
     );
     if (existing !== undefined) return { outcome: "existing" as const };

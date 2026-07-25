@@ -3,6 +3,7 @@ import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
 import { Logger } from "@nestjs/common";
 
 import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
+import { PstnPremiumCallActor } from "./pstn-premium-call-actor";
 import {
   PstnPremiumCallExecution,
   type PstnPremiumCallOutput,
@@ -63,6 +64,7 @@ describe("PstnPremiumCallExecution", () => {
         async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
           checkpoints.push(input.checkpoint);
         },
+        async recordPstnCallLifecycle() {},
       } as never,
       {
         async getPublishedManifest() {
@@ -656,6 +658,144 @@ describe("PstnPremiumCallExecution", () => {
     expect(harness.lifecycleStages).toEqual(["failed"]);
   });
 
+  it("does not end capacity when installed startup terminal persistence fails", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(stage) {
+        if (stage !== "failed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+    const actorStart = vi.spyOn(PstnPremiumCallActor.prototype, "start")
+      .mockImplementation(function startWithReadinessFailure(this: PstnPremiumCallActor) {
+        this.fail("premium_provider_readiness_failed");
+        return Promise.reject(new Error("provider readiness failed"));
+      });
+
+    try {
+      await expect(harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      })).rejects.toThrow("terminal lifecycle unavailable");
+
+      expect(terminalAttempts).toBe(1);
+      expect(capacityOutcomes).toEqual([]);
+
+      await harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+        outcome: "failed",
+        reasonCode: "premium_provider_readiness_failed",
+      });
+
+      expect(terminalAttempts).toBe(2);
+      expect(capacityOutcomes).toEqual(["failed"]);
+    } finally {
+      actorStart.mockRestore();
+    }
+  });
+
+  it("retries pre-install terminal persistence through stop without ending capacity early", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      connectError: new Error("provider unavailable"),
+      async recordLifecycle(stage) {
+        if (stage !== "failed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+    const startInput = {
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    };
+
+    await expect(harness.execution.start(startInput))
+      .rejects.toThrow("terminal lifecycle unavailable");
+    expect(terminalAttempts).toBe(1);
+    expect(capacityOutcomes).toEqual([]);
+
+    await harness.execution.stop({
+      callSessionId: startInput.callSessionId,
+      outcome: "failed",
+      reasonCode: "premium_provider_start_failed",
+    });
+
+    expect(terminalAttempts).toBe(2);
+    expect(capacityOutcomes).toEqual(["failed"]);
+
+    await harness.execution.stop({
+      callSessionId: startInput.callSessionId,
+      outcome: "failed",
+      reasonCode: "premium_provider_start_failed",
+    });
+
+    expect(terminalAttempts).toBe(2);
+    expect(capacityOutcomes).toEqual(["failed"]);
+  });
+
+  it("retries pre-install terminal persistence during shutdown", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      connectError: new Error("provider unavailable"),
+      async recordLifecycle(stage) {
+        if (stage !== "failed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+
+    await expect(harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    })).rejects.toThrow("terminal lifecycle unavailable");
+
+    expect(terminalAttempts).toBe(1);
+    expect(capacityOutcomes).toEqual([]);
+
+    await harness.execution.shutdown();
+
+    expect(terminalAttempts).toBe(2);
+    expect(capacityOutcomes).toEqual(["failed"]);
+  });
+
+  it("rejects stop for a call that was never started", async () => {
+    const harness = createMinimalExecutionHarness("openai-realtime");
+
+    await expect(harness.execution.stop({
+      callSessionId: "CA-unknown:telephony",
+    })).rejects.toThrow(
+      "Premium PSTN execution 'CA-unknown:telephony' is not active.",
+    );
+  });
+
   it("never writes provider-controlled startup error text to logs", async () => {
     const log = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
     const sensitive = "wss://provider.example?api_key=secret raw caller payload";
@@ -1125,13 +1265,103 @@ describe("PstnPremiumCallExecution", () => {
       },
     });
 
-    await harness.execution.onApplicationShutdown();
-    await harness.execution.onApplicationShutdown();
+    await harness.execution.shutdown();
+    await harness.execution.shutdown();
 
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(callerCloses).toEqual(["app_shutdown"]);
     expect(providerCloses).toEqual(["app_shutdown"]);
     expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
+  });
+
+  it("keeps a completed execution retryable until its terminal lifecycle is durable", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(stage) {
+        if (stage !== "completed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    await expect(harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+    })).rejects.toThrow("terminal lifecycle unavailable");
+
+    expect(terminalAttempts).toBe(1);
+    expect(capacityOutcomes).toEqual([]);
+
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+    });
+
+    expect(terminalAttempts).toBe(2);
+    expect(harness.lifecycleStages).toEqual([
+      "provider-ready",
+      "active",
+      "draining",
+      "completed",
+      "completed",
+    ]);
+    expect(capacityOutcomes).toEqual(["completed"]);
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(1),
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
+  });
+
+  it("rejects shutdown and retries terminal persistence without releasing capacity early", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(stage) {
+        if (stage !== "failed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    await expect(harness.execution.shutdown())
+      .rejects.toThrow("terminal lifecycle unavailable");
+
+    expect(terminalAttempts).toBe(1);
+    expect(capacityOutcomes).toEqual([]);
+
+    await harness.execution.shutdown();
+
+    expect(terminalAttempts).toBe(2);
+    expect(harness.lifecycleStages).toEqual([
+      "provider-ready",
+      "active",
+      "failed",
+      "failed",
+    ]);
+    expect(capacityOutcomes).toEqual(["failed"]);
   });
 
   it("classifies an abnormal Twilio media close as failed", async () => {
@@ -1157,10 +1387,17 @@ describe("PstnPremiumCallExecution", () => {
     const connectGate = deferred<void>();
     const terminatedSessionIds: string[] = [];
     const providerCloses: string[] = [];
+    const capacityOutcomes: string[] = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       connectGate: connectGate.promise,
       onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
-      onProviderClose: (reason) => providerCloses.push(reason),
+      onProviderClose: (reason) => {
+        providerCloses.push(reason);
+        throw new Error("provider close failed");
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
     });
     const starting = harness.execution.start({
       organizationId: "tenant-west-africa",
@@ -1171,12 +1408,22 @@ describe("PstnPremiumCallExecution", () => {
     });
     await Promise.resolve();
 
-    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+    let stopResolved = false;
+    const stopping = harness.execution
+      .stop({ callSessionId: "CA-premium:telephony" })
+      .then(() => {
+        stopResolved = true;
+      });
+    await Promise.resolve();
+
+    expect(stopResolved).toBe(false);
     connectGate.resolve();
-    await starting;
+    await Promise.all([starting, stopping]);
 
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(providerCloses).toEqual(["pstn_stream_stopped"]);
+    expect(harness.lifecycleStages).toEqual(["completed"]);
+    expect(capacityOutcomes).toEqual(["completed"]);
     await expect(harness.execution.appendInboundFrame({
       callSessionId: "CA-premium:telephony",
       frame: {
@@ -1188,17 +1435,21 @@ describe("PstnPremiumCallExecution", () => {
         timestampMs: 20,
         payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
       },
-    })).rejects.toThrow("is not active");
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
   });
 
   it("does not install an execution when application shutdown starts during provider startup", async () => {
     const connectGate = deferred<void>();
     const terminatedSessionIds: string[] = [];
     const providerCloses: string[] = [];
+    const capacityOutcomes: string[] = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       connectGate: connectGate.promise,
       onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
       onProviderClose: (reason) => providerCloses.push(reason),
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
     });
     const starting = harness.execution.start({
       organizationId: "tenant-west-africa",
@@ -1209,12 +1460,20 @@ describe("PstnPremiumCallExecution", () => {
     });
     await Promise.resolve();
 
-    await harness.execution.onApplicationShutdown();
+    let shutdownResolved = false;
+    const shuttingDown = harness.execution.shutdown().then(() => {
+      shutdownResolved = true;
+    });
+    await Promise.resolve();
+
+    expect(shutdownResolved).toBe(false);
     connectGate.resolve();
-    await starting;
+    await Promise.all([starting, shuttingDown]);
 
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(providerCloses).toEqual(["app_shutdown"]);
+    expect(harness.lifecycleStages).toEqual(["failed"]);
+    expect(capacityOutcomes).toEqual(["failed"]);
     await expect(harness.execution.appendInboundFrame({
       callSessionId: "CA-premium:telephony",
       frame: {
@@ -1226,7 +1485,7 @@ describe("PstnPremiumCallExecution", () => {
         timestampMs: 20,
         payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
       },
-    })).rejects.toThrow("is not active");
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
   });
 
   it("removes a failed execution when provider readiness rejects without a close event", async () => {
@@ -1465,6 +1724,9 @@ describe("PstnPremiumCallExecution", () => {
 
     harness.providerClosed();
     await waitFor(() => terminations.length === 1);
+    await waitFor(() => cleanupLog.mock.calls.some(([message]) =>
+      typeof message === "string" && message.includes("premium_cleanup"),
+    ));
 
     expect(cleanupLog).toHaveBeenCalledWith(expect.stringMatching(
       /premium_cleanup .*"reason":"failed".*"failureCode":"premium_provider_closed"/,
@@ -1802,7 +2064,7 @@ describe("PstnPremiumCallExecution", () => {
     harness.connections[0]!.emitMessage(createTestControlMessage("test.handoff.shutdown"));
     await waitFor(() => harness.connections.length === 2);
 
-    await harness.execution.onApplicationShutdown();
+    await harness.execution.shutdown();
 
     expect(harness.connections[1]!.closedReasons).toEqual(["provider_handoff_cancelled"]);
   });
