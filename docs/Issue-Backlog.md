@@ -5288,3 +5288,34 @@ Implementation summary:
 - Added fenced PostgreSQL ownership, worker-pinned one-time media tokens, validated worker-advertised endpoints, awaited drain publication, fail-stop ownership-loss handling, and no API-hosted premium media fallback.
 - Added bounded capacity-race reselection, release-fenced routing, durable duplicate-webhook replay, status-before-media lifecycle compatibility, and simulator propagation of exact worker release identity across normal and duplicate sockets.
 - Added deterministic duplicate, restart, interruption, handoff, failure, worker-routing, Redis, PostgreSQL, schema, deployment, typecheck, lint, build, and runtime/PSTN eval qualification. Deployed staging smoke and exact-worker ingress validation remain release gates.
+
+### ISSUE-231: Multi-worker drain, fencing, and failure recovery
+
+- Priority: P1
+- Area: Runtime / Telephony / Infrastructure / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, infrastructure, runtime, telephony, observability, testing, tdd-required
+- Status: In Progress
+- Blocked by: ISSUE-230
+- Handover: [docs/Handovers/ISSUE-231-multi-worker-drain-fencing-failure-recovery.md](../docs/Handovers/ISSUE-231-multi-worker-drain-fencing-failure-recovery.md)
+- External: [Linear ZAR-233](https://linear.app/zara-voice/issue/ZAR-233/pstn-capacity-1012-qualify-multi-worker-drain-fencing-and-failure)
+
+Acceptance criteria:
+- At least two worker instances advertise slots and accept calls without exceeding effective global, provider, tenant, runtime, or worker allowances.
+- Load distribution and capacity accounting remain correct when workers have different slot counts or resource posture.
+- A draining worker stops receiving new claims immediately while established calls receive the configured completion window.
+- Deployment automation enforces a maximum drain period and reports calls terminated when that period expires.
+- Abrupt worker loss expires its leases and reclaims reservations without allowing a second worker to concurrently own or replay the failed call.
+- Every call mutation and release is fenced so a stale worker cannot alter state after ownership changes or expiry.
+- Reconnect policy is explicit: unsupported media replay is never attempted silently, and callers receive deterministic termination when continuity cannot be guaranteed.
+- Redis interruption closes admission for new calls; established workers use a bounded ownership grace policy that cannot create dual ownership and is observable.
+- PostgreSQL interruption behavior is explicit and bounded: active media may continue only where authorization and ownership are already established, with finalization retried through a bounded, idempotent path.
+- Load-balancer WebSocket affinity, idle timeout, connection draining, file-descriptor limits, and health-check behavior are validated against long-running calls.
+- Fault tests cover worker crash, rolling deploy, Redis loss and recovery, PostgreSQL loss and recovery, provider closure, Twilio disconnect, and delayed terminal callbacks.
+- Metrics and alerts identify stale leases, forced drain termination, failed finalization, capacity leakage, duplicate claim attempts, and infrastructure degradation.
+
+Implementation progress:
+- Durable worker/epoch fencing, confirmed-lease continuity bounds, explicit forced drain termination, bounded terminal retry, stale-owner reconciliation, and low-cardinality recovery metrics are implemented and locally qualified.
+- Two-worker deployment is documented as separate Coolify applications with immutable identities, distinct endpoints, and serial drain-and-replace without overlapping same-ID processes.
+- API typecheck, 202 focused tests, 22 real-Postgres tests, 39 Redis tests, 25 PSTN evals, and the Coolify Compose contract pass.
+- Status remains In Progress until the exact candidate completes deployed Coolify routing, long-running WebSocket, serial replacement, abrupt-stop, live-provider, and alert-delivery validation.

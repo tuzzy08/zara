@@ -26,6 +26,11 @@ tests:
 - [ ] `npm run db:check` passed or migration drift is explicitly reviewed and resolved.
 - [ ] Focused tests for touched auth, runtime, telephony, integrations, memory, billing, compliance, platform-admin, or frontend surfaces passed.
 - [ ] Staging smoke tests passed against staging domains.
+- [ ] Two separate Coolify Dockerfile Applications are deployed from the same candidate release with target `realtime-worker`, rolling updates disabled, unique immutable process-level worker IDs, distinct `https://host:4020` domains, and distinct advertised `wss` media URLs.
+- [ ] Both public worker health routes are ready, both Redis heartbeats are fresh, and their worker IDs, release IDs, endpoints, capabilities, resource posture, and available slots match the deployed configuration.
+- [ ] Exact-worker media routing, sibling-worker rejection, serial drain-and-replace behavior, forced drain deadline, terminal persistence, and active-call worker-stop behavior passed in deployed staging.
+- [ ] Each worker was replaced without old/new process overlap, verified on its exact endpoint and new-release heartbeat, restored to eligibility, and carried new calls before the sibling replacement began.
+- [ ] Deployed staging evidence records the effective container `nofile` limits, reverse-proxy WebSocket idle behavior, drain deadline, and stop grace for both worker applications.
 - [ ] Production smoke tests are prepared with owner and expected evidence.
 
 docs:
@@ -78,6 +83,10 @@ observability:
 - [ ] telephony dashboard shows provider heartbeats, route failures, webhook posture, DNC/timezone blocks, and fallback activity.
 - [ ] Platform-admin PSTN call quality shows first-response/readiness latency, premium ingress/provider/output pressure, playback lag and completion ownership, overflow/stale/interruption/handoff/cleanup facts, no-frame timeout count, STT reconnects, TTS first-byte timeouts, model timeouts, bridge errors, barge-ins, premium provider failures, blocked fallbacks, Twilio stop reasons, successful Phone test rate, and separate latest `cost-optimized`, `premium-openai`, and `premium-gemini` `npm run eval:pstn` results.
 - [ ] Premium PSTN promotion follows `docs/Premium-PSTN-Failure-Runbook.md`; all three non-empty PSTN gates pass and provider/runtime identity drift blocks only the affected gate.
+- [ ] The OTel backend pages the telephony owner when `zara.pstn.worker.forced_drain_terminations` increases, or `zara.pstn.finalization.operations` reports `exhausted` or `failed`.
+- [ ] The OTel backend alerts when `zara.pstn.admission.pending_releases` remains above zero longer than the configured active lease TTL and release retry window.
+- [ ] The OTel backend alerts when `zara.pstn.admission.duplicate_claim_attempts` exceeds the reviewed staging baseline.
+- [ ] The OTel backend alerts when `zara.pstn.admission.backend_ready` remains zero for two consecutive worker heartbeat TTLs.
 - [ ] Alert thresholds are loaded and alert noise suppression is enabled.
 - [ ] `traceId` is present across API, runtime, telephony, billing, integration, and platform-admin audit events.
 

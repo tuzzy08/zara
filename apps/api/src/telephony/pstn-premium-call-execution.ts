@@ -86,6 +86,10 @@ interface ActivePremiumCallExecution {
   dispatchId: string;
   callSessionId: string;
   streamSid: string;
+  ownership: {
+    workerId: string;
+    ownerEpoch: number;
+  };
   output: PstnPremiumCallOutput;
   registered: RegisteredPremiumRealtimeSession;
   providerConnection: PremiumRealtimeProviderConnection;
@@ -107,8 +111,7 @@ interface ActivePremiumCallExecution {
   terminalLifecycle?: {
     stage: "completed" | "failed";
     reasonCode?: string | undefined;
-    persistence?: Promise<void> | undefined;
-  } | undefined;
+  } & TerminalPersistenceState | undefined;
   expectedProviderResponse?: ExpectedProviderResponse | undefined;
   recordedMilestones: Set<string>;
   observabilityFailureLogged: boolean;
@@ -147,9 +150,25 @@ interface PendingStartupTerminalLifecycle {
   organizationId: string;
   dispatchId: string;
   callSessionId: string;
+  ownership: {
+    workerId: string;
+    ownerEpoch: number;
+  };
   stage: "completed" | "failed";
   reasonCode: string;
+  attempts: number;
+  exhausted: boolean;
   persistence?: Promise<void> | undefined;
+  retryTimer?: ReturnType<typeof setTimeout> | undefined;
+  lastError?: unknown;
+}
+
+interface TerminalPersistenceState {
+  attempts: number;
+  exhausted: boolean;
+  persistence?: Promise<void> | undefined;
+  retryTimer?: ReturnType<typeof setTimeout> | undefined;
+  lastError?: unknown;
 }
 
 const completedPlaybackResponseLimit = 64;
@@ -157,6 +176,8 @@ const providerHandoffTimeoutMs = 5_000;
 const providerResponseStartTimeoutMs = 8_000;
 const terminalCallSessionLimit = 1_024;
 const pendingStartupTerminalLimit = 1_024;
+const terminalPersistenceMaxAttempts = 3;
+const terminalPersistenceRetryBaseMs = 1_000;
 const providerOutputByteLimit = 64 * 1_024;
 const providerOutputCountLimit = 256;
 const playbackByteLimit = 240_000;
@@ -167,7 +188,16 @@ interface StartPremiumCallExecutionInput {
   dispatchId: string;
   callSessionId: string;
   streamSid: string;
+  ownership: {
+    workerId: string;
+    ownerEpoch: number;
+  };
   output: PstnPremiumCallOutput;
+}
+
+export interface PstnRealtimeWorkerShutdownInput {
+  reasonCode: "app_shutdown" | "worker_drain_deadline";
+  forcedCallCount: number;
 }
 
 @Injectable()
@@ -842,20 +872,26 @@ export class PstnPremiumCallExecution {
     await this.persistTerminalLifecycle(execution);
   }
 
-  async shutdown() {
+  async shutdown(
+    input: PstnRealtimeWorkerShutdownInput = {
+      reasonCode: "app_shutdown",
+      forcedCallCount: 0,
+    },
+  ) {
+    const reasonCode = input.reasonCode;
     this.shuttingDown = true;
     const startCompletions = [...this.startingCallCompletions.values()];
     for (const callSessionId of this.startingCallSessionIds) {
       this.cancelledCallSessions.set(callSessionId, {
         outcome: "failed",
-        reasonCode: "app_shutdown",
+        reasonCode,
       });
     }
     const executionsAtShutdown = [...this.executions.values()];
     for (const execution of executionsAtShutdown) {
       if (execution.terminalLifecycle !== undefined) continue;
-      execution.terminalFailureCode = "app_shutdown";
-      execution.actor.fail("app_shutdown");
+      execution.terminalFailureCode = reasonCode;
+      execution.actor.fail(reasonCode);
     }
     await Promise.all(startCompletions);
     const executions = [...new Set([
@@ -864,14 +900,26 @@ export class PstnPremiumCallExecution {
     ])];
     for (const execution of executions) {
       if (execution.terminalLifecycle === undefined) {
-        execution.terminalFailureCode = "app_shutdown";
-        execution.actor.fail("app_shutdown");
+        execution.terminalFailureCode = reasonCode;
+        execution.actor.fail(reasonCode);
       }
     }
-    await Promise.all(executions.map((execution) => this.persistTerminalLifecycle(execution)));
+    await Promise.all(
+      executions.map((execution) =>
+        this.flushTerminalPersistence(
+          execution.terminalLifecycle!,
+          () => this.persistTerminalLifecycle(execution),
+        ),
+      ),
+    );
     await Promise.all(
       [...this.pendingStartupTerminals.values()]
-        .map((pending) => this.persistPendingStartupTerminal(pending)),
+        .map((pending) =>
+          this.flushTerminalPersistence(
+            pending,
+            () => this.persistPendingStartupTerminal(pending),
+          ),
+        ),
     );
   }
 
@@ -1741,6 +1789,7 @@ export class PstnPremiumCallExecution {
           organizationId: execution.organizationId,
           callSessionId: execution.callSessionId,
           stage,
+          ownership: execution.ownership,
           ...(reasonCode === undefined ? {} : { reasonCode }),
         }),
       )
@@ -1763,6 +1812,8 @@ export class PstnPremiumCallExecution {
   ) {
     execution.terminalLifecycle ??= {
       stage,
+      attempts: 0,
+      exhausted: false,
       ...(reasonCode === undefined ? {} : { reasonCode }),
     };
     return this.persistTerminalLifecycle(execution);
@@ -1780,8 +1831,11 @@ export class PstnPremiumCallExecution {
       organizationId: input.organizationId,
       dispatchId: input.dispatchId,
       callSessionId: input.callSessionId,
+      ownership: input.ownership,
       stage,
       reasonCode,
+      attempts: 0,
+      exhausted: false,
     };
     this.pendingStartupTerminals.set(input.callSessionId, pending);
     return pending;
@@ -1794,23 +1848,40 @@ export class PstnPremiumCallExecution {
     if (pending.persistence !== undefined) {
       return pending.persistence;
     }
+    if (pending.exhausted) {
+      return Promise.reject(pending.lastError ?? new Error(
+        `Premium PSTN startup terminal '${pending.callSessionId}' exhausted persistence retries.`,
+      ));
+    }
+    this.clearTerminalRetry(pending);
+    pending.attempts += 1;
 
     const persistence = this.telephonyService.recordPstnCallLifecycle({
       organizationId: pending.organizationId,
       callSessionId: pending.callSessionId,
       stage: pending.stage,
       reasonCode: pending.reasonCode,
+      ownership: pending.ownership,
     })
-      .then(() => {
+      .then((result) => {
+        const durableOutcome = requireDurableTerminalOutcome(
+          result,
+          pending.stage,
+        );
         if (this.pendingStartupTerminals.get(pending.callSessionId) !== pending) return;
         this.pendingStartupTerminals.delete(pending.callSessionId);
         this.rememberTerminalCallSession(pending.callSessionId);
         this.capacityObservability?.endCall({
           callId: pending.callSessionId,
-          outcome: pending.stage,
+          outcome: durableOutcome,
+        });
+        this.capacityObservability?.recordFinalization?.({
+          source: "worker",
+          outcome: "persisted",
         });
       })
       .catch((error: unknown) => {
+        pending.lastError = error;
         this.logger.warn(`[twilio-pstn] lifecycle_persistence_failed ${JSON.stringify({
           organizationId: pending.organizationId,
           dispatchId: pending.dispatchId,
@@ -1818,6 +1889,11 @@ export class PstnPremiumCallExecution {
           stage: pending.stage,
           failureCode: "call_lifecycle_persistence_failed",
         })}`);
+        this.scheduleTerminalRetry(
+          pending,
+          () => this.persistPendingStartupTerminal(pending),
+          pending.callSessionId,
+        );
         throw error;
       })
       .finally(() => {
@@ -1839,6 +1915,13 @@ export class PstnPremiumCallExecution {
     if (terminal.persistence !== undefined) {
       return terminal.persistence;
     }
+    if (terminal.exhausted) {
+      return Promise.reject(terminal.lastError ?? new Error(
+        `Premium PSTN execution '${execution.callSessionId}' exhausted terminal persistence retries.`,
+      ));
+    }
+    this.clearTerminalRetry(terminal);
+    terminal.attempts += 1;
 
     const persistence = execution.providerLifecycleMessages
       .catch(() => undefined)
@@ -1847,13 +1930,23 @@ export class PstnPremiumCallExecution {
           organizationId: execution.organizationId,
           callSessionId: execution.callSessionId,
           stage: terminal.stage,
+          ownership: execution.ownership,
           ...(terminal.reasonCode === undefined ? {} : { reasonCode: terminal.reasonCode }),
         }),
       )
-      .then(() => {
-        this.finalizeTerminalExecution(execution, terminal.stage);
+      .then((result) => {
+        const durableOutcome = requireDurableTerminalOutcome(
+          result,
+          terminal.stage,
+        );
+        this.capacityObservability?.recordFinalization?.({
+          source: "worker",
+          outcome: "persisted",
+        });
+        this.finalizeTerminalExecution(execution, durableOutcome);
       })
       .catch((error: unknown) => {
+        terminal.lastError = error;
         this.logger.warn(`[twilio-pstn] lifecycle_persistence_failed ${JSON.stringify({
           organizationId: execution.organizationId,
           dispatchId: execution.dispatchId,
@@ -1861,6 +1954,11 @@ export class PstnPremiumCallExecution {
           stage: terminal.stage,
           failureCode: "call_lifecycle_persistence_failed",
         })}`);
+        this.scheduleTerminalRetry(
+          terminal,
+          () => this.persistTerminalLifecycle(execution),
+          execution.callSessionId,
+        );
         throw error;
       })
       .finally(() => {
@@ -1871,6 +1969,65 @@ export class PstnPremiumCallExecution {
     terminal.persistence = persistence;
     execution.providerLifecycleMessages = persistence;
     return persistence;
+  }
+
+  private scheduleTerminalRetry(
+    terminal: TerminalPersistenceState,
+    retry: () => Promise<void>,
+    callSessionId: string,
+  ) {
+    if (terminal.attempts >= terminalPersistenceMaxAttempts) {
+      terminal.exhausted = true;
+      this.capacityObservability?.recordFinalization?.({
+        source: "worker",
+        outcome: "exhausted",
+      });
+      this.logger.error(
+        `[twilio-pstn] terminal_lifecycle_persistence_exhausted ${JSON.stringify({
+          callSessionId,
+          attempts: terminal.attempts,
+        })}`,
+      );
+      return;
+    }
+    if (this.shuttingDown || terminal.retryTimer !== undefined) {
+      return;
+    }
+
+    const delayMs = terminalPersistenceRetryDelayMs(terminal.attempts);
+    terminal.retryTimer = setTimeout(() => {
+      terminal.retryTimer = undefined;
+      void retry().catch(() => undefined);
+    }, delayMs);
+    terminal.retryTimer.unref?.();
+    this.capacityObservability?.recordFinalization?.({
+      source: "worker",
+      outcome: "retry_scheduled",
+    });
+  }
+
+  private clearTerminalRetry(terminal: TerminalPersistenceState) {
+    if (terminal.retryTimer === undefined) return;
+    clearTimeout(terminal.retryTimer);
+    terminal.retryTimer = undefined;
+  }
+
+  private async flushTerminalPersistence(
+    terminal: TerminalPersistenceState,
+    persist: () => Promise<void>,
+  ) {
+    while (true) {
+      try {
+        await persist();
+        return;
+      } catch (error) {
+        if (terminal.exhausted) {
+          throw error;
+        }
+        this.clearTerminalRetry(terminal);
+        await sleep(terminalPersistenceRetryDelayMs(terminal.attempts));
+      }
+    }
   }
 
   private finalizeTerminalExecution(
@@ -1921,6 +2078,35 @@ async function runPremiumStartupStage<T>(
 function classifyPremiumRuntimeFailure(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   return /^premium_[a-z0-9_]+$/.test(message) ? message : "premium_runtime_failed";
+}
+
+function terminalPersistenceRetryDelayMs(attempts: number) {
+  return terminalPersistenceRetryBaseMs * 2 ** Math.max(0, attempts - 1);
+}
+
+function requireDurableTerminalOutcome(
+  result: Awaited<ReturnType<TelephonyService["recordPstnCallLifecycle"]>>,
+  requestedStage: "completed" | "failed",
+) {
+  if (result.outcome === "applied") {
+    return requestedStage;
+  }
+  if (result.outcome === "ignored") {
+    const durableStage = result.context.lifecycleState.stage;
+    if (durableStage === "completed") {
+      return "completed" as const;
+    }
+    if (durableStage === "failed" || durableStage === "expired") {
+      return "failed" as const;
+    }
+  }
+  throw new Error(
+    `Premium PSTN terminal lifecycle did not persist a terminal lifecycle (${result.outcome}).`,
+  );
+}
+
+function sleep(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function isPremiumProviderFailure(reason: string) {

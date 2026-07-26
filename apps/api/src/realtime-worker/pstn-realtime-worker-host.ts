@@ -2,10 +2,14 @@ import type {
   BeforeApplicationShutdown,
   OnApplicationBootstrap,
 } from "@nestjs/common";
+import { Logger } from "@nestjs/common";
 
 import type { PstnAdmissionRedisClient } from "../telephony/pstn-admission-redis-client";
+import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
+import type { PstnRealtimeWorkerShutdownInput } from "../telephony/pstn-premium-call-execution";
 import type { PstnRealtimeWorkerConfig } from "./pstn-realtime-worker-config";
 import type {
+  PstnRealtimeWorkerDrainResult,
   PstnRealtimeWorkerExecutionPosturePort,
   PstnRealtimeWorkerProcessMetricsSource,
 } from "./pstn-realtime-worker-lifecycle";
@@ -37,13 +41,13 @@ interface CapacitySnapshotSource {
 
 interface LifecycleOwner {
   start(): Promise<void>;
-  beginDrain(): Promise<unknown>;
+  beginDrain(): Promise<PstnRealtimeWorkerDrainResult>;
   stop(): void;
   getHealthPosture(): { acceptingCalls: boolean };
 }
 
 interface ShutdownOwner {
-  shutdown(): Promise<unknown>;
+  shutdown(input?: PstnRealtimeWorkerShutdownInput): Promise<unknown>;
 }
 
 export class PstnCapacityExecutionPostureAdapter
@@ -143,6 +147,7 @@ export class PstnRealtimeWorkerHostLifecycle
   implements OnApplicationBootstrap, BeforeApplicationShutdown
 {
   private shutdownPromise: Promise<void> | undefined;
+  private readonly logger = new Logger(PstnRealtimeWorkerHostLifecycle.name);
 
   constructor(
     private readonly redis: Pick<PstnAdmissionRedisClient, "connect">,
@@ -150,6 +155,10 @@ export class PstnRealtimeWorkerHostLifecycle
     private readonly bridge: ShutdownOwner,
     private readonly execution: ShutdownOwner,
     private readonly admission: ShutdownOwner,
+    private readonly capacity: Pick<
+      PstnCapacityObservability,
+      "recordForcedDrain"
+    >,
   ) {}
 
   async onApplicationBootstrap() {
@@ -169,20 +178,44 @@ export class PstnRealtimeWorkerHostLifecycle
 
   private async performShutdown() {
     let firstError: unknown;
+    let drainResult: PstnRealtimeWorkerDrainResult | undefined;
     try {
-      await this.lifecycle.beginDrain();
+      drainResult = await this.lifecycle.beginDrain();
     } catch (error) {
       firstError = error;
     } finally {
       this.lifecycle.stop();
     }
 
-    for (const owner of [this.bridge, this.execution, this.admission]) {
+    const shutdownInput = drainResult?.reason === "deadline"
+      ? {
+          reasonCode: "worker_drain_deadline" as const,
+          forcedCallCount: drainResult.remainingCalls,
+        }
+      : undefined;
+    if (shutdownInput !== undefined) {
+      this.capacity.recordForcedDrain({
+        forcedCallCount: shutdownInput.forcedCallCount,
+      });
+      this.logger.warn(
+        "[pstn-realtime-worker] drain_deadline "
+          + JSON.stringify({
+            forcedCallCount: shutdownInput.forcedCallCount,
+          }),
+      );
+    }
+
+    for (const owner of [this.bridge, this.execution]) {
       try {
-        await owner.shutdown();
+        await owner.shutdown(shutdownInput);
       } catch (error) {
         firstError ??= error;
       }
+    }
+    try {
+      await this.admission.shutdown();
+    } catch (error) {
+      firstError ??= error;
     }
     if (firstError !== undefined) {
       throw firstError;

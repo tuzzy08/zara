@@ -33,10 +33,14 @@ import {
 import {
   classifyPremiumCallStartupFailure,
   PstnPremiumCallExecution,
+  type PstnRealtimeWorkerShutdownInput,
 } from "./pstn-premium-call-execution";
 import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
-import type { PstnAdmissionOwnershipLostEvent } from "./pstn-admission-coordinator";
+import type {
+  PstnAdmissionOwnershipConfirmedEvent,
+  PstnAdmissionOwnershipLostEvent,
+} from "./pstn-admission-coordinator";
 import {
   isPstnRuntimeServedByProcess,
   PSTN_MEDIA_PROCESS_ROLE,
@@ -129,6 +133,7 @@ implements OnApplicationBootstrap {
   private terminalizationFailureCount = 0;
   private shutdownPromise: Promise<void> | undefined;
   private readonly unsubscribeOwnershipLost: () => void;
+  private readonly unsubscribeOwnershipConfirmed: () => void;
 
   constructor(
     private readonly httpAdapterHost: HttpAdapterHost,
@@ -161,6 +166,10 @@ implements OnApplicationBootstrap {
       this.pstnAdmissionCoordinator.onOwnershipLost((event) =>
         this.handleAdmissionOwnershipLost(event),
       );
+    this.unsubscribeOwnershipConfirmed =
+      this.pstnAdmissionCoordinator.onOwnershipConfirmed((event) =>
+        this.handleAdmissionOwnershipConfirmed(event),
+      );
   }
 
   onApplicationBootstrap() {
@@ -172,14 +181,20 @@ implements OnApplicationBootstrap {
     httpServer.on("upgrade", this.handleUpgrade);
   }
 
-  shutdown() {
-    this.shutdownPromise ??= this.performShutdown();
+  shutdown(
+    input: PstnRealtimeWorkerShutdownInput = {
+      reasonCode: "app_shutdown",
+      forcedCallCount: 0,
+    },
+  ) {
+    this.shutdownPromise ??= this.performShutdown(input);
     return this.shutdownPromise;
   }
 
-  private async performShutdown() {
+  private async performShutdown(input: PstnRealtimeWorkerShutdownInput) {
     this.shuttingDown = true;
     this.unsubscribeOwnershipLost();
+    this.unsubscribeOwnershipConfirmed();
     if (this.sandwichTerminalizationRetryTimer !== undefined) {
       clearTimeout(this.sandwichTerminalizationRetryTimer);
       this.sandwichTerminalizationRetryTimer = undefined;
@@ -202,10 +217,10 @@ implements OnApplicationBootstrap {
           await this.terminalizeAttachment({
             attachment,
             outcome: "failed",
-            reasonCode: "app_shutdown",
+            reasonCode: input.reasonCode,
           });
         } finally {
-          attachment.client.close(1001, "app_shutdown");
+          attachment.client.close(1001, input.reasonCode);
         }
       }),
     );
@@ -318,6 +333,9 @@ implements OnApplicationBootstrap {
     const callSessionId = decodeURIComponent(match[1] ?? "");
 
     if (this.attachments.has(callSessionId)) {
+      this.capacityObservability?.recordDuplicateClaim({
+        source: "media_socket",
+      });
       warnTwilioPstnDiagnostic(this.logger, "media_socket_duplicate", {
         callSessionId,
       });
@@ -582,23 +600,11 @@ implements OnApplicationBootstrap {
               callSessionId: attachment.authorization.callSessionId,
               workerId: this.workerId!,
               ownerEpoch: ownerEpoch!,
+              leaseExpiresAt: admissionActivation.leaseExpiresAt,
             })
           : { outcome: "not_owner" as const };
         if (databaseFence.outcome !== "owned") {
           attachment.premiumExecutionStopped = true;
-          await this.telephonyService.recordPstnCallLifecycle({
-            organizationId: attachment.authorization.organizationId,
-            callSessionId: attachment.authorization.callSessionId,
-            stage: "failed",
-            reasonCode: "premium_call_ownership_fence_failed",
-          }).catch((error: unknown) => {
-            this.logger.error(
-              `[twilio-pstn] media_ownership_failure_persistence_failed ${JSON.stringify({
-                callSessionId: attachment.authorization?.callSessionId,
-                error: error instanceof Error ? error.message : "unknown_error",
-              })}`,
-            );
-          });
           await this.pstnAdmissionCoordinator.release(
             attachment.authorization.organizationId,
             attachment.authorization.callSessionId,
@@ -646,6 +652,14 @@ implements OnApplicationBootstrap {
         callSessionId: attachment.authorization.callSessionId,
         stage: "media-connected",
         at: result.event.receivedAt,
+        ...(attachment.authorization.runtimePath === "pstn-premium-realtime"
+          ? {
+              ownership: {
+                workerId: this.workerId!,
+                ownerEpoch: attachment.authorization.ownerEpoch!,
+              },
+            }
+          : {}),
       });
       const mediaConnectedAccepted =
         mediaConnected.outcome === "applied"
@@ -687,6 +701,10 @@ implements OnApplicationBootstrap {
           dispatchId: attachment.authorization.dispatchId,
           callSessionId: attachment.authorization.callSessionId,
           streamSid: result.event.streamSid,
+          ownership: {
+            workerId: this.workerId!,
+            ownerEpoch: attachment.authorization.ownerEpoch!,
+          },
           output: {
             sendMedia: (frame) => this.sendOutboundMedia({
               callSessionId: attachment.authorization!.callSessionId,
@@ -1294,25 +1312,46 @@ implements OnApplicationBootstrap {
         outcome: "failed",
         reasonCode: "pstn_admission_ownership_lost",
       }),
-      this.telephonyService.recordPstnCallLifecycle({
-        organizationId: input.tenantId,
-        callSessionId: input.callSessionId,
-        stage: "failed",
-        reasonCode: "pstn_admission_ownership_lost",
-      }),
     ]);
     for (const [index, result] of cleanupResults.entries()) {
       if (result.status === "rejected") {
         this.logger.error(
           `[twilio-pstn] media_ownership_loss_cleanup_failed ${JSON.stringify({
             callSessionId: input.callSessionId,
-            operation: index === 0 ? "premium_execution" : "lifecycle_persistence",
+            operation: index === 0 ? "premium_execution" : "unknown",
             error: result.reason instanceof Error
               ? result.reason.message
               : "unknown_error",
           })}`,
         );
       }
+    }
+  }
+
+  private async handleAdmissionOwnershipConfirmed(
+    input: PstnAdmissionOwnershipConfirmedEvent,
+  ) {
+    if (
+      input.runtime !== "pstn-premium-realtime"
+      || input.workerId !== this.workerId
+    ) {
+      return;
+    }
+    const fence = await this.telephonyService.fencePremiumCallOwnership({
+      organizationId: input.tenantId,
+      callSessionId: input.callSessionId,
+      workerId: input.workerId,
+      ownerEpoch: input.ownershipEpoch,
+      leaseExpiresAt: input.leaseExpiresAt,
+    });
+    if (fence.outcome !== "owned") {
+      await this.handleAdmissionOwnershipLost({
+        tenantId: input.tenantId,
+        callSessionId: input.callSessionId,
+        runtime: input.runtime,
+        reason: "not_owner",
+      });
+      throw new Error("premium_call_durable_ownership_fence_rejected");
     }
   }
 

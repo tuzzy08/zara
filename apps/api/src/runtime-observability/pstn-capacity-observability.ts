@@ -326,6 +326,64 @@ export class PstnCapacityRecorder {
     });
   }
 
+  recordAdmissionOwnershipLost(input: {
+    reason: string;
+    runtimePath: string;
+    provider: string;
+  }) {
+    this.emit("zara.pstn.admission.ownership_lost", "counter", 1, {
+      reason: normalizeAdmissionOwnershipLostReason(input.reason),
+      runtime_path: normalizeRuntimePath(input.runtimePath),
+      provider: normalizeProvider(input.provider),
+    });
+  }
+
+  recordFinalization(input: {
+    source: "worker" | "lease_reconciler";
+    outcome: "retry_scheduled" | "persisted" | "exhausted" | "reconciled" | "failed";
+  }) {
+    this.emit("zara.pstn.finalization.operations", "counter", 1, {
+      source: input.source,
+      outcome: input.outcome,
+    });
+  }
+
+  recordForcedDrain(input: { forcedCallCount: number }) {
+    this.emit(
+      "zara.pstn.worker.forced_drain_terminations",
+      "counter",
+      nonNegative(input.forcedCallCount),
+      {},
+    );
+  }
+
+  recordPendingRelease(input: {
+    delta: 1 | -1;
+    runtimePath: string;
+    provider: string;
+  }) {
+    this.emit(
+      "zara.pstn.admission.pending_releases",
+      "up_down_counter",
+      input.delta,
+      {
+        runtime_path: normalizeRuntimePath(input.runtimePath),
+        provider: normalizeProvider(input.provider),
+      },
+    );
+  }
+
+  recordDuplicateClaim(input: {
+    source: "media_socket" | "admission_activation";
+  }) {
+    this.emit(
+      "zara.pstn.admission.duplicate_claim_attempts",
+      "counter",
+      1,
+      { source: input.source },
+    );
+  }
+
   recordAdmissionBackendHealth(input: {
     status: "healthy" | "unavailable";
     reasonCode?: string | undefined;
@@ -1130,6 +1188,16 @@ function normalizeAdmissionLeaseOutcome(value: string) {
     "not_owner",
     "denied",
     "backend_unavailable",
+  ].includes(value)
+    ? value
+    : "unknown";
+}
+
+function normalizeAdmissionOwnershipLostReason(value: string) {
+  return [
+    "confirmed_lease_expired",
+    "lease_unrecoverable",
+    "not_owner",
   ].includes(value)
     ? value
     : "unknown";

@@ -68,7 +68,12 @@ describe("PstnPremiumCallExecution", () => {
         async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
           checkpoints.push(input.checkpoint);
         },
-        async recordPstnCallLifecycle() {},
+        async recordPstnCallLifecycle() {
+          return {
+            outcome: "applied" as const,
+            context: createPremiumCallRuntimeContext(),
+          };
+        },
       } as never,
       {
         async loadPremiumDispatchSnapshot() {
@@ -150,6 +155,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output,
     });
     await execution.appendInboundFrame({
@@ -287,6 +293,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -345,6 +352,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -372,6 +380,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -395,6 +404,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia(frame) { outboundFrames.push(frame); },
         clearAudio() {},
@@ -439,6 +449,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia(frame) { outboundFrames.push(frame); },
         clearAudio() { clears += 1; },
@@ -487,6 +498,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await waitFor(() => observed.some((event) => event.type === "premium.readiness"));
@@ -522,6 +534,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
@@ -549,6 +562,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
@@ -571,6 +585,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -606,6 +621,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await harness.execution.appendInboundFrame({
@@ -661,6 +677,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     })).rejects.toThrow("provider unavailable");
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
@@ -695,6 +712,7 @@ describe("PstnPremiumCallExecution", () => {
         dispatchId: "dispatch-premium-1",
         callSessionId: "CA-premium:telephony",
         streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
         output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
       })).rejects.toThrow("terminal lifecycle unavailable");
 
@@ -735,6 +753,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     };
 
@@ -784,6 +803,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     })).rejects.toThrow("terminal lifecycle unavailable");
 
@@ -818,6 +838,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     })).rejects.toThrow(sensitive);
 
@@ -839,6 +860,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     harness.emitProviderMessage(JSON.stringify({
@@ -884,6 +906,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -931,6 +954,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -980,6 +1004,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { outputFrameCount += 1; },
         clearAudio() { clearCount += 1; },
@@ -1034,6 +1059,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { outputFrameCount += 1; },
         clearAudio() { clearCount += 1; },
@@ -1083,6 +1109,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark(name) { marks.push(name); }, close() {},
       },
@@ -1141,6 +1168,7 @@ describe("PstnPremiumCallExecution", () => {
         dispatchId: "dispatch-premium-1",
         callSessionId: "CA-premium:telephony",
         streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
         output: {
           sendMedia() {}, clearAudio() {}, sendMark() {},
           close(_code, reason) { callerCloses.push(reason); },
@@ -1169,6 +1197,7 @@ describe("PstnPremiumCallExecution", () => {
         dispatchId: "dispatch-premium-1",
         callSessionId: "CA-premium:telephony",
         streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
         output: {
           sendMedia() {}, clearAudio() {}, sendMark() {},
           close(_code, reason) { callerCloses.push(reason); },
@@ -1200,6 +1229,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -1239,6 +1269,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -1269,6 +1300,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -1282,6 +1314,68 @@ describe("PstnPremiumCallExecution", () => {
     expect(callerCloses).toEqual(["app_shutdown"]);
     expect(providerCloses).toEqual(["app_shutdown"]);
     expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
+  });
+
+  it("uses the drain deadline reason when forced to stop an active actor", async () => {
+    const providerCloses: string[] = [];
+    const callerCloses: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onProviderClose: (reason) => providerCloses.push(reason),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: {
+        sendMedia() {}, clearAudio() {}, sendMark() {},
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    });
+
+    await harness.execution.shutdown({
+      reasonCode: "worker_drain_deadline",
+      forcedCallCount: 1,
+    });
+
+    expect(callerCloses).toEqual(["worker_drain_deadline"]);
+    expect(providerCloses).toEqual(["worker_drain_deadline"]);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
+  });
+
+  it("carries the immutable worker ownership fence through every lifecycle mutation", async () => {
+    const lifecycleMutations: Array<{
+      stage: string;
+      ownership?: { workerId: string; ownerEpoch: number };
+    }> = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(_stage, input) {
+        lifecycleMutations.push(input);
+      },
+    });
+
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+      outcome: "completed",
+      reasonCode: "twilio_stop",
+    });
+
+    expect(lifecycleMutations.length).toBeGreaterThan(0);
+    expect(lifecycleMutations).toEqual(
+      lifecycleMutations.map((mutation) => ({
+        ...mutation,
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      })),
+    );
   });
 
   it("keeps a completed execution retryable until its terminal lifecycle is durable", async () => {
@@ -1304,6 +1398,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
@@ -1333,19 +1428,175 @@ describe("PstnPremiumCallExecution", () => {
     })).resolves.toEqual({ accepted: false, reason: "terminal" });
   });
 
-  it("rejects shutdown and retries terminal persistence without releasing capacity early", async () => {
-    let terminalAttempts = 0;
+  it("retries terminal lifecycle persistence without another caller action", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const finalizationOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "completed") return;
+          terminalAttempts += 1;
+          if (terminalAttempts === 1) {
+            throw new Error("terminal lifecycle unavailable");
+          }
+        },
+        capacityObservability: {
+          recordFinalization(input) {
+            finalizationOutcomes.push(input.outcome);
+          },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      await expect(harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+      })).rejects.toThrow("terminal lifecycle unavailable");
+
+      expect(terminalAttempts).toBe(1);
+      expect(finalizationOutcomes).toEqual(["retry_scheduled"]);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(terminalAttempts).toBe(2);
+      expect(finalizationOutcomes).toEqual(["retry_scheduled", "persisted"]);
+      await expect(harness.execution.appendInboundFrame({
+        callSessionId: "CA-premium:telephony",
+        frame: premiumInboundFrame(1),
+      })).resolves.toEqual({ accepted: false, reason: "terminal" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds terminal persistence retries and reports exhaustion", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const finalizationOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "failed") return;
+          terminalAttempts += 1;
+          throw new Error("terminal lifecycle unavailable");
+        },
+        capacityObservability: {
+          recordFinalization(input) {
+            finalizationOutcomes.push(input.outcome);
+          },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      await expect(harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+        outcome: "failed",
+        reasonCode: "provider_failed",
+      })).rejects.toThrow("terminal lifecycle unavailable");
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(terminalAttempts).toBe(3);
+      expect(finalizationOutcomes).toEqual([
+        "retry_scheduled",
+        "retry_scheduled",
+        "exhausted",
+      ]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(terminalAttempts).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not report a non-terminal ignored lifecycle result as persisted", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const finalizationOutcomes: string[] = [];
+      const capacityOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "failed") return;
+          terminalAttempts += 1;
+          return {
+            outcome: "ignored" as const,
+            context: createPremiumCallRuntimeContext(),
+          };
+        },
+        capacityObservability: {
+          endCall(input) {
+            capacityOutcomes.push(input.outcome);
+          },
+          recordFinalization(input) {
+            finalizationOutcomes.push(input.outcome);
+          },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      await expect(harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+        outcome: "failed",
+        reasonCode: "provider_failed",
+      })).rejects.toThrow("did not persist a terminal lifecycle");
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(terminalAttempts).toBe(3);
+      expect(finalizationOutcomes).toEqual([
+        "retry_scheduled",
+        "retry_scheduled",
+        "exhausted",
+      ]);
+      expect(capacityOutcomes).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts an already-terminal ignored lifecycle result as durable", async () => {
     const capacityOutcomes: string[] = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       async recordLifecycle(stage) {
-        if (stage !== "failed") return;
-        terminalAttempts += 1;
-        if (terminalAttempts === 1) {
-          throw new Error("terminal lifecycle unavailable");
-        }
+        if (stage !== "completed") return;
+        return {
+          outcome: "ignored" as const,
+          context: {
+            ...createPremiumCallRuntimeContext(),
+            status: "terminated" as const,
+            lifecycleState: {
+              stage: "failed" as const,
+              observedAt: "2026-07-26T20:00:00.000Z",
+              reasonCode: "provider_failed",
+            },
+          },
+        };
       },
       capacityObservability: {
-        endCall(input) { capacityOutcomes.push(input.outcome); },
+        endCall(input) {
+          capacityOutcomes.push(input.outcome);
+        },
       },
     });
     await harness.execution.start({
@@ -1353,25 +1604,58 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
-    await expect(harness.execution.shutdown())
-      .rejects.toThrow("terminal lifecycle unavailable");
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+    });
 
-    expect(terminalAttempts).toBe(1);
-    expect(capacityOutcomes).toEqual([]);
-
-    await harness.execution.shutdown();
-
-    expect(terminalAttempts).toBe(2);
-    expect(harness.lifecycleStages).toEqual([
-      "provider-ready",
-      "active",
-      "failed",
-      "failed",
-    ]);
     expect(capacityOutcomes).toEqual(["failed"]);
+  });
+
+  it("retries terminal persistence before worker shutdown returns", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const capacityOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "failed") return;
+          terminalAttempts += 1;
+          if (terminalAttempts === 1) {
+            throw new Error("terminal lifecycle unavailable");
+          }
+        },
+        capacityObservability: {
+          endCall(input) { capacityOutcomes.push(input.outcome); },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      const shutdown = harness.execution.shutdown();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await shutdown;
+
+      expect(terminalAttempts).toBe(2);
+      expect(harness.lifecycleStages).toEqual([
+        "provider-ready",
+        "active",
+        "failed",
+        "failed",
+      ]);
+      expect(capacityOutcomes).toEqual(["failed"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("classifies an abnormal Twilio media close as failed", async () => {
@@ -1381,6 +1665,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
@@ -1414,6 +1699,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await Promise.resolve();
@@ -1466,6 +1752,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await Promise.resolve();
@@ -1512,6 +1799,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
@@ -1571,6 +1859,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     const message = JSON.stringify({
@@ -1619,6 +1908,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { sentMediaFrames += 1; },
         clearAudio() {},
@@ -1675,6 +1965,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { sentMediaFrames += 1; },
         clearAudio() {},
@@ -1729,6 +2020,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
@@ -2190,7 +2482,13 @@ function createMinimalExecutionHarness(
     onUpdate?: (() => void) | undefined;
     onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
     recordCheckpoint?: ((checkpoint: string) => Promise<void>) | undefined;
-    recordLifecycle?: ((stage: string) => Promise<void>) | undefined;
+    recordLifecycle?: ((
+      stage: string,
+      input: {
+        stage: string;
+        ownership?: { workerId: string; ownerEpoch: number };
+      },
+    ) => Promise<unknown>) | undefined;
     capacityObservability?: Partial<PstnCapacityObservability> | undefined;
   } = {},
 ) {
@@ -2244,9 +2542,18 @@ function createMinimalExecutionHarness(
       async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
         await options.recordCheckpoint?.(input.checkpoint);
       },
-      async recordPstnCallLifecycle(input: { stage: string }) {
+      async recordPstnCallLifecycle(input: {
+        stage: string;
+        ownership?: { workerId: string; ownerEpoch: number };
+      }) {
         lifecycleStages.push(input.stage);
-        await options.recordLifecycle?.(input.stage);
+        return (
+          await options.recordLifecycle?.(input.stage, input)
+          ?? {
+            outcome: "applied" as const,
+            context: createPremiumCallRuntimeContext(),
+          }
+        );
       },
     } as never,
     {
@@ -2358,6 +2665,10 @@ function createHandoffExecutionHarness(input: {
       async recordPstnPhoneTestCheckpoint() {},
       async recordPstnCallLifecycle(input: { stage: string }) {
         lifecycleStages.push(input.stage);
+        return {
+          outcome: "applied" as const,
+          context: createPremiumCallRuntimeContext(),
+        };
       },
     } as never,
     {
@@ -2419,6 +2730,7 @@ function createHandoffExecutionHarness(input: {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},

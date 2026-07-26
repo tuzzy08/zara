@@ -20,6 +20,7 @@ import {
   resolvePstnRealtimeWorkerIdentity,
 } from "./pstn-realtime-worker.module";
 import { PstnRealtimeWorkerRegistry } from "./pstn-realtime-worker-registry";
+import { PstnPremiumFinalizationReconciler } from "./pstn-premium-finalization-reconciler";
 
 describe("PstnRealtimeWorkerModule", () => {
   afterEach(() => {
@@ -64,6 +65,7 @@ describe("PstnRealtimeWorkerModule", () => {
     expect(providedTokens).toEqual(expect.arrayContaining([
       PSTN_REALTIME_WORKER_CONFIG,
       PstnRealtimeWorkerRegistry,
+      PstnPremiumFinalizationReconciler,
       PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY,
     ]));
     expect(providedTokens).not.toContain(TelephonyController);

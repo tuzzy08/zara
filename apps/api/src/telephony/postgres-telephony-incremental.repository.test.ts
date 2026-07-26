@@ -843,6 +843,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         callSessionId: active.executionSession.callSessionId,
         workerId: "premium-worker-a",
         ownerEpoch: 1,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "owned", ownerEpoch: 1 });
     await expect(
@@ -851,6 +852,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         callSessionId: active.executionSession.callSessionId,
         workerId: "premium-worker-a",
         ownerEpoch: 2,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "not_owner" });
     await expect(
@@ -859,6 +861,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         callSessionId: active.executionSession.callSessionId,
         workerId: "premium-worker-b",
         ownerEpoch: 1,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "not_owner" });
     await expect(
@@ -867,6 +870,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         callSessionId: active.executionSession.callSessionId,
         workerId: "premium-worker-a",
         ownerEpoch: 1,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "not_found" });
     await expect(
@@ -879,6 +883,69 @@ describe("PostgresTelephonyIncrementalRepository", () => {
     ).resolves.toMatchObject({
       rows: [{ owner_worker_id: "premium-worker-a", owner_epoch: 1 }],
     });
+    const lifecycleTransition = {
+      tenantId: "tenant-a",
+      callSessionId: active.executionSession.callSessionId,
+      expectedVersion: 0,
+      expectedStage: "ringing" as const,
+      nextState: {
+        stage: "media-connected" as const,
+        observedAt: "2026-07-23T12:00:01.000Z",
+      },
+    };
+    await expect(
+      harness.repository.transitionCallLifecycle({
+        ...lifecycleTransition,
+        ownership: {
+          workerId: "premium-worker-b",
+          ownerEpoch: 1,
+        },
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 0 });
+    await expect(
+      harness.repository.transitionCallLifecycle({
+        ...lifecycleTransition,
+        ownership: {
+          workerId: "premium-worker-a",
+          ownerEpoch: 2,
+        },
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 0 });
+    await expect(
+      harness.repository.transitionCallLifecycle({
+        ...lifecycleTransition,
+        ownership: {
+          workerId: "premium-worker-a",
+          ownerEpoch: 1,
+        },
+      }),
+    ).resolves.toEqual({ outcome: "updated", version: 1 });
+    await harness.pool.query(
+      `update telephony_media_stream_tokens
+       set owner_lease_expires_at = $1
+       where tenant_id = $2 and call_session_id = $3`,
+      [
+        new Date(Date.now() - 1_000).toISOString(),
+        "tenant-a",
+        active.executionSession.callSessionId,
+      ],
+    );
+    await expect(
+      harness.repository.transitionCallLifecycle({
+        tenantId: "tenant-a",
+        callSessionId: active.executionSession.callSessionId,
+        expectedVersion: 1,
+        expectedStage: "media-connected",
+        nextState: {
+          stage: "provider-ready",
+          observedAt: "2026-07-23T12:00:02.000Z",
+        },
+        ownership: {
+          workerId: "premium-worker-a",
+          ownerEpoch: 1,
+        },
+      }),
+    ).resolves.toEqual({ outcome: "conflict", version: 1 });
     await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
       outcome: "already_claimed",
     });
@@ -944,6 +1011,7 @@ describe("PostgresTelephonyIncrementalRepository", () => {
         callSessionId: active.executionSession.callSessionId,
         workerId: "premium-worker-a",
         ownerEpoch: 1,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "owned", ownerEpoch: 1 });
     await expect(harness.repository.claimMediaToken(claim)).resolves.toEqual({
@@ -1105,6 +1173,142 @@ describe("PostgresTelephonyIncrementalRepository", () => {
       ["tenant-b"],
     );
     expect(tenantB.rows).toEqual([{ status: "active", health_status: "healthy" }]);
+  });
+
+  it("idempotently reconciles only premium calls whose durable owner lease expired", async () => {
+    const harness = await createHarness();
+    const expired = callSetup("tenant-a", "expired-owner-reconcile");
+    expired.premiumDispatchSnapshot = premiumDispatchSnapshot(expired);
+    const live = callSetup("tenant-a", "live-owner-reconcile");
+    live.premiumDispatchSnapshot = premiumDispatchSnapshot(live);
+    await harness.repository.createCallSetup(expired);
+    await harness.repository.createCallSetup(live);
+    await harness.pool.query(
+      `update telephony_media_stream_tokens
+       set claimed_at = $1,
+           owner_worker_id = $2,
+           owner_epoch = 1,
+           owner_lease_expires_at = $3
+       where tenant_id = $4 and call_session_id = $5`,
+      [
+        new Date(Date.now() - 180_000).toISOString(),
+        "premium-worker-a",
+        new Date(Date.now() - 60_000).toISOString(),
+        "tenant-a",
+        expired.executionSession.callSessionId,
+      ],
+    );
+    await harness.pool.query(
+      `update telephony_media_stream_tokens
+       set claimed_at = $1,
+           owner_worker_id = $2,
+           owner_epoch = 1,
+           owner_lease_expires_at = $3
+       where tenant_id = $4 and call_session_id = $5`,
+      [
+        new Date().toISOString(),
+        "premium-worker-b",
+        new Date(Date.now() + 120_000).toISOString(),
+        "tenant-a",
+        live.executionSession.callSessionId,
+      ],
+    );
+    const before = new Date().toISOString();
+
+    await expect(
+      harness.repository.reconcileExpiredPremiumCallOwners({
+        before,
+        limit: 10,
+      }),
+    ).resolves.toEqual({ reconciledCount: 1 });
+    await expect(
+      harness.repository.loadCallRuntimeContext({
+        tenantId: "tenant-a",
+        callSessionId: expired.executionSession.callSessionId,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "found",
+      context: {
+        status: "terminated",
+        lifecycleState: {
+          stage: "failed",
+          reasonCode: "premium_call_owner_lease_expired",
+        },
+      },
+    });
+    await expect(
+      harness.repository.loadCallRuntimeContext({
+        tenantId: "tenant-a",
+        callSessionId: live.executionSession.callSessionId,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "found",
+      context: {
+        status: "ringing",
+        lifecycleState: { stage: "ringing" },
+      },
+    });
+    const retainedTokens = await harness.pool.query(
+      `select call_session_id
+       from telephony_media_stream_tokens
+       where tenant_id = $1
+       order by call_session_id`,
+      ["tenant-a"],
+    );
+    expect(retainedTokens.rows).toEqual([{
+      call_session_id: live.executionSession.callSessionId,
+    }]);
+    await expect(
+      harness.repository.reconcileExpiredPremiumCallOwners({
+        before,
+        limit: 10,
+      }),
+    ).resolves.toEqual({ reconciledCount: 0 });
+  });
+
+  it("reconciles a worker that crashes between token claim and durable lease fencing", async () => {
+    const harness = await createHarness();
+    const setup = callSetup("tenant-a", "unfenced-owner-reconcile");
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+    await harness.repository.createCallSetup(setup);
+    await harness.pool.query(
+      `update telephony_media_stream_tokens
+       set claimed_at = $1,
+           owner_worker_id = $2,
+           owner_epoch = 1,
+           owner_lease_expires_at = null,
+           expires_at = $3
+       where tenant_id = $4 and call_session_id = $5`,
+      [
+        "2026-07-26T19:58:00.000Z",
+        "premium-worker-crashed",
+        "2026-07-26T19:59:00.000Z",
+        "tenant-a",
+        setup.executionSession.callSessionId,
+      ],
+    );
+
+    await expect(
+      harness.repository.reconcileExpiredPremiumCallOwners({
+        before: "2026-07-26T20:00:00.000Z",
+        limit: 10,
+      }),
+    ).resolves.toEqual({ reconciledCount: 1 });
+    await expect(
+      harness.repository.loadCallRuntimeContext({
+        tenantId: "tenant-a",
+        callSessionId: setup.executionSession.callSessionId,
+      }),
+    ).resolves.toMatchObject({
+      outcome: "found",
+      context: {
+        status: "terminated",
+        lifecycleState: {
+          stage: "failed",
+          reasonCode: "premium_call_owner_lease_expired",
+        },
+      },
+    });
   });
 
   it("records one health observation without clearing a durable abuse block", async () => {
@@ -1884,6 +2088,7 @@ async function createHarness(
       token_hash varchar(43) NOT NULL UNIQUE,
       expires_at timestamp NOT NULL, created_at timestamp NOT NULL, claimed_at timestamp,
       owner_worker_id text, owner_epoch integer NOT NULL DEFAULT 0,
+      owner_lease_expires_at timestamp,
       PRIMARY KEY (tenant_id, call_session_id),
       FOREIGN KEY (tenant_id, call_session_id)
         REFERENCES telephony_execution_sessions(tenant_id, call_session_id) ON DELETE CASCADE

@@ -1,0 +1,1 @@
+ALTER TABLE "telephony_media_stream_tokens" ADD COLUMN "owner_lease_expires_at" timestamp with time zone;

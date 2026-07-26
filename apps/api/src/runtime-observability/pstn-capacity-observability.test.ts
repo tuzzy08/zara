@@ -62,6 +62,11 @@ describe("PstnCapacityRecorder", () => {
       runtimePath: "pstn-premium-realtime",
       provider: "twilio",
     });
+    recorder.recordAdmissionOwnershipLost({
+      reason: "confirmed_lease_expired",
+      runtimePath: "pstn-premium-realtime",
+      provider: "twilio",
+    });
     recorder.recordAdmissionBackendHealth({
       status: "unavailable",
       reasonCode: "backend_unavailable",
@@ -91,6 +96,15 @@ describe("PstnCapacityRecorder", () => {
             operation: "renew",
             outcome: "backend_unavailable",
           }),
+        }),
+        expect.objectContaining({
+          name: "zara.pstn.admission.ownership_lost",
+          value: 1,
+          attributes: {
+            reason: "confirmed_lease_expired",
+            runtime_path: "pstn-premium-realtime",
+            provider: "twilio",
+          },
         }),
         expect.objectContaining({
           name: "zara.pstn.admission.backend_ready",
@@ -458,6 +472,129 @@ describe("PstnCapacityRecorder", () => {
       messagesPerSecond: 1,
       bytesPerSecond: 50,
     });
+  });
+
+  it("emits bounded finalization outcomes without call identifiers", () => {
+    const points: Array<{
+      name: string;
+      attributes: Record<string, string>;
+    }> = [];
+    const recorder = new PstnCapacityRecorder({
+      config: {
+        maxConcurrentCalls: 20,
+        cpuLimitMillicores: 2_000,
+        memoryLimitBytes: 1_073_741_824,
+        fileDescriptorLimit: 4_096,
+        databasePoolMax: 10,
+        eventLoopDelayLimitMs: 50,
+      },
+      processSampler: { sample: () => fixedProcessSample, dispose: vi.fn() },
+      metricSink: {
+        emit(point) {
+          points.push({
+            name: point.name,
+            attributes: point.attributes,
+          });
+        },
+      },
+    });
+
+    recorder.recordFinalization({
+      source: "worker",
+      outcome: "retry_scheduled",
+    });
+    recorder.recordFinalization({
+      source: "lease_reconciler",
+      outcome: "reconciled",
+    });
+
+    expect(points).toEqual([
+      {
+        name: "zara.pstn.finalization.operations",
+        attributes: {
+          source: "worker",
+          outcome: "retry_scheduled",
+        },
+      },
+      {
+        name: "zara.pstn.finalization.operations",
+        attributes: {
+          source: "lease_reconciler",
+          outcome: "reconciled",
+        },
+      },
+    ]);
+  });
+
+  it("emits recovery risk metrics without tenant or call identifiers", () => {
+    const points: Array<{
+      name: string;
+      kind: string;
+      value: number;
+      attributes: Record<string, string>;
+    }> = [];
+    const recorder = new PstnCapacityRecorder({
+      config: {
+        maxConcurrentCalls: 20,
+        cpuLimitMillicores: 2_000,
+        memoryLimitBytes: 1_073_741_824,
+        fileDescriptorLimit: 4_096,
+        databasePoolMax: 10,
+        eventLoopDelayLimitMs: 50,
+      },
+      processSampler: { sample: () => fixedProcessSample, dispose: vi.fn() },
+      metricSink: {
+        emit(point) {
+          points.push(point);
+        },
+      },
+    });
+
+    recorder.recordForcedDrain({ forcedCallCount: 3 });
+    recorder.recordPendingRelease({
+      delta: 1,
+      runtimePath: "pstn-premium-realtime",
+      provider: "twilio",
+    });
+    recorder.recordPendingRelease({
+      delta: -1,
+      runtimePath: "pstn-premium-realtime",
+      provider: "twilio",
+    });
+    recorder.recordDuplicateClaim({ source: "media_socket" });
+
+    expect(points).toEqual([
+      {
+        name: "zara.pstn.worker.forced_drain_terminations",
+        kind: "counter",
+        value: 3,
+        attributes: {},
+      },
+      {
+        name: "zara.pstn.admission.pending_releases",
+        kind: "up_down_counter",
+        value: 1,
+        attributes: {
+          runtime_path: "pstn-premium-realtime",
+          provider: "twilio",
+        },
+      },
+      {
+        name: "zara.pstn.admission.pending_releases",
+        kind: "up_down_counter",
+        value: -1,
+        attributes: {
+          runtime_path: "pstn-premium-realtime",
+          provider: "twilio",
+        },
+      },
+      {
+        name: "zara.pstn.admission.duplicate_claim_attempts",
+        kind: "counter",
+        value: 1,
+        attributes: { source: "media_socket" },
+      },
+    ]);
   });
 
   it("periodically samples process pressure without requiring a staff API read", async () => {

@@ -249,6 +249,7 @@ describe("database foundations", () => {
       "claimedAt",
       "ownerWorkerId",
       "ownerEpoch",
+      "ownerLeaseExpiresAt",
     ]);
     expect(getTableName(telephonyPremiumDispatchSnapshots)).toBe(
       "telephony_premium_dispatch_snapshots",
@@ -371,6 +372,29 @@ describe("database foundations", () => {
     expect(workflowFile).toContain("has_outbound_abuse_blocked");
     expect(workflowFile).toContain("compatibility_table");
     expect(workflowFile).toContain("compatibility_write_count");
+  });
+
+  it("ships a durable premium worker ownership lease deadline", () => {
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0015_telephony_premium_owner_lease.sql",
+      ),
+      "utf8",
+    );
+    const migrationJournal = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, "apps/api/src/database/migrations/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+
+    expect(migrationFile).toContain(
+      'ALTER TABLE "telephony_media_stream_tokens" ADD COLUMN "owner_lease_expires_at"',
+    );
+    expect(migrationJournal.entries).toContainEqual(
+      expect.objectContaining({ tag: "0015_telephony_premium_owner_lease" }),
+    );
   });
 
   it("ships durable premium dispatch snapshots and fenced worker ownership forward", () => {

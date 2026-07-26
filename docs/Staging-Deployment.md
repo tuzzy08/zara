@@ -9,7 +9,7 @@ Staging deployment units:
 - Tenant app: `apps/web` at `https://staging-app.zara.ai`
 - Platform admin app: `apps/platform-admin` at `https://staging-admin.zara.ai`
 - NestJS API: `apps/api` at `https://staging-api.zara.ai`
-- Premium PSTN realtime worker: the `realtime-worker` Docker target at a worker-specific `wss://staging-realtime-<worker-id>.zara.ai` endpoint
+- Premium PSTN realtime workers: two separate Coolify Dockerfile Applications built with target `realtime-worker`, each at its own `wss://staging-realtime-<worker-id>.zara.ai` endpoint
 
 Services that must mirror production shape:
 
@@ -66,8 +66,10 @@ Staging validation runs before production deployment:
 - Apply migrations against the staging database.
 - Build `apps/api`, the `realtime-worker` Docker target, `apps/web`, and `apps/platform-admin` from the same release artifact.
 - Deploy the exact release artifact intended for production.
-- Deploy each realtime worker with a unique `PSTN_WORKER_ID`, the artifact ID in `PSTN_WORKER_RELEASE_ID`, and a public media endpoint that routes back to that exact worker.
+- Deploy two separate Coolify Dockerfile Applications from the same candidate artifact, with rolling updates disabled, unique immutable process-level `PSTN_WORKER_ID` values, distinct Coolify domains in `https://host:4020` form, distinct advertised `wss` media URLs, and the same artifact ID in `PSTN_WORKER_RELEASE_ID`.
 - Confirm every worker is ready and publishing fresh Redis heartbeats with its provider capabilities, release ID, resource posture, and available slots before enabling premium traffic.
+- Confirm each public health host and media host route to the same exact worker; a request or signed stream must never land on its sibling through random balancing.
+- Confirm the effective proxy WebSocket idle behavior, worker drain deadline, container stop grace, and file-descriptor limits meet the release's documented operating envelope.
 - Run the production smoke-test list against staging domains.
 - Confirm provider webhooks target `https://staging-api.zara.ai`.
 - Confirm staging browser bundles use `https://staging-api.zara.ai`.
@@ -79,6 +81,8 @@ Staging validation runs before production deployment:
 - Confirm backup/DR restore-test evidence, restore owner, and RPO/RTO posture are current before promotion.
 
 Validation failures block promotion. Fixes must be committed, rebuilt, redeployed to staging, and revalidated before production.
+
+The two-worker qualification gate requires deployed evidence. Do not record this gate as passed until both deployed worker endpoints report ready, publish distinct fresh heartbeats for the same release, pass exact-worker media routing, and complete Zara's serial deployment procedure. Local tests do not prove Coolify routing, proxy timeout, deployment replacement, or drain behavior.
 
 ## Drift Controls
 
@@ -128,6 +132,12 @@ Run the same smoke tests as production, replacing domains with staging domains:
 - Unsigned provider webhooks are rejected.
 - A premium test call receives TwiML for the selected worker endpoint, connects to that exact worker/release, and completes a provider response.
 - Routing a signed premium stream to a different worker or release is rejected before the one-time token is consumed.
+- Open long-running WebSockets through both public worker endpoints and verify the effective proxy does not close active or expected-idle connections before the documented operating window.
+- Drain one worker while the other remains ready: the draining worker must stop advertising slots, retain its owned call until completion or deadline, and the ready worker must accept new eligible calls.
+- With Coolify rolling updates disabled, exercise a non-overlapping replacement of the drained worker: wait for its calls to finish or the forced deadline and terminal persistence, stop the old process, start the replacement with a fresh worker ID, verify its exact endpoint and new-release heartbeat, then restore its eligibility.
+- After the replacement accepts new calls, repeat the serial drain-and-replace procedure for the sibling while the first worker carries new calls.
+- Stop each worker application under an active synthetic call and verify the effective container stop grace allows the drain deadline path to persist its terminal result before forced process exit.
+- Read the effective container `nofile` limits for both applications and compare them with the worker's advertised open-file guard.
 - Restart the API after a premium call is owned and confirm the worker-held Twilio/provider sockets continue until normal call completion.
 - Run normal, interruption, handoff, failure, delayed-duplicate, and simultaneous-duplicate simulator scenarios through the deployed worker endpoint; duplicate sockets must produce one owner and one provider connection.
 - Observability dashboards show the staging release version and correlated `traceId` events.

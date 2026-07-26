@@ -71,7 +71,8 @@ describe("Twilio Media Streams websocket bridge", () => {
       {} as never,
       {} as never,
       {
-        onOwnershipLost: () => () => undefined,
+      onOwnershipLost: () => () => undefined,
+      onOwnershipConfirmed: () => () => undefined,
       } as never,
       "api",
       undefined,
@@ -111,6 +112,47 @@ describe("Twilio Media Streams websocket bridge", () => {
     expect(bridge.getSessionEvents("completed-call-0")).toEqual([]);
     expect(bridge.getSessionEvents("completed-call-64")).toEqual([event]);
     expect(bridge.getSessionEvents("reused-active-call")).toEqual([event]);
+  });
+
+  it("rejects a renewed ownership confirmation when the durable fence is no longer owned", async () => {
+    const bridge = new TwilioMediaStreamsWebSocketBridge(
+      {} as never,
+      {
+        async fencePremiumCallOwnership() {
+          return { outcome: "not_owner" as const };
+        },
+      } as never,
+      undefined,
+      {
+        onOwnershipLost: () => () => undefined,
+        onOwnershipConfirmed: () => () => undefined,
+      } as never,
+      "pstn-realtime-worker",
+      "premium-worker-a",
+      "release-a",
+      undefined,
+    );
+    const internals = bridge as unknown as {
+      handleAdmissionOwnershipConfirmed(input: {
+        tenantId: string;
+        callSessionId: string;
+        runtime: "pstn-premium-realtime";
+        workerId: string;
+        ownershipEpoch: number;
+        leaseExpiresAt: string;
+        operation: "renew";
+      }): Promise<void>;
+    };
+
+    await expect(internals.handleAdmissionOwnershipConfirmed({
+      tenantId: "tenant-west-africa",
+      callSessionId: "CA-durable-fence-rejected:telephony",
+      runtime: "pstn-premium-realtime",
+      workerId: "premium-worker-a",
+      ownershipEpoch: 2,
+      leaseExpiresAt: "2026-07-26T21:10:00.000Z",
+      operation: "renew",
+    })).rejects.toThrow("premium_call_durable_ownership_fence_rejected");
   });
 
   it("rejects premium media on the API process before consuming the stream token", async () => {
@@ -380,7 +422,7 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
-  it("persists a failed lifecycle when the initial premium ownership fence rejects the worker", async () => {
+  it("does not mutate lifecycle when the initial premium ownership fence rejects the worker", async () => {
     const start = vi.fn(async () => undefined);
     const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
       runtimeProfile: "premium-realtime",
@@ -435,12 +477,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       reason: "premium_call_not_owned",
     });
     expect(start).not.toHaveBeenCalled();
-    expect(lifecycle).toHaveBeenCalledWith({
-      organizationId: "tenant-west-africa",
-      callSessionId,
-      stage: "failed",
-      reasonCode: "premium_call_ownership_fence_failed",
-    });
+    expect(lifecycle).not.toHaveBeenCalled();
 
     await app.close();
   }, 30_000);
@@ -833,7 +870,27 @@ describe("Twilio Media Streams websocket bridge", () => {
   }, 30_000);
 
   it("closes malformed media streams safely and prevents concurrent stream attachment", async () => {
-    const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const recordDuplicateClaim = vi.fn();
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp({
+      capacityObservability: {
+        openSocket() {},
+        updateSocketContext() {},
+        recordSocketHandshake() {},
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        trackCall() {},
+        endCall() {},
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+        recordAdmission() {},
+        recordAdmissionLease() {},
+        recordAdmissionOwnershipLost() {},
+        recordAdmissionBackendHealth() {},
+        recordDuplicateClaim,
+      },
+    });
     const callSid = "CA-websocket-2";
 
     const webhookResponse = await answerViaVerifiedWebhook({
@@ -863,6 +920,9 @@ describe("Twilio Media Streams websocket bridge", () => {
     expect(duplicateClose).toEqual({
       code: 4409,
       reason: "stream_already_connected",
+    });
+    expect(recordDuplicateClaim).toHaveBeenCalledWith({
+      source: "media_socket",
     });
 
     firstSocket.send(JSON.stringify({
@@ -947,6 +1007,62 @@ describe("Twilio Media Streams websocket bridge", () => {
       callSessionId,
       stage: "failed",
       reasonCode: "app_shutdown",
+    });
+    socket.terminate();
+    await app.close();
+  }, 30_000);
+
+  it("durably terminates an active call with the worker drain deadline reason", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const lifecycle = vi.spyOn(
+      app.get(TelephonyService),
+      "recordPstnCallLifecycle",
+    );
+    const callSid = "CA-worker-drain-deadline";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-worker-drain-deadline",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "worker drain websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-worker-drain-deadline",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "worker drain start",
+    );
+    lifecycle.mockClear();
+
+    await bridge.shutdown({
+      reasonCode: "worker_drain_deadline",
+      forcedCallCount: 1,
+    });
+
+    expect(lifecycle).toHaveBeenCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "worker_drain_deadline",
     });
     socket.terminate();
     await app.close();
@@ -1492,6 +1608,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       bridge,
       { shutdown: shutdownPremiumExecution },
       { shutdown: () => coordinator.shutdown() },
+      { recordForcedDrain() {} },
     );
     await expect(
       workerLifecycle.beforeApplicationShutdown(),
@@ -1770,12 +1887,7 @@ describe("Twilio Media Streams websocket bridge", () => {
       outcome: "failed",
       reasonCode: "pstn_admission_ownership_lost",
     });
-    expect(lifecycle).toHaveBeenCalledWith({
-      organizationId: "tenant-west-africa",
-      callSessionId,
-      stage: "failed",
-      reasonCode: "pstn_admission_ownership_lost",
-    });
+    expect(lifecycle).not.toHaveBeenCalled();
 
     await app.close();
   }, 30_000);
@@ -2273,7 +2385,7 @@ async function createRoutedTwilioApp(options?: {
     PstnPremiumCallExecution,
     "start" | "appendInboundFrame" | "acknowledgePlaybackMark" | "stop"
   > & Partial<Pick<PstnPremiumCallExecution, "shutdown">>;
-  capacityObservability?: Pick<
+  capacityObservability?: Partial<Pick<
     PstnCapacityObservability,
     | "openSocket"
     | "updateSocketContext"
@@ -2288,8 +2400,10 @@ async function createRoutedTwilioApp(options?: {
     | "clearCallQueues"
     | "recordAdmission"
     | "recordAdmissionLease"
+    | "recordAdmissionOwnershipLost"
     | "recordAdmissionBackendHealth"
-  >;
+    | "recordDuplicateClaim"
+  >>;
 }) {
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
@@ -2331,7 +2445,7 @@ async function createRoutedTwilioApp(options?: {
       ...options?.premiumExecution,
     })
     .overrideProvider(PstnCapacityObservability)
-    .useValue(options?.capacityObservability ?? {
+    .useValue({
       openSocket() {},
       updateSocketContext() {},
       recordSocketHandshake() {},
@@ -2345,7 +2459,10 @@ async function createRoutedTwilioApp(options?: {
       clearCallQueues() {},
       recordAdmission() {},
       recordAdmissionLease() {},
+      recordAdmissionOwnershipLost() {},
       recordAdmissionBackendHealth() {},
+      recordDuplicateClaim() {},
+      ...options?.capacityObservability,
     })
     .overrideProvider(PSTN_MEDIA_PROCESS_ROLE)
     .useValue(

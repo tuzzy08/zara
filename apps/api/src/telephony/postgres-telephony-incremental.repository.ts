@@ -26,6 +26,7 @@ import type {
   LoadTelephonyCallMutationContextInput,
   LoadTelephonyCallRuntimeContextInput,
   LoadTelephonyPremiumDispatchSnapshotInput,
+  ReconcileExpiredTelephonyPremiumCallOwnersInput,
   RecordTelephonyPhoneTestCheckpointByCallInput,
   RecordTelephonyCallControlMutationInput,
   RecordTelephonyConnectionHealthObservationInput,
@@ -1076,6 +1077,16 @@ export class PostgresTelephonyIncrementalRepository
   async transitionCallLifecycle(
     input: TransitionTelephonyCallLifecycleInput,
   ): Promise<TelephonyTransitionOutcome> {
+    if (
+      input.ownership !== undefined &&
+      (
+        !isPstnRealtimeWorkerId(input.ownership.workerId) ||
+        !Number.isSafeInteger(input.ownership.ownerEpoch) ||
+        input.ownership.ownerEpoch < 1
+      )
+    ) {
+      return { outcome: "conflict" };
+    }
     const updated = await this.database.query<{ version: number }>(
       `update telephony_execution_sessions
        set lifecycle_state = $1::jsonb,
@@ -1086,6 +1097,19 @@ export class PostgresTelephonyIncrementalRepository
          and version = $6
          and lifecycle_state->>'stage' = $7
          and lifecycle_state->>'stage' not in ('completed', 'failed', 'expired')
+         and (
+           ($8::text is null and $9::integer is null)
+           or exists (
+             select 1
+             from telephony_media_stream_tokens as token
+             where token.tenant_id = $4
+               and token.call_session_id = $5
+               and token.owner_worker_id = $8
+               and token.owner_epoch = $9
+               and token.claimed_at is not null
+               and token.owner_lease_expires_at > current_timestamp
+           )
+         )
        returning version`,
       [
         JSON.stringify(input.nextState),
@@ -1095,6 +1119,8 @@ export class PostgresTelephonyIncrementalRepository
         input.callSessionId,
         input.expectedVersion,
         input.expectedStage,
+        input.ownership?.workerId ?? null,
+        input.ownership?.ownerEpoch ?? null,
       ],
     );
     const updatedRow = updated.rows[0];
@@ -1272,16 +1298,23 @@ export class PostgresTelephonyIncrementalRepository
     if (
       !isPstnRealtimeWorkerId(input.workerId) ||
       !Number.isSafeInteger(input.ownerEpoch) ||
-      input.ownerEpoch < 1
+      input.ownerEpoch < 1 ||
+      !Number.isFinite(Date.parse(input.leaseExpiresAt))
     ) {
       return { outcome: "not_owner" as const };
     }
     const owned = await this.database.query<{ owner_epoch: number }>(
       `update telephony_media_stream_tokens
-       set owner_epoch = owner_epoch
+       set owner_lease_expires_at = case
+         when owner_lease_expires_at is null
+           or owner_lease_expires_at < $5
+         then $5
+         else owner_lease_expires_at
+       end
        where tenant_id = $1 and call_session_id = $2
          and owner_worker_id = $3 and owner_epoch = $4
          and claimed_at is not null
+         and $5 > current_timestamp
          and exists (
            select 1
            from telephony_execution_sessions as session
@@ -1291,7 +1324,13 @@ export class PostgresTelephonyIncrementalRepository
                not in ('completed', 'failed', 'expired')
          )
        returning owner_epoch`,
-      [input.tenantId, input.callSessionId, input.workerId, input.ownerEpoch],
+      [
+        input.tenantId,
+        input.callSessionId,
+        input.workerId,
+        input.ownerEpoch,
+        input.leaseExpiresAt,
+      ],
     );
     const row = owned.rows[0];
     if (row !== undefined) {
@@ -1305,6 +1344,99 @@ export class PostgresTelephonyIncrementalRepository
     return existing.rows.length === 0
       ? { outcome: "not_found" as const }
       : { outcome: "not_owner" as const };
+  }
+
+  async reconcileExpiredPremiumCallOwners(
+    input: ReconcileExpiredTelephonyPremiumCallOwnersInput,
+  ) {
+    if (
+      !Number.isFinite(Date.parse(input.before))
+      || !Number.isSafeInteger(input.limit)
+      || input.limit < 1
+      || input.limit > 1_000
+    ) {
+      throw new RangeError("Expired premium call reconciliation input is invalid.");
+    }
+    const nextState = JSON.stringify({
+      stage: "failed",
+      observedAt: input.before,
+      reasonCode: "premium_call_owner_lease_expired",
+    });
+    const client = await this.database.connect();
+    setInstrumentedTransactionContext(client, {
+      operation: "telephony_call_lifecycle_transition",
+    });
+    try {
+      await client.query("begin");
+      const candidates = await client.query<{
+        tenant_id: string;
+        call_session_id: string;
+      }>(
+        `select session.tenant_id, session.call_session_id
+         from telephony_execution_sessions as session
+         inner join telephony_dispatches as dispatch
+           on dispatch.tenant_id = session.tenant_id
+          and dispatch.id = session.dispatch_id
+         inner join telephony_media_stream_tokens as token
+           on token.tenant_id = session.tenant_id
+          and token.call_session_id = session.call_session_id
+         where dispatch.runtime_path = 'pstn-premium-realtime'
+           and token.owner_worker_id is not null
+           and token.owner_epoch > 0
+           and (
+             token.owner_lease_expires_at <= $1
+             or (
+               token.owner_lease_expires_at is null
+               and token.expires_at <= $1
+             )
+           )
+           and session.lifecycle_state->>'stage'
+             not in ('completed', 'failed', 'expired')
+         order by coalesce(
+           token.owner_lease_expires_at,
+           token.expires_at
+         ), session.call_session_id
+         limit $2
+         for update skip locked`,
+        [input.before, input.limit],
+      );
+      let reconciledCount = 0;
+      for (const candidate of candidates.rows) {
+        const reconciled = await client.query(
+          `update telephony_execution_sessions
+           set lifecycle_state = $1::jsonb,
+               status = 'terminated',
+               version = version + 1,
+               updated_at = $2
+           where tenant_id = $3
+             and call_session_id = $4
+             and lifecycle_state->>'stage'
+               not in ('completed', 'failed', 'expired')
+           returning call_session_id`,
+          [
+            nextState,
+            input.before,
+            candidate.tenant_id,
+            candidate.call_session_id,
+          ],
+        );
+        if (reconciled.rows.length > 0) {
+          await client.query(
+            `delete from telephony_media_stream_tokens
+             where tenant_id = $1 and call_session_id = $2`,
+            [candidate.tenant_id, candidate.call_session_id],
+          );
+        }
+        reconciledCount += reconciled.rows.length;
+      }
+      await client.query("commit");
+      return { reconciledCount };
+    } catch (error) {
+      await rollbackQuietly(client);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async deleteExpiredMediaTokens(input: DeleteExpiredTelephonyMediaTokensInput) {

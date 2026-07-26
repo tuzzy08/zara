@@ -52,7 +52,7 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyPremiumD
     Parameters<TelephonyIncrementalRepository["recordConnectionHealthObservation"]>[0][] = [];
   readonly premiumOwners = new Map<
     string,
-    { workerId: string; ownerEpoch: number }
+    { workerId: string; ownerEpoch: number; leaseExpiresAtMs?: number }
   >();
   failCallSetup = false;
   failPhoneTestCheckpoint = false;
@@ -674,10 +674,66 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyPremiumD
     const owner = this.premiumOwners.get(
       `${input.tenantId}:${input.callSessionId}`,
     );
-    return owner?.workerId === input.workerId
-      && owner.ownerEpoch === input.ownerEpoch
-      ? { outcome: "owned" as const, ownerEpoch: owner.ownerEpoch }
-      : { outcome: "not_owner" as const };
+    const leaseExpiresAtMs = Date.parse(input.leaseExpiresAt);
+    if (
+      owner?.workerId !== input.workerId
+      || owner.ownerEpoch !== input.ownerEpoch
+      || !Number.isFinite(leaseExpiresAtMs)
+      || leaseExpiresAtMs <= Date.now()
+    ) {
+      return { outcome: "not_owner" as const };
+    }
+    owner.leaseExpiresAtMs = Math.max(
+      owner.leaseExpiresAtMs ?? 0,
+      leaseExpiresAtMs,
+    );
+    return { outcome: "owned" as const, ownerEpoch: owner.ownerEpoch };
+  }
+
+  async reconcileExpiredPremiumCallOwners(
+    input: Parameters<
+      TelephonyPremiumDispatchRepository["reconcileExpiredPremiumCallOwners"]
+    >[0],
+  ) {
+    const beforeMs = Date.parse(input.before);
+    let reconciledCount = 0;
+    for (const [key, owner] of this.premiumOwners) {
+      if (
+        reconciledCount >= input.limit
+        || owner.leaseExpiresAtMs === undefined
+        || owner.leaseExpiresAtMs > beforeMs
+      ) {
+        continue;
+      }
+      const separator = key.indexOf(":");
+      const tenantId = key.slice(0, separator);
+      const callSessionId = key.slice(separator + 1);
+      const setup = this.findCallExecution(tenantId, callSessionId);
+      if (
+        setup === undefined
+        || setup.dispatch.runtimePath !== "pstn-premium-realtime"
+        || ["completed", "failed", "expired"].includes(
+          setup.executionSession.lifecycleState.stage,
+        )
+      ) {
+        continue;
+      }
+      setup.executionSession.lifecycleState = {
+        stage: "failed",
+        observedAt: input.before,
+        reasonCode: "premium_call_owner_lease_expired",
+      };
+      setup.executionSession.status = "terminated";
+      setup.executionSession.updatedAt = input.before;
+      Object.assign(setup.executionSession, {
+        version:
+          ((setup.executionSession as typeof setup.executionSession & {
+            version?: number;
+          }).version ?? 0) + 1,
+      });
+      reconciledCount += 1;
+    }
+    return { reconciledCount };
   }
 
   async loadCallRuntimeContext(
@@ -741,6 +797,19 @@ export class InMemoryTelephonyIncrementalRepository implements TelephonyPremiumD
       input.tenantId,
       input.callSessionId,
     )!;
+    if (input.ownership !== undefined) {
+      const owner = this.premiumOwners.get(
+        `${input.tenantId}:${input.callSessionId}`,
+      );
+      if (
+        owner?.workerId !== input.ownership.workerId
+        || owner.ownerEpoch !== input.ownership.ownerEpoch
+        || owner.leaseExpiresAtMs === undefined
+        || owner.leaseExpiresAtMs <= Date.now()
+      ) {
+        return { outcome: "conflict" as const, version: loaded.context.version };
+      }
+    }
     if (
       loaded.context.version === input.expectedVersion + 1 &&
       JSON.stringify(loaded.context.lifecycleState) === JSON.stringify(input.nextState) &&

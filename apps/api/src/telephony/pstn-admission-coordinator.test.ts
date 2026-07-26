@@ -34,6 +34,10 @@ const config: PstnAdmissionConfig = {
   commandTimeoutMs: 750,
 };
 
+function activeLeaseExpiresAt() {
+  return new Date(Date.now() + config.activeTtlMs).toISOString();
+}
+
 function createAdmission() {
   const calls: {
     reserve: PstnCallAdmissionInput[];
@@ -52,7 +56,7 @@ function createAdmission() {
       return {
         outcome: "admitted" as const,
         disposition: "created" as const,
-        leaseExpiresAt: "2026-07-24T12:00:30.000Z",
+        leaseExpiresAt: new Date(Date.now() + config.claimTtlMs).toISOString(),
         limitingDimension: "runtime_concurrency" as const,
         remainingCapacity: 3,
       };
@@ -61,7 +65,7 @@ function createAdmission() {
       calls.activate.push(input);
       return {
         outcome: "activated" as const,
-        leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+        leaseExpiresAt: activeLeaseExpiresAt(),
         ownershipEpoch: 1,
       };
     }),
@@ -69,7 +73,7 @@ function createAdmission() {
       calls.renew.push(input);
       return {
         outcome: "renewed" as const,
-        leaseExpiresAt: "2026-07-24T12:02:30.000Z",
+        leaseExpiresAt: activeLeaseExpiresAt(),
         ownershipEpoch: 1,
       };
     }),
@@ -157,6 +161,8 @@ describe("PstnAdmissionCoordinator", () => {
     vi.useFakeTimers();
     const { admission, calls } = createAdmission();
     const coordinator = new PstnAdmissionCoordinator(admission, config);
+    const ownershipConfirmed = vi.fn();
+    coordinator.onOwnershipConfirmed(ownershipConfirmed);
     await coordinator.reserve(scope);
     await coordinator.reserve({
       ...scope,
@@ -168,9 +174,63 @@ describe("PstnAdmissionCoordinator", () => {
     await vi.advanceTimersByTimeAsync(config.renewIntervalMs);
 
     expect(calls.renew).toHaveLength(2);
-    expect(vi.getTimerCount()).toBe(1);
+    expect(ownershipConfirmed).toHaveBeenCalledTimes(2);
+    expect(ownershipConfirmed).toHaveBeenLastCalledWith({
+      tenantId: scope.tenantId,
+      callSessionId: "CA456:telephony",
+      runtime: scope.runtime,
+      workerId: config.workerId,
+      ownershipEpoch: 1,
+      leaseExpiresAt: activeLeaseExpiresAt(),
+      operation: "renew",
+    });
+    expect(vi.getTimerCount()).toBe(2);
     await coordinator.shutdown();
     vi.useRealTimers();
+  });
+
+  it("stops renewing and releases admission when durable ownership confirmation fails", async () => {
+    vi.useFakeTimers();
+    try {
+      const { admission, calls } = createAdmission();
+      const coordinator = new PstnAdmissionCoordinator(admission, config);
+      coordinator.onOwnershipConfirmed(async () => {
+        throw new Error("durable ownership fence rejected");
+      });
+      await coordinator.reserve(scope);
+      await coordinator.activate(scope.tenantId, scope.callSessionId);
+
+      await vi.advanceTimersByTimeAsync(config.renewIntervalMs);
+
+      expect(calls.renew).toHaveLength(1);
+      expect(calls.release).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(config.renewIntervalMs * 2);
+      expect(calls.renew).toHaveLength(1);
+      await coordinator.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops renewing when no durable ownership confirmer is registered", async () => {
+    vi.useFakeTimers();
+    try {
+      const { admission, calls } = createAdmission();
+      const coordinator = new PstnAdmissionCoordinator(admission, config);
+      await coordinator.reserve(scope);
+      await coordinator.activate(scope.tenantId, scope.callSessionId);
+
+      await vi.advanceTimersByTimeAsync(config.renewIntervalMs);
+
+      expect(calls.renew).toHaveLength(1);
+      expect(calls.release).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(config.renewIntervalMs * 2);
+      expect(calls.renew).toHaveLength(1);
+      await coordinator.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps active calls tracked during a Redis renewal outage", async () => {
@@ -189,6 +249,145 @@ describe("PstnAdmissionCoordinator", () => {
     expect(calls.renew).toHaveLength(2);
     await coordinator.shutdown();
     vi.useRealTimers();
+  });
+
+  it("expires indeterminate ownership once at the last Redis-confirmed lease deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime("2026-07-24T12:00:00.000Z");
+      const { admission, calls } = createAdmission();
+      admission.renew = vi.fn(async (input) => {
+        calls.renew.push(input);
+        return { outcome: "backend_unavailable" as const };
+      });
+      const observability = {
+        recordAdmission: vi.fn(),
+        recordAdmissionLease: vi.fn(),
+        recordAdmissionBackendHealth: vi.fn(),
+        recordAdmissionOwnershipLost: vi.fn(),
+        recordPendingRelease: vi.fn(),
+      };
+      const coordinator = new PstnAdmissionCoordinator(
+        admission,
+        config,
+        observability,
+      );
+      const ownershipLost = vi.fn();
+      coordinator.onOwnershipLost(ownershipLost);
+      await coordinator.reserve(scope);
+      await coordinator.activate(scope.tenantId, scope.callSessionId);
+
+      await vi.advanceTimersByTimeAsync(config.renewIntervalMs);
+      await expect(
+        coordinator.reserve({
+          ...scope,
+          callSessionId: "CA-blocked-during-outage:telephony",
+        }),
+      ).resolves.toMatchObject({
+        outcome: "denied",
+        reasonCode: "indeterminate_result",
+      });
+
+      await vi.advanceTimersByTimeAsync(config.activeTtlMs - config.renewIntervalMs - 1);
+      expect(ownershipLost).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(ownershipLost).toHaveBeenCalledOnce();
+      expect(ownershipLost).toHaveBeenCalledWith({
+        tenantId: scope.tenantId,
+        callSessionId: scope.callSessionId,
+        runtime: scope.runtime,
+        reason: "lease_unrecoverable",
+      });
+      expect(observability.recordAdmissionOwnershipLost).toHaveBeenCalledOnce();
+      expect(observability.recordAdmissionOwnershipLost).toHaveBeenCalledWith({
+        reason: "confirmed_lease_expired",
+        provider: scope.provider,
+        runtimePath: scope.runtime,
+      });
+
+      await vi.advanceTimersByTimeAsync(config.activeTtlMs);
+      expect(ownershipLost).toHaveBeenCalledOnce();
+      expect(observability.recordAdmissionOwnershipLost).toHaveBeenCalledOnce();
+      await coordinator.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("advances the confirmed ownership deadline only after Redis renewal succeeds", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime("2026-07-24T12:00:00.000Z");
+      const { admission, calls } = createAdmission();
+      admission.renew = vi
+        .fn()
+        .mockImplementationOnce(async (input) => {
+          calls.renew.push(input);
+          return {
+            outcome: "renewed" as const,
+            leaseExpiresAt: "2026-07-24T12:02:30.000Z",
+            ownershipEpoch: 1,
+          };
+        })
+        .mockImplementation(async (input) => {
+          calls.renew.push(input);
+          return { outcome: "backend_unavailable" as const };
+        });
+      const coordinator = new PstnAdmissionCoordinator(admission, config);
+      coordinator.onOwnershipConfirmed(() => undefined);
+      const ownershipLost = vi.fn();
+      coordinator.onOwnershipLost(ownershipLost);
+      await coordinator.reserve(scope);
+      await coordinator.activate(scope.tenantId, scope.callSessionId);
+
+      await vi.advanceTimersByTimeAsync(config.activeTtlMs);
+      expect(ownershipLost).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(ownershipLost).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(ownershipLost).toHaveBeenCalledOnce();
+      await coordinator.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats a thrown renewal as indeterminate until the confirmed deadline expires", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime("2026-07-24T12:00:00.000Z");
+      const { admission, calls } = createAdmission();
+      admission.renew = vi.fn(async (input) => {
+        calls.renew.push(input);
+        throw new Error("Redis command outcome is unknown");
+      });
+      const coordinator = new PstnAdmissionCoordinator(admission, config);
+      const ownershipLost = vi.fn();
+      coordinator.onOwnershipLost(ownershipLost);
+      await coordinator.reserve(scope);
+      await coordinator.activate(scope.tenantId, scope.callSessionId);
+
+      await vi.advanceTimersByTimeAsync(config.renewIntervalMs);
+      await expect(
+        coordinator.reserve({
+          ...scope,
+          callSessionId: "CA-blocked-after-timeout:telephony",
+        }),
+      ).resolves.toMatchObject({
+        outcome: "denied",
+        reasonCode: "indeterminate_result",
+      });
+
+      await vi.advanceTimersByTimeAsync(config.activeTtlMs - config.renewIntervalMs);
+      expect(ownershipLost).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(config.activeTtlMs);
+      expect(ownershipLost).toHaveBeenCalledOnce();
+      await coordinator.shutdown();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the ownership epoch available while loss listeners release", async () => {
@@ -279,7 +478,7 @@ describe("PstnAdmissionCoordinator", () => {
       return calls.activate.length === 1
         ? {
             outcome: "activated" as const,
-            leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+            leaseExpiresAt: activeLeaseExpiresAt(),
             ownershipEpoch: 1,
           }
         : { outcome: "not_found" as const };
@@ -315,7 +514,7 @@ describe("PstnAdmissionCoordinator", () => {
       return calls.activate.length === 1
           ? {
               outcome: "activated" as const,
-              leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+              leaseExpiresAt: activeLeaseExpiresAt(),
               ownershipEpoch: 1,
             }
         : {
@@ -357,7 +556,7 @@ describe("PstnAdmissionCoordinator", () => {
       return {
         outcome: "admitted" as const,
         disposition: calls.reserve.length === 1 ? "created" as const : "existing" as const,
-        leaseExpiresAt: "2026-07-24T12:02:00.000Z",
+        leaseExpiresAt: activeLeaseExpiresAt(),
         limitingDimension: "runtime_concurrency" as const,
         remainingCapacity: 3,
       };
@@ -407,7 +606,18 @@ describe("PstnAdmissionCoordinator", () => {
           calls.release.push(input);
           return { outcome: "released" as const };
         });
-      const coordinator = new PstnAdmissionCoordinator(admission, config);
+      const observability = {
+        recordAdmission: vi.fn(),
+        recordAdmissionLease: vi.fn(),
+        recordAdmissionOwnershipLost: vi.fn(),
+        recordAdmissionBackendHealth: vi.fn(),
+        recordPendingRelease: vi.fn(),
+      };
+      const coordinator = new PstnAdmissionCoordinator(
+        admission,
+        config,
+        observability,
+      );
       await coordinator.reserve(scope);
       await coordinator.activate(scope.tenantId, scope.callSessionId);
 
@@ -420,6 +630,18 @@ describe("PstnAdmissionCoordinator", () => {
       expect(calls.release).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1);
       expect(calls.release).toHaveLength(2);
+      expect(observability.recordPendingRelease.mock.calls).toEqual([
+        [{
+          delta: 1,
+          runtimePath: scope.runtime,
+          provider: scope.provider,
+        }],
+        [{
+          delta: -1,
+          runtimePath: scope.runtime,
+          provider: scope.provider,
+        }],
+      ]);
 
       await coordinator.shutdown();
     } finally {
@@ -666,7 +888,9 @@ describe("PstnAdmissionCoordinator", () => {
     const observability = {
       recordAdmission: vi.fn(),
       recordAdmissionLease: vi.fn(),
+      recordAdmissionOwnershipLost: vi.fn(),
       recordAdmissionBackendHealth: vi.fn(),
+      recordPendingRelease: vi.fn(),
     };
     const mediaWorker = new PstnAdmissionCoordinator(
       admission,
@@ -699,7 +923,9 @@ describe("PstnAdmissionCoordinator", () => {
     const observability = {
       recordAdmission: vi.fn(),
       recordAdmissionLease: vi.fn(),
+      recordAdmissionOwnershipLost: vi.fn(),
       recordAdmissionBackendHealth: vi.fn(),
+      recordPendingRelease: vi.fn(),
     };
     const coordinator = new PstnAdmissionCoordinator(
       admission,

@@ -1,0 +1,52 @@
+# ISSUE-231: Multi-worker drain, fencing, and failure recovery
+
+- Status: In Progress
+- External: [Linear ZAR-233](https://linear.app/zara-voice/issue/ZAR-233/pstn-capacity-1012-qualify-multi-worker-drain-fencing-and-failure)
+
+## Decisions
+
+- Established premium media is never migrated or replayed to another worker.
+- Redis lease authority defines the maximum continuity window. Zara does not add an unfenced grace period after the last confirmed lease expiry.
+- Worker-owned durable lifecycle mutations must carry immutable worker and ownership-epoch fencing context.
+- A drain deadline terminates remaining calls with a distinct terminal reason and reports the forced count.
+- PostgreSQL terminal persistence uses bounded, idempotent retry and exposes exhaustion for reconciliation.
+- Resource posture remains an eligibility gate. Eligible workers are selected by available slots and current load rather than an opaque weighted algorithm.
+
+## Work Completed
+
+- Reconciled Linear ZAR-233 with local ISSUE-231 and started the issue.
+- Audited ISSUE-230 staging promotion gates. Local worker, deployment, simulator, and PSTN eval contracts pass; deployed exact-worker ingress, live provider smoke, and active-call API-restart evidence remain blocked until a candidate release is deployed.
+- Added durable premium ownership fencing to worker-owned lifecycle mutations. Worker ID, ownership epoch, and lease deadline are checked before a worker may advance call state; stale owners fail closed without mutating lifecycle.
+- Bound Redis outage continuity to the last successfully confirmed active lease. Renewal or durable-fence rejection stops the media owner and releases admission instead of extending authority locally.
+- Added explicit drain-deadline shutdown. Remaining media and provider sessions terminate with `worker_drain_deadline`, the forced call count is logged, and `zara.pstn.worker.forced_drain_terminations` records the affected calls.
+- Added bounded idempotent terminal persistence retries. Non-applied repository outcomes are not treated as success, exhausted writes are observable, and a scheduled worker reconciler terminates nonterminal calls whose durable owner lease expired.
+- Added recovery metrics for confirmed lease expiry, pending admission releases, duplicate media claims, finalization outcomes, forced drains, and admission backend readiness. The production checklist defines the corresponding low-cardinality OTel alert conditions.
+- Documented the supported Coolify topology as two separate realtime-worker applications with immutable worker identities, distinct endpoints, no overlapping same-ID rolling instances, and a serial drain-and-replace procedure.
+- Corrected the real-Postgres concurrency qualification to establish a valid ownership fence before explicitly expiring it, preventing wall-clock drift from silently skipping the reconciliation assertion.
+
+## Tests Run
+
+- `npm.cmd run typecheck --workspace=@zara/api` passed.
+- Focused schema, worker host/lifecycle/module/reconciler, observability, repository, admission, premium execution, Twilio media, and deployment-documentation suite passed: 202 tests across 11 files.
+- Real PostgreSQL incremental repository qualification passed: 22 tests, including concurrent stale-owner reconciliation.
+- Redis client, admission unit, and two-client real-Redis qualification passed: 39 tests.
+- `npm.cmd run eval:pstn` passed: 25 tests.
+- `docker compose -f compose.coolify.yml config --quiet` passed after programmatically populating all 22 required variables with validation-only values.
+- Targeted `git diff --check` passed.
+
+## Pending Work
+
+- Deploy the exact candidate release to two separate Coolify realtime-worker applications and capture evidence for unique worker/release identities, exact endpoints, heartbeat freshness, and slot accounting.
+- Run deployed exact-worker ingress, sibling rejection, long-running WebSocket idle, serial drain-and-replace, forced deadline, abrupt worker-stop, and active-call API-restart scenarios.
+- Run live OpenAI and Gemini provider smoke calls against the deployed candidate.
+- Configure and exercise the documented OTel alerts in the staging observability backend.
+
+## Risks
+
+- Local tests cannot prove Coolify reverse-proxy WebSocket timeout, external routing affinity, process replacement order, or effective container file-descriptor limits.
+- The checked-in Compose service remains the single-worker baseline; production HA depends on the documented pair of separately configured Coolify applications.
+- Alert metric contracts exist in code, but alert delivery and paging remain unverified until the staging OTel backend is configured.
+
+## Next Recommended Step
+
+Deploy this candidate without overlapping same-worker identities, then execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.

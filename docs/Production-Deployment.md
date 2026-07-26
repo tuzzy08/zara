@@ -2,12 +2,12 @@
 
 ## Production Environment
 
-Production runs four public deployment units behind separate origins:
+Production runs public deployment units behind separate origins:
 
 - Tenant app: `apps/web` at `https://app.zara.ai`
 - Platform admin app: `apps/platform-admin` at `https://admin.zara.ai`
 - NestJS API: `apps/api` at `https://api.zara.ai`
-- Premium PSTN realtime worker: `apps/api` worker target at `wss://realtime.zara.ai`
+- Premium PSTN realtime workers: two separate Coolify Dockerfile Applications built with target `realtime-worker` and distinct worker-specific origins
 
 The API is the authority for auth, organizations, workspaces, telephony, integrations, memory, billing, compliance, and live sandbox transport. The tenant and platform-admin apps are static Vite builds configured with production API/auth origins. Production must use durable Postgres with pgvector enabled, object storage for recordings and exports, provider webhook URLs on the production API origin, and managed log/metric collection.
 
@@ -35,9 +35,10 @@ Production-critical environment variables:
 - `TELEPHONY_CREDENTIAL_LEGACY_KEYS` when rotating keys
 - `ZARA_TWILIO_WEBHOOK_URL=https://api.zara.ai/telephony/webhooks/twilio` when the Twilio webhook path cannot be derived from `API_PUBLIC_URL`
 - `ZARA_TWILIO_MEDIA_STREAM_BASE_URL=wss://api.zara.ai/telephony/twilio/media-streams` when the Twilio media stream path cannot be derived from `API_PUBLIC_URL`
-- `REALTIME_WORKER_PUBLIC_URL=wss://realtime.zara.ai/telephony/twilio/media-streams`, advertised by that worker as its queryless public media endpoint
+- a distinct Coolify service domain in `https://host:4020` form for each worker application
+- a distinct `REALTIME_WORKER_PUBLIC_URL=wss://host/telephony/twilio/media-streams` value advertised by each worker
 - `PSTN_ADMISSION_REDIS_URL`
-- unique `PSTN_WORKER_ID` values and the deployed artifact identifier in `PSTN_WORKER_RELEASE_ID`
+- a unique `PSTN_WORKER_ID` in each worker application and the same deployed artifact identifier in `PSTN_WORKER_RELEASE_ID`
 - worker heartbeat, drain, resource, WebSocket, and concurrency limits from `deploy/coolify.env.example`
 - Provider secrets for AssemblyAI, Cartesia, OpenAI, Twilio, OAuth connectors, Polar, and webhook signing
 
@@ -52,13 +53,15 @@ For the VPS/Coolify path, use `docs/Coolify-Deployment.md` and the root `compose
 5. Build the API and realtime-worker targets from the same release artifact with migrations gated but not yet applied to live traffic.
 6. Run migration preflight against production with the release artifact.
 7. Apply migrations during an approved release window.
-8. Deploy new realtime workers and require healthy readiness plus registry heartbeats for every enabled premium provider. Each worker heartbeat must advertise the endpoint that routes back to that worker. Keep old workers serving their owned calls.
+8. Confirm both realtime workers are healthy, then apply Zara's serial drain-and-replace procedure to one worker at a time. Drain the selected worker, wait for owned calls to finish or the forced deadline and terminal persistence, replace it without process overlap using a fresh worker ID, verify its exact endpoint and new-release heartbeat, restore eligibility, and only then repeat for the sibling.
 9. Deploy the API, then tenant and platform-admin static artifacts.
-10. Shift new call traffic gradually to the new API and worker release. Drain old workers; do not terminate them until owned calls finish or the configured drain timeout expires.
+10. Shift new call traffic gradually to the new API and verified worker release.
 11. Confirm observability dashboards, alert thresholds, backup restore point, and rollback owner are ready.
 12. Run production smoke tests before announcing the release complete.
 
 Releases that touch telephony, runtime, auth, billing, memory, or migrations require an explicit rollback owner and an active-call review before traffic shift.
+
+Both workers must run the same `PSTN_WORKER_RELEASE_ID` from the production candidate. Configure each as a separate Coolify Dockerfile Application with a distinct domain that routes only to that application. Coolify's overlapping rolling update must remain disabled. Every replacement receives a fresh immutable process-level worker ID and follows Zara's non-overlapping serial drain-and-replace procedure. The checked-in Docker Compose resource is the single-worker baseline and does not provide rolling updates or the two-worker HA topology.
 
 ## Secrets
 
@@ -132,10 +135,11 @@ Provider rollback:
 - [ ] Production `DATABASE_URL` points to the production database.
 - [ ] Better Auth production URL, browser auth/API base URLs, and trusted origins match same-site production domains.
 - [ ] Tenant app, platform-admin app, and API artifacts are versioned.
-- [ ] Realtime-worker artifact matches the API release, every replica has a unique worker ID, and enabled-provider credentials match its advertised capabilities.
+- [ ] Two separate worker applications use the same candidate release ID, rolling updates are disabled, each running process has a unique immutable worker ID, and enabled-provider credentials match advertised capabilities.
 - [ ] Worker readiness is healthy, registry heartbeat age is below the configured TTL, and at least one compatible worker has an available slot before premium traffic is enabled.
-- [ ] `REALTIME_WORKER_PUBLIC_URL` terminates TLS, preserves WebSocket upgrades, and targets the worker rather than the API.
+- [ ] Each Coolify worker domain is configured as `https://host:4020`; each advertised media URL uses `wss://host/telephony/twilio/media-streams`, preserves WebSocket upgrades, and targets that exact worker.
 - [ ] Every advertised worker ID resolves to its own media endpoint, or worker-aware ingress routes the signed target deterministically; no random replica routing sits between Twilio and the selected worker.
+- [ ] Deployed staging evidence covers effective WebSocket idle behavior, non-overlapping serial replacement, worker drain and stop grace, terminal persistence, and effective file-descriptor limits for both worker applications.
 - [ ] Provider webhook URLs target `https://api.zara.ai`.
 - [ ] Telephony credential key version and legacy keys are reviewed.
 - [ ] Polar is set to production mode with production webhook secret.

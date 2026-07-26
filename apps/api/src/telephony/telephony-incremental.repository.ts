@@ -290,6 +290,12 @@ export interface FenceTelephonyPremiumCallOwnershipInput {
   callSessionId: string;
   workerId: string;
   ownerEpoch: number;
+  leaseExpiresAt: string;
+}
+
+export interface ReconcileExpiredTelephonyPremiumCallOwnersInput {
+  before: string;
+  limit: number;
 }
 
 export type TelephonyPremiumCallOwnershipFenceOutcome =
@@ -341,6 +347,10 @@ export interface TransitionTelephonyCallLifecycleInput {
   expectedStage: TelephonyCallLifecycleStage;
   nextState: TelephonyCallLifecycleState;
   nextStatus?: TelephonyExecutionSessionStatus | undefined;
+  ownership?: {
+    workerId: string;
+    ownerEpoch: number;
+  } | undefined;
 }
 
 export interface RecordTelephonyPhoneTestCheckpointByCallInput {
@@ -424,6 +434,9 @@ export interface TelephonyPremiumDispatchRepository extends TelephonyIncremental
   fencePremiumCallOwnership(
     input: FenceTelephonyPremiumCallOwnershipInput,
   ): Promise<TelephonyPremiumCallOwnershipFenceOutcome>;
+  reconcileExpiredPremiumCallOwners(
+    input: ReconcileExpiredTelephonyPremiumCallOwnersInput,
+  ): Promise<{ reconciledCount: number }>;
 }
 
 export const requiredPhoneTestCheckpoints = [

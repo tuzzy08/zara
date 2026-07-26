@@ -24,6 +24,8 @@ interface TrackedAdmission {
   input: PstnCallAdmissionInput;
   state: "claim" | "active";
   ownershipEpoch?: number | undefined;
+  confirmedLeaseExpiresAtMs?: number | undefined;
+  ownershipLossStarted?: boolean | undefined;
 }
 
 interface PendingRelease {
@@ -43,7 +45,9 @@ type PstnAdmissionObservability = Pick<
   PstnCapacityObservability,
   | "recordAdmission"
   | "recordAdmissionLease"
+  | "recordAdmissionOwnershipLost"
   | "recordAdmissionBackendHealth"
+  | "recordPendingRelease"
 >;
 
 export interface PstnAdmissionOwnershipLostEvent {
@@ -53,16 +57,30 @@ export interface PstnAdmissionOwnershipLostEvent {
   reason: "lease_unrecoverable" | "not_owner";
 }
 
+export interface PstnAdmissionOwnershipConfirmedEvent {
+  tenantId: string;
+  callSessionId: string;
+  runtime: PstnAdmissionRuntimePath;
+  workerId: string;
+  ownershipEpoch: number;
+  leaseExpiresAt: string;
+  operation: "renew" | "recover";
+}
+
 export class PstnAdmissionCoordinator {
   private readonly tracked = new Map<string, TrackedAdmission>();
   private readonly unresolvedActiveLeases = new Set<string>();
   private readonly pendingReleases = new Map<string, PendingRelease>();
   private renewalTimer: ReturnType<typeof setInterval> | undefined;
+  private ownershipDeadlineTimer: ReturnType<typeof setTimeout> | undefined;
   private releaseRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
   private readonly ownershipLostListeners = new Set<
     (event: PstnAdmissionOwnershipLostEvent) => void | Promise<void>
+  >();
+  private readonly ownershipConfirmedListeners = new Set<
+    (event: PstnAdmissionOwnershipConfirmedEvent) => void | Promise<void>
   >();
 
   constructor(
@@ -157,8 +175,12 @@ export class PstnAdmissionCoordinator {
         input: recoveryInput,
         state: "active",
         ownershipEpoch: result.ownershipEpoch,
+        confirmedLeaseExpiresAtMs: parseLeaseDeadline(
+          result.leaseExpiresAt,
+        ),
       });
       this.ensureRenewalTimer();
+      this.scheduleOwnershipDeadlineCheck();
     }
     return result;
   }
@@ -177,6 +199,7 @@ export class PstnAdmissionCoordinator {
     const tracked = this.tracked.get(key);
     this.tracked.delete(key);
     this.unresolvedActiveLeases.delete(key);
+    this.scheduleOwnershipDeadlineCheck();
     this.stopRenewalTimerWhenIdle();
     const releaseIntent: PendingRelease = {
       input: tracked?.input,
@@ -186,6 +209,11 @@ export class PstnAdmissionCoordinator {
       inFlight: undefined,
     };
     this.pendingReleases.set(key, releaseIntent);
+    this.observability?.recordPendingRelease({
+      delta: 1,
+      runtimePath: releaseIntent.input?.runtime ?? "unknown",
+      provider: releaseIntent.input?.provider ?? "unknown",
+    });
     return this.attemptRelease(key, releaseIntent);
   }
 
@@ -211,6 +239,17 @@ export class PstnAdmissionCoordinator {
     };
   }
 
+  onOwnershipConfirmed(
+    listener: (
+      event: PstnAdmissionOwnershipConfirmedEvent,
+    ) => void | Promise<void>,
+  ) {
+    this.ownershipConfirmedListeners.add(listener);
+    return () => {
+      this.ownershipConfirmedListeners.delete(listener);
+    };
+  }
+
   shutdown() {
     this.shutdownPromise ??= this.performShutdown();
     return this.shutdownPromise;
@@ -219,6 +258,7 @@ export class PstnAdmissionCoordinator {
   private async performShutdown() {
     this.shuttingDown = true;
     this.clearRenewalTimer();
+    this.clearOwnershipDeadlineTimer();
     this.clearReleaseRetryTimer();
     await Promise.allSettled(
       [...this.pendingReleases.values()]
@@ -299,27 +339,54 @@ export class PstnAdmissionCoordinator {
     );
     await Promise.allSettled(
       active.map(async ([key, tracked]) => {
+        if (ownershipLossHasStarted(tracked)) {
+          return;
+        }
         if (tracked.ownershipEpoch === undefined) {
           this.unresolvedActiveLeases.add(key);
           return;
         }
-        const result = await this.admission.renew({
-          reservationId: tracked.input.reservationId,
-          workerId: tracked.input.workerId,
-          ownershipEpoch: tracked.ownershipEpoch,
-          activeTtlMs: tracked.input.activeTtlMs,
-        });
+        let result;
+        try {
+          result = await this.admission.renew({
+            reservationId: tracked.input.reservationId,
+            workerId: tracked.input.workerId,
+            ownershipEpoch: tracked.ownershipEpoch,
+            activeTtlMs: tracked.input.activeTtlMs,
+          });
+        } catch {
+          result = { outcome: "backend_unavailable" as const };
+        }
         this.recordLease("renew", result.outcome, tracked.input);
+        if (
+          this.tracked.get(key) !== tracked ||
+          ownershipLossHasStarted(tracked)
+        ) {
+          return;
+        }
         if (result.outcome === "not_owner") {
-          this.unresolvedActiveLeases.delete(key);
-          await this.notifyOwnershipLost(tracked);
-          if (this.tracked.get(key) === tracked) {
-            this.tracked.delete(key);
-          }
+          await this.loseOwnership(key, tracked, "not_owner");
           return;
         }
         if (result.outcome === "renewed") {
+          tracked.confirmedLeaseExpiresAtMs = parseLeaseDeadline(
+            result.leaseExpiresAt,
+          );
           this.unresolvedActiveLeases.delete(key);
+          this.scheduleOwnershipDeadlineCheck();
+          const durableOwnershipConfirmed =
+            await this.notifyOwnershipConfirmed({
+            tracked,
+            leaseExpiresAt: result.leaseExpiresAt,
+            operation: "renew",
+          });
+          if (!durableOwnershipConfirmed) {
+            await this.loseOwnership(
+              key,
+              tracked,
+              "lease_unrecoverable",
+            );
+          }
           return;
         }
         this.unresolvedActiveLeases.add(key);
@@ -335,19 +402,32 @@ export class PstnAdmissionCoordinator {
             reconciliation.outcome === "existing"
           ) {
             tracked.ownershipEpoch = reconciliation.ownershipEpoch;
+            tracked.confirmedLeaseExpiresAtMs = parseLeaseDeadline(
+              reconciliation.leaseExpiresAt,
+            );
             this.unresolvedActiveLeases.delete(key);
+            this.scheduleOwnershipDeadlineCheck();
+            const durableOwnershipConfirmed =
+              await this.notifyOwnershipConfirmed({
+              tracked,
+              leaseExpiresAt: reconciliation.leaseExpiresAt,
+              operation: "recover",
+            });
+            if (!durableOwnershipConfirmed) {
+              await this.loseOwnership(
+                key,
+                tracked,
+                "lease_unrecoverable",
+              );
+            }
           } else if (reconciliation.outcome === "not_owner") {
-            this.unresolvedActiveLeases.delete(key);
-            await this.notifyOwnershipLost(tracked);
-            if (this.tracked.get(key) === tracked) {
-              this.tracked.delete(key);
-            }
+            await this.loseOwnership(key, tracked, "not_owner");
           } else if (reconciliation.outcome === "not_found") {
-            this.unresolvedActiveLeases.delete(key);
-            await this.notifyOwnershipLost(tracked, "lease_unrecoverable");
-            if (this.tracked.get(key) === tracked) {
-              this.tracked.delete(key);
-            }
+            await this.loseOwnership(
+              key,
+              tracked,
+              "lease_unrecoverable",
+            );
           }
         }
       }),
@@ -355,10 +435,44 @@ export class PstnAdmissionCoordinator {
     this.stopRenewalTimerWhenIdle();
   }
 
+  private async loseOwnership(
+    key: string,
+    tracked: TrackedAdmission,
+    reason: PstnAdmissionOwnershipLostEvent["reason"],
+    observableReason:
+      | PstnAdmissionOwnershipLostEvent["reason"]
+      | "confirmed_lease_expired" = reason,
+  ) {
+    if (
+      this.tracked.get(key) !== tracked ||
+      ownershipLossHasStarted(tracked)
+    ) {
+      return;
+    }
+    tracked.ownershipLossStarted = true;
+    this.unresolvedActiveLeases.delete(key);
+    await this.notifyOwnershipLost(tracked, reason, observableReason);
+    if (this.tracked.get(key) === tracked) {
+      await this.release(
+        tracked.input.tenantId,
+        tracked.input.callSessionId,
+      );
+    }
+    this.scheduleOwnershipDeadlineCheck();
+  }
+
   private async notifyOwnershipLost(
     tracked: TrackedAdmission,
     reason: PstnAdmissionOwnershipLostEvent["reason"] = "not_owner",
+    observableReason:
+      | PstnAdmissionOwnershipLostEvent["reason"]
+      | "confirmed_lease_expired" = reason,
   ) {
+    this.observability?.recordAdmissionOwnershipLost({
+      reason: observableReason,
+      runtimePath: tracked.input.runtime,
+      provider: tracked.input.provider,
+    });
     const event: PstnAdmissionOwnershipLostEvent = {
       tenantId: tracked.input.tenantId,
       callSessionId: tracked.input.callSessionId,
@@ -370,6 +484,79 @@ export class PstnAdmissionCoordinator {
     await Promise.allSettled(
       [...this.ownershipLostListeners].map((listener) => listener(event)),
     );
+  }
+
+  private async notifyOwnershipConfirmed(input: {
+    tracked: TrackedAdmission;
+    leaseExpiresAt: string;
+    operation: PstnAdmissionOwnershipConfirmedEvent["operation"];
+  }) {
+    const ownershipEpoch = input.tracked.ownershipEpoch;
+    if (ownershipEpoch === undefined) {
+      return;
+    }
+    const event: PstnAdmissionOwnershipConfirmedEvent = {
+      tenantId: input.tracked.input.tenantId,
+      callSessionId: input.tracked.input.callSessionId,
+      runtime: input.tracked.input.runtime as PstnAdmissionRuntimePath,
+      workerId: input.tracked.input.workerId,
+      ownershipEpoch,
+      leaseExpiresAt: input.leaseExpiresAt,
+      operation: input.operation,
+    };
+    const results = await Promise.allSettled(
+      [...this.ownershipConfirmedListeners].map((listener) => listener(event)),
+    );
+    return results.length > 0
+      && results.every((result) => result.status === "fulfilled");
+  }
+
+  private scheduleOwnershipDeadlineCheck() {
+    this.clearOwnershipDeadlineTimer();
+    if (this.shuttingDown) {
+      return;
+    }
+    const nextDeadline = Math.min(
+      ...[...this.tracked.values()]
+        .filter(
+          (tracked) =>
+            tracked.state === "active" &&
+            !ownershipLossHasStarted(tracked) &&
+            tracked.confirmedLeaseExpiresAtMs !== undefined,
+        )
+        .map((tracked) => tracked.confirmedLeaseExpiresAtMs as number),
+    );
+    if (!Number.isFinite(nextDeadline)) {
+      return;
+    }
+    this.ownershipDeadlineTimer = setTimeout(() => {
+      this.ownershipDeadlineTimer = undefined;
+      void this.expireConfirmedLeases();
+    }, Math.max(0, nextDeadline - Date.now()));
+    this.ownershipDeadlineTimer.unref?.();
+  }
+
+  private async expireConfirmedLeases() {
+    const now = Date.now();
+    const expired = [...this.tracked.entries()].filter(
+      ([, tracked]) =>
+        tracked.state === "active" &&
+        !ownershipLossHasStarted(tracked) &&
+        tracked.confirmedLeaseExpiresAtMs !== undefined &&
+        tracked.confirmedLeaseExpiresAtMs <= now,
+    );
+    await Promise.allSettled(
+      expired.map(([key, tracked]) =>
+        this.loseOwnership(
+          key,
+          tracked,
+          "lease_unrecoverable",
+          "confirmed_lease_expired",
+        ),
+      ),
+    );
+    this.scheduleOwnershipDeadlineCheck();
+    this.stopRenewalTimerWhenIdle();
   }
 
   private stopRenewalTimerWhenIdle() {
@@ -389,6 +576,14 @@ export class PstnAdmissionCoordinator {
     }
     clearInterval(this.renewalTimer);
     this.renewalTimer = undefined;
+  }
+
+  private clearOwnershipDeadlineTimer() {
+    if (this.ownershipDeadlineTimer === undefined) {
+      return;
+    }
+    clearTimeout(this.ownershipDeadlineTimer);
+    this.ownershipDeadlineTimer = undefined;
   }
 
   private attemptRelease(
@@ -426,6 +621,11 @@ export class PstnAdmissionCoordinator {
 
     if (result.outcome !== "backend_unavailable") {
       this.pendingReleases.delete(key);
+      this.observability?.recordPendingRelease({
+        delta: -1,
+        runtimePath: pending.input?.runtime ?? "unknown",
+        provider: pending.input?.provider ?? "unknown",
+      });
       this.scheduleReleaseRetry();
       return result;
     }
@@ -507,6 +707,15 @@ function isCompleteRecoveryScope(
     (scope.runtime === "pstn-sandwich" ||
       scope.runtime === "pstn-premium-realtime")
   );
+}
+
+function parseLeaseDeadline(leaseExpiresAt: string) {
+  const deadline = Date.parse(leaseExpiresAt);
+  return Number.isFinite(deadline) ? deadline : Date.now();
+}
+
+function ownershipLossHasStarted(tracked: TrackedAdmission) {
+  return tracked.ownershipLossStarted === true;
 }
 
 const initialReleaseRetryDelayMs = 1_000;

@@ -588,6 +588,9 @@ export const telephonyMediaStreamTokens = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     ownerWorkerId: text("owner_worker_id"),
     ownerEpoch: integer("owner_epoch").notNull().default(0),
+    ownerLeaseExpiresAt: timestamp("owner_lease_expires_at", {
+      withTimezone: true,
+    }),
   },
   (table) => ({
     primaryKey: primaryKey({ columns: [table.tenantId, table.callSessionId] }),

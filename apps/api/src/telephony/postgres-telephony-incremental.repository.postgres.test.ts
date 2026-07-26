@@ -435,6 +435,7 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
         callSessionId: setup.executionSession.callSessionId,
         workerId: ownerWorkerId,
         ownerEpoch: 1,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "owned", ownerEpoch: 1 });
     await expect(
@@ -443,6 +444,7 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
         callSessionId: setup.executionSession.callSessionId,
         workerId: ownerWorkerId,
         ownerEpoch: 2,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "not_owner" });
     await pool.query(
@@ -460,8 +462,93 @@ describe.skipIf(connectionString === undefined)("PostgresTelephonyIncrementalRep
         callSessionId: setup.executionSession.callSessionId,
         workerId: ownerWorkerId,
         ownerEpoch: 1,
+        leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
       }),
     ).resolves.toEqual({ outcome: "not_owner" });
+  });
+
+  it("reconciles an expired premium owner once across concurrent workers", async () => {
+    const setup = callSetup(tenantA, `expired-owner-${suffix}`);
+    setup.premiumDispatchSnapshot = premiumDispatchSnapshot(setup);
+    await repository.createCallSetup(setup);
+    const claimed = await repository.claimMediaToken({
+      tenantId: tenantA,
+      callSessionId: setup.executionSession.callSessionId,
+      dispatchId: setup.executionSession.dispatchId,
+      connectionId: setup.executionSession.connectionId,
+      tokenHash: setup.mediaToken.tokenHash,
+      workerId: "premium-worker-expired",
+    });
+    expect(claimed).toMatchObject({ outcome: "claimed", ownerEpoch: 1 });
+    const now = Date.now();
+    await expect(repository.fencePremiumCallOwnership({
+      tenantId: tenantA,
+      callSessionId: setup.executionSession.callSessionId,
+      workerId: "premium-worker-expired",
+      ownerEpoch: 1,
+      leaseExpiresAt: new Date(now + 120_000).toISOString(),
+    })).resolves.toEqual({ outcome: "owned", ownerEpoch: 1 });
+    const expiredLeaseAt = new Date(now - 60_000).toISOString();
+    const reconciliationObservedAt = new Date(now).toISOString();
+    await pool.query(
+      `update telephony_media_stream_tokens
+       set owner_lease_expires_at = $1
+       where tenant_id = $2 and call_session_id = $3`,
+      [expiredLeaseAt, tenantA, setup.executionSession.callSessionId],
+    );
+    await pool.query(
+      `update telephony_execution_sessions
+       set lifecycle_state = jsonb_build_object(
+         'stage', 'active',
+         'observedAt', $1::text
+       )
+       where tenant_id = $2 and call_session_id = $3`,
+      [
+        expiredLeaseAt,
+        tenantA,
+        setup.executionSession.callSessionId,
+      ],
+    );
+    const sibling = new PostgresTelephonyIncrementalRepository(pool);
+
+    const results = await Promise.all([
+      repository.reconcileExpiredPremiumCallOwners({
+        before: reconciliationObservedAt,
+        limit: 100,
+      }),
+      sibling.reconcileExpiredPremiumCallOwners({
+        before: reconciliationObservedAt,
+        limit: 100,
+      }),
+    ]);
+
+    expect(results.reduce(
+      (total, result) => total + result.reconciledCount,
+      0,
+    )).toBe(1);
+    const lifecycle = await pool.query<{
+      lifecycle_state: { stage: string; reasonCode: string };
+      status: string;
+    }>(
+      `select lifecycle_state, status
+       from telephony_execution_sessions
+       where tenant_id = $1 and call_session_id = $2`,
+      [tenantA, setup.executionSession.callSessionId],
+    );
+    expect(lifecycle.rows[0]).toMatchObject({
+      status: "terminated",
+      lifecycle_state: {
+        stage: "failed",
+        reasonCode: "premium_call_owner_lease_expired",
+      },
+    });
+    const retainedToken = await pool.query(
+      `select 1
+       from telephony_media_stream_tokens
+       where tenant_id = $1 and call_session_id = $2`,
+      [tenantA, setup.executionSession.callSessionId],
+    );
+    expect(retainedToken.rows).toHaveLength(0);
   });
 
   it("blocks a stale replica from creating outbound work after another replica records abuse", async () => {

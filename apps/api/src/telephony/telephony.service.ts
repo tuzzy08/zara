@@ -1645,12 +1645,14 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     callSessionId: string;
     workerId: string;
     ownerEpoch: number;
+    leaseExpiresAt: string;
   }) {
     return this.incrementalRepository.fencePremiumCallOwnership({
       tenantId: input.organizationId,
       callSessionId: input.callSessionId,
       workerId: input.workerId,
       ownerEpoch: input.ownerEpoch,
+      leaseExpiresAt: input.leaseExpiresAt,
     });
   }
 
@@ -1727,6 +1729,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     stage: TelephonyCallLifecycleStage;
     at?: string | undefined;
     reasonCode?: string | undefined;
+    ownership?: {
+      workerId: string;
+      ownerEpoch: number;
+    } | undefined;
   }) {
     const nextStatus =
       input.stage === "active"
@@ -1747,6 +1753,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           : { reasonCode: sanitizePstnLifecycleReasonCode(input.reasonCode) }),
       },
       nextStatus,
+      ...(input.ownership === undefined
+        ? {}
+        : { ownership: input.ownership }),
     });
   }
 
@@ -1765,6 +1774,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     callSessionId: string;
     nextState: TelephonyCallLifecycleState;
     nextStatus?: TelephonyExecutionSession["status"] | undefined;
+    ownership?: {
+      workerId: string;
+      ownerEpoch: number;
+    } | undefined;
   }): Promise<
     | { outcome: "applied"; context: TelephonyCallRuntimeContext }
     | { outcome: "ignored"; context: TelephonyCallRuntimeContext }
@@ -1810,6 +1823,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             expectedStage: current.stage,
             nextState: input.nextState,
             nextStatus: input.nextStatus,
+            ...(input.ownership === undefined
+              ? {}
+              : { ownership: input.ownership }),
           });
         if (
           transition.outcome === "updated" ||

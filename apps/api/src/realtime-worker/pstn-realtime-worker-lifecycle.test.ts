@@ -200,6 +200,11 @@ describe("PstnRealtimeWorkerLifecycleService", () => {
 
     const firstDrain = harness.service.beginDrain();
     const concurrentDrain = harness.service.beginDrain();
+
+    expect(harness.service.getHealthPosture()).toMatchObject({
+      state: "draining",
+      acceptingCalls: false,
+    });
     await harness.drainingPublicationAttempted.promise;
 
     expect(concurrentDrain).toBe(firstDrain);

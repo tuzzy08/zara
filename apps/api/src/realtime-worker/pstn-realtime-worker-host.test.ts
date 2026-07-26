@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { Logger } from "@nestjs/common";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PstnRealtimeWorkerConfig } from "./pstn-realtime-worker-config";
+import type { PstnRealtimeWorkerDrainResult } from "./pstn-realtime-worker-lifecycle";
 import {
   PstnCapacityExecutionPostureAdapter,
   PstnCapacityProcessMetricsSource,
@@ -67,11 +69,48 @@ describe("PstnRealtimeWorkerHostLifecycle", () => {
       "admission.shutdown",
     ]);
   });
+
+  it("force-terminates and reports calls that remain at the drain deadline", async () => {
+    const events: string[] = [];
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => undefined);
+    const host = createHost(
+      events,
+      { acceptingCalls: true },
+      {
+        completed: false,
+        reason: "deadline",
+        remainingCalls: 5,
+      },
+    );
+
+    await host.beforeApplicationShutdown();
+
+    expect(events).toEqual([
+      "lifecycle.beginDrain",
+      "lifecycle.stop",
+      "capacity.forcedDrain:5",
+      "bridge.shutdown:worker_drain_deadline:5",
+      "execution.shutdown:worker_drain_deadline:5",
+      "admission.shutdown",
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      "[pstn-realtime-worker] drain_deadline "
+        + JSON.stringify({ forcedCallCount: 5 }),
+    );
+    warn.mockRestore();
+  });
 });
 
 function createHost(
   events: string[],
   health: { acceptingCalls: boolean },
+  drainResult: PstnRealtimeWorkerDrainResult = {
+    completed: true,
+    reason: "empty",
+    remainingCalls: 0,
+  },
 ) {
   return new PstnRealtimeWorkerHostLifecycle(
     { connect: async () => { events.push("redis.connect"); } },
@@ -79,11 +118,7 @@ function createHost(
       start: async () => { events.push("lifecycle.start"); },
       beginDrain: async () => {
         events.push("lifecycle.beginDrain");
-        return {
-          completed: true as const,
-          reason: "empty" as const,
-          remainingCalls: 0,
-        };
+        return drainResult;
       },
       stop: () => { events.push("lifecycle.stop"); },
       getHealthPosture: () => ({
@@ -100,9 +135,36 @@ function createHost(
         availableSlots: health.acceptingCalls ? 20 : 0,
       }),
     },
-    { shutdown: async () => { events.push("bridge.shutdown"); } },
-    { shutdown: async () => { events.push("execution.shutdown"); } },
+    {
+      shutdown: async (input?: {
+        reasonCode: string;
+        forcedCallCount: number;
+      }) => {
+        events.push(
+          input === undefined
+            ? "bridge.shutdown"
+            : `bridge.shutdown:${input.reasonCode}:${input.forcedCallCount}`,
+        );
+      },
+    },
+    {
+      shutdown: async (input?: {
+        reasonCode: string;
+        forcedCallCount: number;
+      }) => {
+        events.push(
+          input === undefined
+            ? "execution.shutdown"
+            : `execution.shutdown:${input.reasonCode}:${input.forcedCallCount}`,
+        );
+      },
+    },
     { shutdown: async () => { events.push("admission.shutdown"); } },
+    {
+      recordForcedDrain: ({ forcedCallCount }: { forcedCallCount: number }) => {
+        events.push(`capacity.forcedDrain:${forcedCallCount}`);
+      },
+    },
   );
 }
 

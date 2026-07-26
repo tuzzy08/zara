@@ -65,6 +65,7 @@ import {
   PstnRealtimeWorkerLifecycleService,
 } from "./pstn-realtime-worker-lifecycle";
 import { PstnRealtimeWorkerRegistry } from "./pstn-realtime-worker-registry";
+import { PstnPremiumFinalizationReconciler } from "./pstn-premium-finalization-reconciler";
 
 export const PSTN_REALTIME_WORKER_CONFIG = Symbol(
   "PSTN_REALTIME_WORKER_CONFIG",
@@ -98,6 +99,7 @@ const PSTN_REALTIME_WORKER_PROCESS_METRICS = Symbol(
     TelephonyService,
     PremiumPstnDispatchSnapshotResolver,
     PstnPremiumCallExecution,
+    PstnPremiumFinalizationReconciler,
     TwilioMediaStreamsWebSocketBridge,
     {
       provide: PSTN_REALTIME_WORKER_CONFIG,
@@ -217,6 +219,7 @@ const PSTN_REALTIME_WORKER_PROCESS_METRICS = Symbol(
         bridge: TwilioMediaStreamsWebSocketBridge,
         execution: PstnPremiumCallExecution,
         admission: PstnAdmissionRedisLifecycle,
+        capacity: PstnCapacityObservability,
       ) => {
         if (client === undefined) {
           throw new Error("PSTN admission Redis is required by the realtime worker.");
@@ -227,6 +230,7 @@ const PSTN_REALTIME_WORKER_PROCESS_METRICS = Symbol(
           bridge,
           execution,
           admission,
+          capacity,
         );
       },
       inject: [
@@ -235,6 +239,7 @@ const PSTN_REALTIME_WORKER_PROCESS_METRICS = Symbol(
         TwilioMediaStreamsWebSocketBridge,
         PstnPremiumCallExecution,
         PstnAdmissionRedisLifecycle,
+        PstnCapacityObservability,
       ],
     },
     {
