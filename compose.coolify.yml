@@ -20,7 +20,7 @@ services:
     image: redis:7.2.14-alpine
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in Coolify}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
     command:
       - sh

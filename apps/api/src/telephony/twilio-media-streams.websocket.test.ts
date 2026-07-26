@@ -443,7 +443,6 @@ describe("Twilio Media Streams websocket bridge", () => {
       "recordPstnCallLifecycle",
     );
     const callSid = "CA-premium-fence-rejected";
-    const callSessionId = `${callSid}:telephony`;
     const webhookResponse = await answerViaVerifiedWebhook({
       app,
       accountSid: "AC1234567890abcdef1234567890abcd",

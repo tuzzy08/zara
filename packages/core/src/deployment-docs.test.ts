@@ -147,7 +147,7 @@ describe("deployment documentation", () => {
       "utf8",
     ).replace(/\r\n/gu, "\n");
 
-    expect(compose.match(/^  realtime-worker:\n/gmu)).toHaveLength(1);
+    expect(compose.match(/^ {2}realtime-worker:\n/gmu)).toHaveLength(1);
     expect(compose).not.toContain("realtime-worker-1:");
     expect(compose).not.toContain("realtime-worker-2:");
     expect(compose).not.toContain("zara.deployment.");
@@ -210,5 +210,28 @@ describe("deployment documentation", () => {
     expect(readinessChecklist).toContain(
       "`zara.pstn.admission.backend_ready` remains zero",
     );
+  });
+
+  it("keeps the migration CI database fixture credential-free", () => {
+    const migrationWorkflow = readFileSync(
+      resolve(repositoryRoot, ".github/workflows/migration-check.yml"),
+      "utf8",
+    );
+
+    expect(migrationWorkflow).toContain("POSTGRES_HOST_AUTH_METHOD: trust");
+    expect(migrationWorkflow).not.toContain("POSTGRES_PASSWORD:");
+    expect(migrationWorkflow).not.toContain("postgres:postgres@");
+  });
+
+  it("keeps production Redis fail-closed without placeholder credential copy", () => {
+    const compose = readFileSync(
+      resolve(repositoryRoot, "compose.coolify.yml"),
+      "utf8",
+    );
+
+    expect(compose).toContain(
+      "REDIS_PASSWORD: ${REDIS_PASSWORD:?required}",
+    );
+    expect(compose).not.toContain("Set REDIS_PASSWORD in Coolify");
   });
 });

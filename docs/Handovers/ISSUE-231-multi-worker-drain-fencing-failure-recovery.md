@@ -24,6 +24,7 @@
 - Documented the supported Coolify topology as two separate realtime-worker applications with immutable worker identities, distinct endpoints, no overlapping same-ID rolling instances, and a serial drain-and-replace procedure.
 - Corrected the real-Postgres concurrency qualification to establish a valid ownership fence before explicitly expiring it, preventing wall-clock drift from silently skipping the reconciliation assertion.
 - Added explicit reverse-order rollback runbooks for the premium dispatch ownership and owner-lease migrations. The migration workflow now removes those dependencies before restoring pre-incremental call identities instead of relying on cascading index removal.
+- Unblocked the candidate PR quality gates by removing three branch-local lint defects, replacing the migration workflow's fixed test password with isolated-container trust authentication, and retaining fail-closed Coolify Redis authentication without scanner-hostile placeholder copy.
 
 ## Tests Run
 
@@ -38,6 +39,11 @@
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed after adding rollback 0015 and 0014 in strict reverse order.
 - REFACTOR: strengthened the regression to assert actual rollback execution order and the premium snapshot postcondition; the focused test and `npm.cmd exec -- eslint apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed.
 - GREEN: the full local migration workflow passed on isolated PostgreSQL databases: fresh migration, 26 migration/PostgreSQL tests, rollback through 0015 to 0009, and legacy compatibility validation.
+- RED: `npm.cmd exec -- vitest run packages/core/src/deployment-docs.test.ts -t "migration CI database fixture"` failed because the migration workflow did not contain isolated `POSTGRES_HOST_AUTH_METHOD: trust` and still embedded the fixed fixture password.
+- RED: `npm.cmd exec -- vitest run packages/core/src/deployment-docs.test.ts -t "production Redis fail-closed"` failed because the Coolify Redis requirement still used scanner-hostile placeholder copy instead of the required fail-closed form.
+- GREEN: the deployment contract passed with passwordless trust authentication limited to the ephemeral GitHub Postgres service and the production Redis password remaining mandatory.
+- REFACTOR: focused ESLint passed for the three CI-reported files; the affected reconciler, Twilio media, and deployment suites passed with 46 tests; API typecheck, migration drift, Compose validation, and targeted `git diff --check` passed.
+- The repository-wide local lint command remains obstructed only by the unrelated untracked `docs/system-design/system-design.js`; that file is not part of the candidate branch or PR.
 
 ## Pending Work
 
@@ -54,4 +60,4 @@
 
 ## Next Recommended Step
 
-Deploy this candidate without overlapping same-worker identities, then execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
+Obtain green candidate PR gates, then deploy without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
