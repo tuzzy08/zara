@@ -23,6 +23,7 @@
 - Added recovery metrics for confirmed lease expiry, pending admission releases, duplicate media claims, finalization outcomes, forced drains, and admission backend readiness. The production checklist defines the corresponding low-cardinality OTel alert conditions.
 - Documented the supported Coolify topology as two separate realtime-worker applications with immutable worker identities, distinct endpoints, no overlapping same-ID rolling instances, and a serial drain-and-replace procedure.
 - Corrected the real-Postgres concurrency qualification to establish a valid ownership fence before explicitly expiring it, preventing wall-clock drift from silently skipping the reconciliation assertion.
+- Added explicit reverse-order rollback runbooks for the premium dispatch ownership and owner-lease migrations. The migration workflow now removes those dependencies before restoring pre-incremental call identities instead of relying on cascading index removal.
 
 ## Tests Run
 
@@ -33,6 +34,10 @@
 - `npm.cmd run eval:pstn` passed: 25 tests.
 - `docker compose -f compose.coolify.yml config --quiet` passed after programmatically populating all 22 required variables with validation-only values.
 - Targeted `git diff --check` passed.
+- RED: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` failed with `ENOENT` for the missing rollback-0015 runbook. The fresh-database rollback workflow then reproduced the production dependency failure when rollback 0009 tried to drop the tenant session identity index while the premium dispatch snapshot foreign key still depended on it.
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed after adding rollback 0015 and 0014 in strict reverse order.
+- REFACTOR: strengthened the regression to assert actual rollback execution order and the premium snapshot postcondition; the focused test and `npm.cmd exec -- eslint apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed.
+- GREEN: the full local migration workflow passed on isolated PostgreSQL databases: fresh migration, 26 migration/PostgreSQL tests, rollback through 0015 to 0009, and legacy compatibility validation.
 
 ## Pending Work
 

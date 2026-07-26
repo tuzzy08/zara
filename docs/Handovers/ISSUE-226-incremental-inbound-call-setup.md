@@ -17,6 +17,7 @@
 - Added stable diagnostic reason codes for webhook, dispatch, setup, token-expiry, and phone-test checkpoint persistence failures.
 - Required an explicit production stream-token secret through `ZARA_STREAM_TOKEN_SECRET` or `BETTER_AUTH_SECRET`; development and tests retain an ephemeral fallback.
 - Added deterministic four-worker burst evidence and a 1,000 ms webhook p95 SLO to the PSTN load report.
+- Verified the migrated answer path after ZAR-229 moved media authorization and lifecycle writes to incremental persistence and ZAR-230 removed the remaining live-call snapshot writers.
 
 ## Tests Run
 
@@ -30,21 +31,21 @@
 - `npm.cmd run typecheck --workspace @zara/pstn-protocol-simulator` -> passed.
 - Scoped ESLint across all changed API and simulator source/test files -> passed.
 - `npm.cmd run db:check` -> passed with no migration drift.
-- Real PostgreSQL tests were collected but skipped because `ZARA_TEST_POSTGRES_URL` is unavailable locally.
+- Historical pre-closure run: real PostgreSQL tests were collected but skipped because `ZARA_TEST_POSTGRES_URL` was unavailable locally at that time.
+- Closure gate with `ZARA_TEST_POSTGRES_URL` configured: `npm.cmd exec -- vitest run apps/api/src/security/one-time-stream-token.test.ts apps/api/src/telephony/telephony-inbound-incremental.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts apps/pstn-protocol-simulator/src/load-runner.test.ts` -> 8 files, 180 tests passed, 0 skipped.
+- Closure `npm.cmd --workspace @zara/api run typecheck` -> passed.
+- Closure `npm.cmd run db:check` -> passed with no schema changes or migration drift.
 
 ## Pending Work
 
-- Run the real PostgreSQL suite in CI with `ZARA_TEST_POSTGRES_URL`, including same-key retries, concurrent claims, cross-tenant isolation, rollback, and number-deletion races.
-- Complete ZAR-229 before release so every media WebSocket authorizes and claims the durable token on any replica.
-- Complete ZAR-230 before release so no live-call writer can replace incrementally committed rows through whole-tenant snapshot persistence.
-- Migrate unauthorized-caller and expired waiting-session phone-test projections in ZAR-229/ZAR-230; their blocked dispatch is durable here, but the legacy phone-number projection remains snapshot-owned.
+- ZAR-228's implementation and local acceptance evidence are complete.
+- Keep the issue In Progress until its ZAR-226 dependency passes the candidate commit's GitHub migration check, then close both tracker and local status together.
 
 ## Risks
 
-- ZAR-229 is a release blocker: media authorization still reads and claims through the cached snapshot authority, so a WebSocket landing on another replica can reject a valid incrementally created setup.
-- ZAR-230 is a release blocker: remaining live-call snapshot writers can still replace row-owned records until removed.
-- This commit must not deploy independently from ZAR-229 and ZAR-230.
 - Non-live manual dispatch and telephony management must remain on their current behavior in this slice.
+- Remaining deployed-staging, multi-worker, and provider qualification risks belong to later PSTN capacity tickets and do not leave the inbound persistence migration incomplete.
+- The only issue-status blocker is the unrun candidate-commit CI gate on ZAR-226; no ZAR-228 production-code work remains.
 
 ## Decisions
 
@@ -57,4 +58,4 @@
 
 ## Next Recommended Step
 
-Run the real-Postgres CI gate, then implement ZAR-229's durable media authorization, token claim, lifecycle transitions, status callbacks, and negative phone-test outcomes before the coordinated release.
+After ZAR-226's candidate migration check passes, close ZAR-228 without changing the row-owned inbound setup contract.

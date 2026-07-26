@@ -76,6 +76,14 @@ jobs:
           import { readFile } from "node:fs/promises";
           import pg from "pg";
           const pool = new pg.Pool({ connectionString: process.env.ROLLBACK_DATABASE_URL });
+          const premiumOwnerLeaseRollback = await readFile(
+            "docs/Runbooks/rollback-0015-telephony-premium-owner-lease.sql",
+            "utf8",
+          );
+          const premiumDispatchOwnershipRollback = await readFile(
+            "docs/Runbooks/rollback-0014-telephony-premium-dispatch-ownership.sql",
+            "utf8",
+          );
           const abusePostureRollback = await readFile(
             "docs/Runbooks/rollback-0013-telephony-outbound-abuse-posture.sql",
             "utf8",
@@ -96,6 +104,8 @@ jobs:
             "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
             "utf8",
           );
+          await pool.query(premiumOwnerLeaseRollback);
+          await pool.query(premiumDispatchOwnershipRollback);
           await pool.query(abusePostureRollback);
           await pool.query(obsoleteDedupeRollback);
           await pool.query(tenantCompositeIdentityRollback);
@@ -167,6 +177,7 @@ jobs:
             `select
                to_regclass('telephony_media_stream_tokens') as token_table,
                to_regclass('telephony_phone_test_checkpoints') as checkpoint_table,
+               to_regclass('telephony_premium_dispatch_snapshots') as premium_snapshot_table,
                to_regclass('telephony_execution_sessions_call_session_unique_idx') as legacy_session_index,
                to_regclass('telephony_execution_sessions_tenant_call_session_unique_idx') as tenant_session_index,
                to_regclass('telephony_webhook_events_tenant_event_sid_unique_idx') as legacy_webhook_index,
@@ -260,6 +271,7 @@ jobs:
           if (
             row?.token_table !== null ||
             row.checkpoint_table !== null ||
+            row.premium_snapshot_table !== null ||
             row.legacy_session_index === null ||
             row.tenant_session_index !== null ||
             row.legacy_webhook_index === null ||
