@@ -40,6 +40,7 @@
 - `npm.cmd run eval:pstn` passed: 25 tests.
 - `docker compose -f compose.coolify.yml config --quiet` passed after programmatically populating all 22 required variables with validation-only values.
 - Targeted `git diff --check` passed.
+- GitHub PR #120 head `2c283bd` passed quality gates, migration compatibility and rollback, GitGuardian, and Vercel.
 - RED: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` failed with `ENOENT` for the missing rollback-0015 runbook. The fresh-database rollback workflow then reproduced the production dependency failure when rollback 0009 tried to drop the tenant session identity index while the premium dispatch snapshot foreign key still depended on it.
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed after adding rollback 0015 and 0014 in strict reverse order.
 - REFACTOR: strengthened the regression to assert actual rollback execution order and the premium snapshot postcondition; the focused test and `npm.cmd exec -- eslint apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed.
@@ -60,7 +61,7 @@
 - `npm.cmd run lint`, `npm.cmd run typecheck`, and `npm.cmd run db:check` passed for the clean replacement candidate.
 - `npm.cmd run eval:runtime` passed: 5 tests.
 - `npm.cmd run eval:pstn` passed: 25 tests.
-- The real-Redis suite was selected locally but skipped its 15 tests because `ZARA_TEST_REDIS_URL` is not configured in this shell; the CI quality gate supplies Redis and must provide the authoritative integration result.
+- The real-Redis suite was selected locally but skipped its 15 tests because `ZARA_TEST_REDIS_URL` is not configured in this shell; PR #120's CI quality gate supplied Redis and passed the authoritative integration result.
 - `docker compose -f compose.coolify.yml config --quiet` passed after populating every required variable with validation-only process values.
 - Final `git diff --check` passed.
 - RED: final spec review found that production worker Compose omitted the four required admission CPS variables and that drain recovery ignored reservation debt; standards review found canonical docs still promised media survival beyond the last confirmed lease.
@@ -86,4 +87,4 @@
 
 ## Next Recommended Step
 
-Obtain green replacement-candidate PR gates, then deploy without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
+Deploy PR #120 head `2c283bd` without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
