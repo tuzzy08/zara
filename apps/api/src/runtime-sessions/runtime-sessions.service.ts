@@ -80,6 +80,11 @@ export interface CreateRealtimeSessionRequest {
   mediaProfile?: PremiumRealtimeMediaProfile | undefined;
 }
 
+export interface CreateRealtimeSessionFromSnapshotRequest
+  extends CreateRealtimeSessionRequest {
+  conversationPolicy: PremiumRealtimeConversationPolicy;
+}
+
 export interface RegisteredPremiumRealtimeSession {
   organizationId: string;
   workspaceId: string;
@@ -144,20 +149,41 @@ export class RuntimeSessionsService {
   ) {}
 
   async createRealtimeSession(input: CreateRealtimeSessionRequest): Promise<PremiumRealtimeSession> {
+    return this.createRealtimeSessionInternal(input);
+  }
+
+  async createRealtimeSessionFromSnapshot(
+    input: CreateRealtimeSessionFromSnapshotRequest,
+  ): Promise<PremiumRealtimeSession> {
+    return this.createRealtimeSessionInternal(input, {
+      manifest: structuredClone(input.manifest),
+      conversationPolicy: structuredClone(input.conversationPolicy),
+    });
+  }
+
+  private async createRealtimeSessionInternal(
+    input: CreateRealtimeSessionRequest,
+    resolvedSnapshot?: {
+      manifest: CompiledRuntimeManifest;
+      conversationPolicy: PremiumRealtimeConversationPolicy;
+    },
+  ): Promise<PremiumRealtimeSession> {
     if (input.realtimeAvailable === false) {
       throw new ServiceUnavailableException("Premium realtime is unavailable right now.");
     }
 
     try {
-      const manifest = this.runtimePromptPolicyService === undefined
+      const manifest = resolvedSnapshot?.manifest ??
+        (this.runtimePromptPolicyService === undefined
         ? input.manifest
         : applyRuntimePromptPolicyModelDefaultsToManifest(
             input.manifest,
             await this.runtimePromptPolicyService.getPromptPolicy(),
-          );
-      const conversationPolicy = this.conversationPolicyService === undefined
+          ));
+      const conversationPolicy = resolvedSnapshot?.conversationPolicy ??
+        (this.conversationPolicyService === undefined
         ? structuredClone(defaultPremiumRealtimeConversationPolicy)
-        : await this.conversationPolicyService.getPolicy();
+        : await this.conversationPolicyService.getPolicy());
       const activeAgent = resolveRuntimeAgent(manifest, input.activeAgentId);
       const resolvedProviderConfig = resolvePremiumRealtimeProviderSessionConfig({
         policy: conversationPolicy,
@@ -200,7 +226,7 @@ export class RuntimeSessionsService {
         transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(baseSession.sessionId)}/stream?token=${encodeURIComponent(transportToken.token)}`,
         transportToken: transportToken.token,
         toolDeclarations: buildPremiumRealtimeToolDeclarations({
-          manifest: input.manifest,
+          manifest,
           activeAgentId: input.activeAgentId,
         }),
       };

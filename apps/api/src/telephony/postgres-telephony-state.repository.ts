@@ -1,29 +1,41 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 
+import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import type { PersistedTelephonyStateRecord } from "./telephony-state.repository";
 
-type Queryable = Pick<Pool, "query" | "connect">;
+type Queryable = Pick<Pool, "query" | "connect"> & {
+  readonly totalCount?: number | undefined;
+  readonly idleCount?: number | undefined;
+  readonly waitingCount?: number | undefined;
+  readonly options?: { max?: number | undefined } | undefined;
+};
 
 export class PostgresTelephonyStateRepository {
-  constructor(private readonly database: Queryable) {}
+  constructor(
+    private readonly database: Queryable,
+    private readonly capacityObservability?: Pick<PstnCapacityObservability, "recordDatabaseOperation">,
+  ) {}
 
   async listOrganizationIds() {
-    const result = await this.database.query<{
-      tenant_id: string;
-    }>("select distinct tenant_id from telephony_connections order by tenant_id asc");
+    return this.observeQuery("organization_list", async () => {
+      const result = await this.database.query<{
+        tenant_id: string;
+      }>("select distinct tenant_id from telephony_connections order by tenant_id asc");
 
-    return result.rows.map((row: { tenant_id: string }) => row.tenant_id);
+      return result.rows.map((row: { tenant_id: string }) => row.tenant_id);
+    });
   }
 
   async load(organizationId: string): Promise<PersistedTelephonyStateRecord | null> {
-    const connections = await this.database.query(
-      "select * from telephony_connections where tenant_id = $1 order by id asc",
-      [organizationId],
-    );
+    return this.observeQuery("telephony_state_load", async () => {
+      const connections = await this.database.query(
+        "select * from telephony_connections where tenant_id = $1 order by id asc",
+        [organizationId],
+      );
 
-    if (connections.rows.length === 0) {
-      return null;
-    }
+      if (connections.rows.length === 0) {
+        return null;
+      }
 
     const [
       phoneNumbers,
@@ -35,7 +47,6 @@ export class PostgresTelephonyStateRepository {
       webhookEvents,
       callControlEvents,
       credentialEnvelopes,
-      processedWebhookEvents,
     ] = await Promise.all([
       this.database.query(
         "select * from telephony_phone_numbers where tenant_id = $1 order by id asc",
@@ -73,13 +84,9 @@ export class PostgresTelephonyStateRepository {
         "select * from telephony_credential_envelopes where tenant_id = $1 order by connection_id asc",
         [organizationId],
       ),
-      this.database.query(
-        "select * from telephony_processed_webhook_events where tenant_id = $1 order by event_sid asc",
-        [organizationId],
-      ),
     ]);
 
-    return {
+      return {
       schemaVersion: 1,
       organizationId,
       connections: connections.rows.map(mapConnectionRow),
@@ -92,21 +99,27 @@ export class PostgresTelephonyStateRepository {
       webhookEvents: webhookEvents.rows.map(mapWebhookEventRow),
       callControlEvents: callControlEvents.rows.map(mapCallControlEventRow),
       credentials: credentialEnvelopes.rows.map(mapCredentialEnvelopeRow),
-      processedWebhookEventIds: processedWebhookEvents.rows.map(
-        (row: QueryResultRow) => row.event_sid as string,
-      ),
-    };
+      };
+    });
   }
 
   async save(record: PersistedTelephonyStateRecord) {
-    const client = await this.database.connect();
+    const operationStartedAt = Date.now();
+    let transactionStartedAt = operationStartedAt;
+    let advisoryLockWaitMs = 0;
+    let outcome: "success" | "failure" = "failure";
+    let client: PoolClient | undefined;
 
     try {
+      client = await this.database.connect();
+      transactionStartedAt = Date.now();
       await client.query("begin");
+      const lockStartedAt = Date.now();
       await client.query("select pg_advisory_xact_lock(hashtext($1))", [record.organizationId]);
+      advisoryLockWaitMs = Math.max(0, Date.now() - lockStartedAt);
       await ensureTenantShell(client, record.organizationId);
 
-      await clearTenantState(client, record.organizationId);
+      await clearCredentialEnvelopes(client, record.organizationId);
 
       for (const connection of record.connections) {
         await client.query(
@@ -118,7 +131,21 @@ export class PostgresTelephonyStateRepository {
             $1, $2, $3, $4, $5, $6, $7, $8,
             $9::jsonb, $10, $11::jsonb,
             $12, $13::jsonb, $14, $15, $16
-          )`,
+          )
+          on conflict (id) do update set
+            label = excluded.label,
+            ownership_mode = excluded.ownership_mode,
+            provider = excluded.provider,
+            region = excluded.region,
+            recording_policy = excluded.recording_policy,
+            block_routing_on_health_failure = excluded.block_routing_on_health_failure,
+            credential_reference = excluded.credential_reference,
+            external_reference = excluded.external_reference,
+            sip = excluded.sip,
+            webhook_base_url = excluded.webhook_base_url,
+            webhook_status = excluded.webhook_status,
+            created_by = excluded.created_by
+          where telephony_connections.tenant_id = excluded.tenant_id`,
           [
             connection.id,
             connection.tenantId,
@@ -150,7 +177,21 @@ export class PostgresTelephonyStateRepository {
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
             $12, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb
-          )`,
+          )
+          on conflict (id) do update set
+            connection_id = excluded.connection_id,
+            provider = excluded.provider,
+            provision_source = excluded.provision_source,
+            external_number_id = excluded.external_number_id,
+            phone_number = excluded.phone_number,
+            friendly_name = excluded.friendly_name,
+            voice_capable = excluded.voice_capable,
+            caller_id_eligible = excluded.caller_id_eligible,
+            status = excluded.status,
+            webhook_status = excluded.webhook_status,
+            live_route = excluded.live_route,
+            recording_policy = excluded.recording_policy
+          where telephony_phone_numbers.tenant_id = excluded.tenant_id`,
           [
             phoneNumber.id,
             phoneNumber.tenantId,
@@ -172,210 +213,6 @@ export class PostgresTelephonyStateRepository {
         );
       }
 
-      for (const healthCheck of record.healthChecks) {
-        await client.query(
-          `insert into telephony_health_checks (
-            id, tenant_id, connection_id, status, blocking, checked_at,
-            message, scheduled, latency_ms, diagnostics
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10::jsonb
-          )`,
-          [
-            healthCheck.id,
-            record.organizationId,
-            healthCheck.connectionId,
-            healthCheck.status,
-            healthCheck.blocking,
-            healthCheck.checkedAt,
-            healthCheck.message,
-            healthCheck.scheduled ?? null,
-            healthCheck.latencyMs ?? null,
-            jsonOrNull(healthCheck.diagnostics),
-          ],
-        );
-      }
-
-      for (const heartbeat of record.providerHeartbeats ?? []) {
-        await client.query(
-          `insert into telephony_provider_heartbeats (
-            id, tenant_id, connection_id, provider, ownership_mode, status,
-            blocking, scheduled, latency_ms, routed_number_count, at, message, diagnostics
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10, $11, $12, $13::jsonb
-          )`,
-          [
-            heartbeat.id,
-            heartbeat.tenantId,
-            heartbeat.connectionId,
-            heartbeat.provider,
-            heartbeat.ownershipMode,
-            heartbeat.status,
-            heartbeat.blocking,
-            heartbeat.scheduled,
-            heartbeat.latencyMs,
-            heartbeat.routedNumberCount,
-            heartbeat.at,
-            heartbeat.message,
-            JSON.stringify(heartbeat.diagnostics),
-          ],
-        );
-      }
-
-      for (const dispatch of record.dispatches) {
-        await client.query(
-          `insert into telephony_dispatches (
-            id, tenant_id, direction, disposition, reason, call_session_id, phone_number_id,
-            fallback_phone_number_id, connection_id, published_version_id, workspace_id,
-            workflow_label, route_mode, runtime_profile, test_route_session_id, outage_mode,
-            recording, to_phone_number, from_phone_number, created_at, source, policy_checks
-          ) values (
-            $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11,
-            $12, $13, $14, $15, $16,
-            $17::jsonb, $18, $19, $20, $21, $22::jsonb
-          )`,
-          [
-            dispatch.id,
-            dispatch.tenantId,
-            dispatch.direction,
-            dispatch.disposition,
-            dispatch.reason,
-            dispatch.callSessionId ?? null,
-            dispatch.phoneNumberId ?? null,
-            dispatch.fallbackPhoneNumberId ?? null,
-            dispatch.connectionId ?? null,
-            dispatch.publishedVersionId ?? null,
-            dispatch.workspaceId ?? null,
-            dispatch.workflowLabel ?? null,
-            dispatch.routeMode ?? null,
-            dispatch.runtimeProfile ?? null,
-            dispatch.testRouteSessionId ?? null,
-            dispatch.outageMode ?? null,
-            JSON.stringify(dispatch.recording),
-            dispatch.toPhoneNumber,
-            dispatch.fromPhoneNumber,
-            dispatch.createdAt,
-            dispatch.source,
-            jsonOrNull(dispatch.policyChecks),
-          ],
-        );
-      }
-
-      for (const session of record.executionSessions ?? []) {
-        await client.query(
-          `insert into telephony_execution_sessions (
-            id, tenant_id, dispatch_id, call_session_id, connection_id, provider,
-            ownership_mode, direction, status, to_phone_number, from_phone_number,
-            workflow_label, workspace_id, test_call, bridge_kind, bridge_target, media_path,
-            outage_mode, fallback_target, diagnostics, policy_state, created_at, updated_at
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16, $17,
-            $18, $19, $20::jsonb, $21::jsonb, $22, $23
-          )`,
-          [
-            session.id,
-            session.tenantId,
-            session.dispatchId,
-            session.callSessionId,
-            session.connectionId,
-            session.provider,
-            session.ownershipMode,
-            session.direction,
-            session.status,
-            session.toPhoneNumber,
-            session.fromPhoneNumber,
-            session.workflowLabel ?? null,
-            session.workspaceId ?? null,
-            session.testCall,
-            session.bridgeKind,
-            session.bridgeTarget,
-            session.mediaPath,
-            session.outageMode ?? null,
-            session.fallbackTarget ?? null,
-            JSON.stringify(session.diagnostics),
-            jsonOrNull(session.policyState),
-            session.createdAt,
-            session.updatedAt,
-          ],
-        );
-      }
-
-      for (const command of record.executionCommands ?? []) {
-        await client.query(
-          `insert into telephony_execution_commands (
-            id, tenant_id, session_id, dispatch_id, call_session_id, provider,
-            action, status, target, payload, requested_at, applied_at
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9, $10::jsonb, $11, $12
-          )`,
-          [
-            command.id,
-            command.tenantId,
-            command.sessionId,
-            command.dispatchId,
-            command.callSessionId,
-            command.provider,
-            command.action,
-            command.status,
-            command.target,
-            JSON.stringify(command.payload),
-            command.requestedAt,
-            command.appliedAt ?? null,
-          ],
-        );
-      }
-
-      for (const event of record.webhookEvents) {
-        await client.query(
-          `insert into telephony_webhook_events (
-            id, tenant_id, connection_id, account_sid, call_sid, event_sid,
-            event_type, received_at, duplicate
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9
-          )`,
-          [
-            event.id,
-            event.tenantId,
-            event.connectionId,
-            event.accountSid,
-            event.callSid,
-            event.eventSid,
-            event.eventType,
-            event.receivedAt,
-            event.duplicate,
-          ],
-        );
-      }
-
-      for (const event of record.callControlEvents ?? []) {
-        await client.query(
-          `insert into telephony_call_control_events (
-            id, tenant_id, dispatch_id, call_session_id, event_type, at,
-            summary, fallback_target, payload
-          ) values (
-            $1, $2, $3, $4, $5, $6,
-            $7, $8, $9::jsonb
-          )`,
-          [
-            event.id,
-            event.tenantId,
-            event.dispatchId,
-            event.callSessionId,
-            event.eventType,
-            event.at,
-            event.summary,
-            event.fallbackTarget ?? null,
-            JSON.stringify(event.payload),
-          ],
-        );
-      }
-
       for (const credential of record.credentials) {
         await client.query(
           `insert into telephony_credential_envelopes (
@@ -391,25 +228,71 @@ export class PostgresTelephonyStateRepository {
         );
       }
 
-      for (const eventSid of record.processedWebhookEventIds) {
-        await client.query(
-          `insert into telephony_processed_webhook_events (
-            id, tenant_id, event_sid
-          ) values (
-            $1, $2, $3
-          )`,
-          [`${record.organizationId}:${eventSid}`, record.organizationId, eventSid],
-        );
-      }
+      await deleteOmittedConfigurationRows(client, record);
 
       await client.query("commit");
+      outcome = "success";
     } catch (error) {
-      await client.query("rollback");
+      if (client !== undefined) await client.query("rollback");
       throw error;
     } finally {
-      client.release();
+      client?.release();
+      this.recordDatabaseOperation({
+        operation: "telephony_state_save",
+        outcome,
+        queryDurationMs: Math.max(0, Date.now() - operationStartedAt),
+        transactionDurationMs: Math.max(0, Date.now() - transactionStartedAt),
+        advisoryLockWaitMs,
+      });
     }
   }
+
+  private async observeQuery<T>(
+    operation: "organization_list" | "telephony_state_load",
+    query: () => Promise<T>,
+  ) {
+    const startedAt = Date.now();
+    let outcome: "success" | "failure" = "failure";
+    try {
+      const result = await query();
+      outcome = "success";
+      return result;
+    } finally {
+      this.recordDatabaseOperation({
+        operation,
+        outcome,
+        queryDurationMs: Math.max(0, Date.now() - startedAt),
+      });
+    }
+  }
+
+  private recordDatabaseOperation(input: {
+    operation: "organization_list" | "telephony_state_load" | "telephony_state_save";
+    outcome: "success" | "failure";
+    queryDurationMs: number;
+    transactionDurationMs?: number | undefined;
+    advisoryLockWaitMs?: number | undefined;
+  }) {
+    try {
+      this.capacityObservability?.recordDatabaseOperation({
+        ...input,
+        pool: readPoolSnapshot(this.database),
+      });
+    } catch {
+      // Capacity telemetry must never alter telephony persistence behavior.
+    }
+  }
+}
+
+function readPoolSnapshot(database: Queryable) {
+  const total = Math.max(0, database.totalCount ?? 0);
+  const idle = Math.max(0, database.idleCount ?? 0);
+  return {
+    active: Math.max(0, total - idle),
+    idle,
+    waiting: Math.max(0, database.waitingCount ?? 0),
+    limit: Math.max(1, database.options?.max ?? 10),
+  };
 }
 
 async function ensureTenantShell(client: PoolClient, organizationId: string) {
@@ -421,30 +304,46 @@ async function ensureTenantShell(client: PoolClient, organizationId: string) {
   );
 }
 
-async function clearTenantState(client: PoolClient, organizationId: string) {
-  await client.query("delete from telephony_execution_commands where tenant_id = $1", [
-    organizationId,
-  ]);
-  await client.query("delete from telephony_call_control_events where tenant_id = $1", [
-    organizationId,
-  ]);
-  await client.query("delete from telephony_webhook_events where tenant_id = $1", [organizationId]);
-  await client.query("delete from telephony_processed_webhook_events where tenant_id = $1", [
-    organizationId,
-  ]);
-  await client.query("delete from telephony_execution_sessions where tenant_id = $1", [
-    organizationId,
-  ]);
-  await client.query("delete from telephony_dispatches where tenant_id = $1", [organizationId]);
-  await client.query("delete from telephony_provider_heartbeats where tenant_id = $1", [
-    organizationId,
-  ]);
-  await client.query("delete from telephony_health_checks where tenant_id = $1", [organizationId]);
-  await client.query("delete from telephony_phone_numbers where tenant_id = $1", [organizationId]);
+async function clearCredentialEnvelopes(client: PoolClient, organizationId: string) {
   await client.query("delete from telephony_credential_envelopes where tenant_id = $1", [
     organizationId,
   ]);
-  await client.query("delete from telephony_connections where tenant_id = $1", [organizationId]);
+}
+
+async function deleteOmittedConfigurationRows(
+  client: PoolClient,
+  record: PersistedTelephonyStateRecord,
+) {
+  const phoneNumberIds = record.phoneNumbers.map(({ id }) => id);
+  await client.query(
+    `delete from telephony_phone_numbers
+     where tenant_id = $1
+       and not (id = any($2::text[]))
+       and id not in (
+         select phone_number_id
+         from telephony_phone_test_checkpoints
+         where tenant_id = $1
+       )`,
+    [record.organizationId, phoneNumberIds],
+  );
+
+  const connectionIds = record.connections.map(({ id }) => id);
+  await client.query(
+    `delete from telephony_connections
+     where tenant_id = $1
+       and not (id = any($2::text[]))
+       and id not in (
+         select connection_id
+         from telephony_execution_sessions
+         where tenant_id = $1
+       )
+       and id not in (
+         select connection_id
+         from telephony_media_stream_tokens
+         where tenant_id = $1
+       )`,
+    [record.organizationId, connectionIds],
+  );
 }
 
 function mapConnectionRow(row: QueryResultRow) {
@@ -542,10 +441,14 @@ function mapDispatchRow(row: QueryResultRow) {
     ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
     ...(row.route_mode === null ? {} : { routeMode: row.route_mode }),
     ...(row.runtime_profile === null ? {} : { runtimeProfile: row.runtime_profile }),
+    ...(row.runtime_path === null ? {} : { runtimePath: row.runtime_path }),
     ...(row.test_route_session_id === null ? {} : { testRouteSessionId: row.test_route_session_id }),
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     recording,
-    recordingConsent: buildRecordingConsent(recording, createdAt),
+    recordingConsent:
+      row.recording_consent === null
+        ? buildRecordingConsent(recording, createdAt)
+        : row.recording_consent,
     toPhoneNumber: row.to_phone_number as string,
     fromPhoneNumber: row.from_phone_number as string,
     createdAt,
@@ -577,8 +480,10 @@ function mapExecutionSessionRow(row: QueryResultRow) {
     mediaPath: row.media_path,
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     ...(row.fallback_target === null ? {} : { fallbackTarget: row.fallback_target }),
+    ...(row.recording_consent === null ? {} : { recordingConsent: row.recording_consent }),
     diagnostics: row.diagnostics as string[],
     ...(row.policy_state === null ? {} : { policyState: row.policy_state }),
+    lifecycleState: row.lifecycle_state,
     createdAt,
     updatedAt: normalizeTimestamp(row.updated_at),
   };

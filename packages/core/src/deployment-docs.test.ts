@@ -124,4 +124,124 @@ describe("deployment documentation", () => {
     expect(coolifyPlan).toContain("API startup healthcheck uses a 60 second start period");
     expect(coolifyPlan).toContain("api-state");
   });
+
+  it("documents the external Coolify application contract for multi-worker PSTN", () => {
+    const coolifyPlan = readFileSync(
+      resolve(repositoryRoot, "docs/Coolify-Deployment.md"),
+      "utf8",
+    );
+    const stagingPlan = readFileSync(
+      resolve(repositoryRoot, "docs/Staging-Deployment.md"),
+      "utf8",
+    );
+    const productionPlan = readFileSync(
+      resolve(repositoryRoot, "docs/Production-Deployment.md"),
+      "utf8",
+    );
+    const readinessChecklist = readFileSync(
+      resolve(repositoryRoot, "docs/Production-Readiness-Checklist.md"),
+      "utf8",
+    );
+    const compose = readFileSync(
+      resolve(repositoryRoot, "compose.coolify.yml"),
+      "utf8",
+    ).replace(/\r\n/gu, "\n");
+
+    expect(compose.match(/^ {2}realtime-worker:\n/gmu)).toHaveLength(1);
+    expect(compose).not.toContain("realtime-worker-1:");
+    expect(compose).not.toContain("realtime-worker-2:");
+    expect(compose).not.toContain("zara.deployment.");
+    expect(coolifyPlan).toContain(
+      "Coolify Docker Compose deployments do not support rolling updates",
+    );
+    expect(coolifyPlan).toContain(
+      "two separate Coolify Dockerfile Application resources",
+    );
+    expect(coolifyPlan).toContain("Dockerfile target `realtime-worker`");
+    expect(coolifyPlan).toContain(
+      "`https://realtime-worker-1.example.com:4020`",
+    );
+    expect(coolifyPlan).toContain(
+      "`wss://realtime-worker-1.example.com/telephony/twilio/media-streams`",
+    );
+    expect(coolifyPlan).toContain(
+      "Disable Coolify rolling updates on each worker application",
+    );
+    expect(coolifyPlan).not.toContain(
+      "Enable Coolify rolling updates on each worker application",
+    );
+    expect(coolifyPlan).toContain("Zara serial drain-and-replace procedure");
+    expect(coolifyPlan).toContain(
+      "wait for its active calls to finish or reach the forced drain deadline",
+    );
+    expect(coolifyPlan).toContain(
+      "Verify its exact endpoint, heartbeat, and new release",
+    );
+    expect(stagingPlan).toContain(
+      "Local tests do not prove Coolify routing, proxy timeout, deployment replacement, or drain behavior",
+    );
+    expect(stagingPlan).toContain(
+      "repeat the serial drain-and-replace procedure for the sibling",
+    );
+    expect(productionPlan).toContain(
+      "The checked-in Docker Compose resource is the single-worker baseline and does not provide rolling updates or the two-worker HA topology",
+    );
+    expect(productionPlan).toContain(
+      "Coolify's overlapping rolling update must remain disabled",
+    );
+    expect(productionPlan).toContain(
+      "PSTN_WORKER_PUBLIC_MEDIA_URL=wss://host/telephony/twilio/media-streams",
+    );
+    expect(productionPlan).not.toContain(
+      "REALTIME_WORKER_PUBLIC_URL=wss://host/telephony/twilio/media-streams",
+    );
+    expect(readinessChecklist).toContain(
+      "Deployed staging evidence records the effective container `nofile` limits",
+    );
+    expect(readinessChecklist).toContain(
+      "Each worker was replaced without old/new process overlap",
+    );
+    expect(readinessChecklist).toContain(
+      "`zara.pstn.worker.forced_drain_terminations` increases",
+    );
+    expect(readinessChecklist).toContain(
+      "`zara.pstn.admission.pending_releases` remains above zero",
+    );
+    expect(readinessChecklist).toContain(
+      "`zara.pstn.admission.duplicate_claim_attempts` exceeds",
+    );
+    expect(readinessChecklist).toContain(
+      "`zara.pstn.finalization.operations` reports `exhausted` or `failed`",
+    );
+    expect(readinessChecklist).toContain(
+      "`zara.pstn.admission.backend_ready` remains zero",
+    );
+  });
+
+  it("keeps the migration CI database fixture credential-free", () => {
+    const migrationWorkflow = readFileSync(
+      resolve(repositoryRoot, ".github/workflows/migration-check.yml"),
+      "utf8",
+    );
+
+    expect(migrationWorkflow).toContain("POSTGRES_HOST_AUTH_METHOD: trust");
+    expect(migrationWorkflow).not.toContain("POSTGRES_PASSWORD:");
+    expect(migrationWorkflow).not.toContain(
+      ["postgres", "postgres@"].join(":"),
+    );
+  });
+
+  it("keeps production Redis fail-closed without placeholder credential copy", () => {
+    const compose = readFileSync(
+      resolve(repositoryRoot, "compose.coolify.yml"),
+      "utf8",
+    );
+
+    expect(compose).toContain(
+      "REDIS_PASSWORD: ${REDIS_PASSWORD:?required}",
+    );
+    expect(compose).not.toContain(
+      ["Set REDIS", "PASSWORD in Coolify"].join("_"),
+    );
+  });
 });

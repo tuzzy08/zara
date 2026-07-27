@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createTurnRuntimePacket,
   recordRuntimePacketAgentSelected,
@@ -18,6 +18,8 @@ import {
   buildRuntimeTraceExport,
   createRuntimeObservabilityMetricsStore,
   createRuntimeObservabilityRecorder,
+  createObservedMetricExporter,
+  createRuntimeMetricExportHealthStore,
   resolveRuntimeObservabilityConfig,
   type RuntimeObservabilityConfig,
 } from "./runtime-observability";
@@ -196,6 +198,37 @@ describe("runtime observability", () => {
     expect(config.otel.enabled).toBe(true);
     expect(config.langsmith?.enabled).toBe(false);
     expect(config.sinks).toEqual(["event-log", "metrics", "opentelemetry"]);
+  });
+
+  it("enables OpenTelemetry metrics independently from tracing", () => {
+    const config = resolveRuntimeObservabilityConfig({
+      OTEL_METRICS_ENABLED: "true",
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.example.test/v1/metrics",
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.otel.enabled).toBe(false);
+    expect(config.otel.metricsEnabled).toBe(true);
+    expect(config.sinks).toContain("opentelemetry");
+  });
+
+  it("records asynchronous OTLP metric export failure without throwing into callers", () => {
+    const exportHealth = createRuntimeMetricExportHealthStore(() => "2026-07-22T12:00:00.000Z");
+    const callback = vi.fn();
+    const exporter = createObservedMetricExporter({
+      export(_metrics, resultCallback) {
+        resultCallback({ code: 1, error: new Error("collector unavailable") });
+      },
+      async forceFlush() {},
+      async shutdown() {},
+    }, exportHealth);
+
+    expect(() => exporter.export({} as never, callback)).not.toThrow();
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ code: 1 }));
+    expect(exportHealth.getSnapshot()).toEqual({
+      failureCount: 1,
+      lastFailureAt: "2026-07-22T12:00:00.000Z",
+    });
   });
 
   it("keeps LangSmith export independently enabled when LangSmith credentials are present", () => {

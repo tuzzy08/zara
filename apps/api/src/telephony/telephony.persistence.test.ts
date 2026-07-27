@@ -6,6 +6,9 @@ import { computeTwilioWebhookSignature } from "@zara/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FileTelephonyStateRepository } from "./telephony-state.repository";
+import { InMemoryTelephonyIncrementalRepository } from "./telephony-incremental.repository.test-helper";
+import { InMemoryPstnCallAdmission } from "./in-memory-pstn-call-admission";
+import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
 import type { PersistedTelephonyStateRecord } from "./telephony-state.repository";
@@ -23,7 +26,7 @@ describe("telephony persistence and secret storage", () => {
   });
 
   it("persists tenant telephony state across service instances and keeps webhook dedupe after restart", async () => {
-    const { service, storePath } = createHarness();
+    const { incrementalRepository, service, storePath } = createHarness();
     const organizationId = "tenant-west-africa";
 
     const connectResponse = await service.createConnection({
@@ -38,6 +41,7 @@ describe("telephony persistence and secret storage", () => {
       authToken: "twilio-auth-token-1234567890",
     });
     const connectionId = connectResponse.connection.id;
+    incrementalRepository.loadConnections(organizationId, [connectionId]);
 
     await service.importTwilioNumbers({
       organizationId,
@@ -71,7 +75,7 @@ describe("telephony persistence and secret storage", () => {
 
     expect(existsSync(join(storePath, `${organizationId}.json`))).toBe(true);
 
-    const restartedService = recreateHarness(storePath).service;
+    const restartedService = recreateHarness(storePath, { incrementalRepository }).service;
     const restartedState = await restartedService.getState(organizationId);
 
     expect(restartedState.connections).toHaveLength(1);
@@ -83,11 +87,12 @@ describe("telephony persistence and secret storage", () => {
         workspaceId: "workspace-customer-success",
       },
     });
-    expect(restartedState.executionCommands[0]).toMatchObject({
-      action: "twilio.calls.answer",
-      target: "+14155557890",
-      status: "applied",
-    });
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: "CA-before-restart-1:telephony",
+      }),
+    ).resolves.toMatchObject({ outcome: "found" });
 
     expect(
       (await restartedService.validateConnection({
@@ -117,22 +122,23 @@ describe("telephony persistence and secret storage", () => {
       })).duplicate,
     ).toBe(false);
 
-    const thirdService = recreateHarness(storePath).service;
+    const thirdService = recreateHarness(storePath, { incrementalRepository }).service;
     expect(
       (await thirdService.handleTwilioWebhook({
         signature,
         payload: webhookPayload,
       })).duplicate,
     ).toBe(true);
-    expect((await thirdService.getState(organizationId)).executionCommands[0]).toMatchObject({
-      action: "twilio.calls.answer",
-      target: "+14155557890",
-      status: "applied",
-    });
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: "CA-webhook-1:telephony",
+      }),
+    ).resolves.toMatchObject({ outcome: "found" });
   });
 
-  it("removes connection-owned execution and webhook state when deleting a connection", async () => {
-    const { service, storePath } = createHarness();
+  it("removes connection-owned durable execution state when deleting a connection", async () => {
+    const { service, storePath, incrementalRepository } = createHarness();
     const organizationId = "tenant-west-africa";
     const connection = await service.createConnection({
       organizationId,
@@ -167,29 +173,24 @@ describe("telephony persistence and secret storage", () => {
       },
     });
 
-    const webhookPayload = {
-      AccountSid: "AC1234567890abcdef1234567890abcd",
-      CallSid: "CA-delete-connection-1",
-      EventSid: "EVT-delete-connection-1",
-      EventType: "incoming.call",
-      To: phoneNumber.phoneNumber,
-      From: "+233201110001",
-    };
-    await service.handleTwilioWebhook({
-      signature: computeTwilioWebhookSignature({
-        url: "http://127.0.0.1/telephony/webhooks/twilio",
-        parameters: webhookPayload,
-        authToken: "twilio-auth-token-1234567890",
-      }),
-      payload: webhookPayload,
+    const dispatched = await service.dispatchInboundCall({
+      organizationId,
+      toPhoneNumber: phoneNumber.phoneNumber,
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-delete-connection-1",
     });
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: dispatched.dispatch.callSessionId!,
+      }),
+    ).resolves.toMatchObject({ outcome: "found" });
 
     const repository = new FileTelephonyStateRepository(storePath);
     const beforeDeletion = await repository.load(organizationId);
-    expect(beforeDeletion?.executionSessions).toHaveLength(1);
-    expect(beforeDeletion?.executionCommands?.length).toBeGreaterThan(0);
-    expect(beforeDeletion?.webhookEvents).toHaveLength(1);
-    expect(beforeDeletion?.mediaStreamTokens).toHaveLength(1);
+    expect(beforeDeletion?.executionSessions).toEqual([]);
+    expect(beforeDeletion?.executionCommands).toEqual([]);
+    expect(beforeDeletion?.webhookEvents).toEqual([]);
 
     await service.deleteConnection({ organizationId, connectionId: connection.connection.id });
 
@@ -198,8 +199,13 @@ describe("telephony persistence and secret storage", () => {
     expect(afterDeletion?.executionSessions).toEqual([]);
     expect(afterDeletion?.executionCommands).toEqual([]);
     expect(afterDeletion?.webhookEvents).toEqual([]);
-    expect(afterDeletion?.mediaStreamTokens).toEqual([]);
     expect(afterDeletion?.credentials).toEqual([]);
+    await expect(
+      incrementalRepository.loadCallMutationContext({
+        tenantId: organizationId,
+        callSessionId: dispatched.dispatch.callSessionId!,
+      }),
+    ).resolves.toEqual({ outcome: "not_found" });
   });
 
   it("encrypts stored provider secrets at rest and records key version metadata", async () => {
@@ -234,7 +240,7 @@ describe("telephony persistence and secret storage", () => {
       keyVersion: 7,
     });
 
-    await initialHarness.service.createConnection({
+    const connectionResponse = await initialHarness.service.createConnection({
       organizationId,
       actorUserId: "user-ops-lead",
       label: "Tenant Twilio account",
@@ -245,6 +251,9 @@ describe("telephony persistence and secret storage", () => {
       accountSid: "AC1234567890abcdef1234567890abcd",
       authToken: "twilio-auth-token-1234567890",
     });
+    initialHarness.incrementalRepository.loadConnections(organizationId, [
+      connectionResponse.connection.id,
+    ]);
 
     const rotatedHarness = recreateHarness(initialHarness.storePath, {
       masterSecret: "abcdefghijklmnopqrstuvwxyz123456",
@@ -252,6 +261,7 @@ describe("telephony persistence and secret storage", () => {
       legacyMasterSecretsByVersion: {
         7: "12345678901234567890123456789012",
       },
+      incrementalRepository: initialHarness.incrementalRepository,
     });
 
     const rotationResponse = await rotatedHarness.service.rotateCredentialEnvelopes({
@@ -308,8 +318,8 @@ describe("telephony persistence and secret storage", () => {
     expect(recoveredState.healthChecks[0]?.message).toContain("could not be decrypted");
   });
 
-  it("persists scheduled provider heartbeats when a sweep runs across tenant connections", async () => {
-    const { service, storePath } = createHarness();
+  it("persists scheduled provider heartbeats through the incremental repository", async () => {
+    const { incrementalRepository, service } = createHarness();
     const organizationId = "tenant-west-africa";
     const connectionResponse = await service.createConnection({
       organizationId,
@@ -322,6 +332,7 @@ describe("telephony persistence and secret storage", () => {
       accountSid: "AC1234567890abcdef1234567890abcd",
       authToken: "twilio-auth-token-1234567890",
     });
+    incrementalRepository.loadConnections(organizationId, [connectionResponse.connection.id]);
 
     await service.importTwilioNumbers({
       organizationId,
@@ -345,16 +356,16 @@ describe("telephony persistence and secret storage", () => {
       status: "healthy",
     });
 
-    const restartedService = recreateHarness(storePath).service;
-    expect((await restartedService.getState(organizationId)).providerHeartbeats[0]).toMatchObject({
+    expect(incrementalRepository.connectionHealthObservations[0]?.heartbeat).toMatchObject({
       scheduled: true,
       connectionId: connectionResponse.connection.id,
     });
   });
 
-  it("serializes concurrent tenant checkpoint saves without losing either checkpoint", async () => {
+  it("records concurrent tenant checkpoints incrementally without snapshot saves", async () => {
     tempDirectory = mkdtempSync(join(tmpdir(), "zara-telephony-"));
     const repository = new DelayedFileTelephonyStateRepository(join(tempDirectory, "telephony-store"));
+    const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
     const service = new TelephonyService(
       repository,
       new TelephonySecretVault({
@@ -363,6 +374,9 @@ describe("telephony persistence and secret storage", () => {
       }),
       createGeneratedTwilioInventoryProvider(),
       createNoopTwilioRoutingProvider(),
+      incrementalRepository,
+      createTestAdmissionCoordinator(),
+      createUnusedPremiumSnapshotResolver(),
     );
     const organizationId = "tenant-west-africa";
     const connection = await service.createConnection({
@@ -389,6 +403,10 @@ describe("telephony persistence and secret storage", () => {
       workspaceId: "workspace-customer-success",
       runtimeProfile: "cost-optimized",
     });
+    incrementalRepository.loadPhoneNumberProjections(
+      organizationId,
+      (await service.getState(organizationId)).phoneNumbers,
+    );
     await service.createPstnTestRoute({
       organizationId,
       numberId,
@@ -423,12 +441,10 @@ describe("telephony persistence and secret storage", () => {
       }),
     ]);
 
-    expect(repository.maximumConcurrentSaves).toBe(1);
-    expect((await service.getState(organizationId)).phoneNumbers[0]?.testRoute?.waitingSession.checklist)
-      .toMatchObject({
-        outboundAudioSent: true,
-        agentResponseGenerated: true,
-      });
+    expect(repository.maximumConcurrentSaves).toBe(0);
+    expect(
+      incrementalRepository.phoneTestCheckpoints.map(({ checkpoint }) => checkpoint).sort(),
+    ).toEqual(["agentResponseGenerated", "outboundAudioSent"]);
   });
 
   it("imports real Twilio inventory from the connected account instead of generated fixtures", async () => {
@@ -499,6 +515,7 @@ describe("telephony persistence and secret storage", () => {
     legacyMasterSecretsByVersion?: Record<number, string>;
     twilioInventory?: TwilioNumberInventoryProvider;
     twilioRouting?: TwilioNumberRoutingProvider;
+    incrementalRepository?: InMemoryTelephonyIncrementalRepository;
   }) {
     tempDirectory = mkdtempSync(join(tmpdir(), "zara-telephony-"));
     const storePath = join(tempDirectory, "telephony-store");
@@ -508,14 +525,20 @@ describe("telephony persistence and secret storage", () => {
       legacyMasterSecretsByVersion: input?.legacyMasterSecretsByVersion,
     });
     const repository = new FileTelephonyStateRepository(storePath);
+    const incrementalRepository =
+      input?.incrementalRepository ?? new InMemoryTelephonyIncrementalRepository();
 
     return {
+      incrementalRepository,
       storePath,
       service: new TelephonyService(
         repository,
         secretVault,
         input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
         input?.twilioRouting ?? createNoopTwilioRoutingProvider(),
+        incrementalRepository,
+        createTestAdmissionCoordinator(),
+        createUnusedPremiumSnapshotResolver(),
       ),
     };
   }
@@ -528,6 +551,7 @@ describe("telephony persistence and secret storage", () => {
       legacyMasterSecretsByVersion?: Record<number, string>;
       twilioInventory?: TwilioNumberInventoryProvider;
       twilioRouting?: TwilioNumberRoutingProvider;
+      incrementalRepository?: InMemoryTelephonyIncrementalRepository;
     },
   ) {
     const secretVault = new TelephonySecretVault({
@@ -536,16 +560,55 @@ describe("telephony persistence and secret storage", () => {
       legacyMasterSecretsByVersion: input?.legacyMasterSecretsByVersion,
     });
     const repository = new FileTelephonyStateRepository(storePath);
+    const incrementalRepository =
+      input?.incrementalRepository ?? new InMemoryTelephonyIncrementalRepository();
 
     return {
+      incrementalRepository,
       storePath,
       service: new TelephonyService(
         repository,
         secretVault,
         input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
         input?.twilioRouting ?? createNoopTwilioRoutingProvider(),
+        incrementalRepository,
+        createTestAdmissionCoordinator(),
+        createUnusedPremiumSnapshotResolver(),
       ),
     };
+  }
+
+  function createTestAdmissionCoordinator() {
+    return new PstnAdmissionCoordinator(new InMemoryPstnCallAdmission(), {
+      mode: "memory",
+      workerId: "test-worker",
+      limits: {
+        global: 20,
+        provider: 20,
+        tenant: 20,
+        worker: 20,
+        runtime: {
+          "pstn-sandwich": 20,
+          "pstn-premium-realtime": 20,
+        },
+      },
+      cps: {
+        global: { capacity: 20, refillPerSecond: 20 },
+        providerAccount: { capacity: 20, refillPerSecond: 20 },
+      },
+      claimTtlMs: 30_000,
+      activeTtlMs: 120_000,
+      renewIntervalMs: 30_000,
+      commandTimeoutMs: 750,
+    });
+  }
+
+  function createUnusedPremiumSnapshotResolver() {
+    return {
+      async resolve() {
+        throw new Error("Premium snapshot resolution is not expected in this test.");
+      },
+    } as never;
   }
 
   function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider & {

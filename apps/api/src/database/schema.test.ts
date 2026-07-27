@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getTableColumns, getTableName } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import { drizzleConfigValues } from "./drizzle-config";
@@ -23,8 +24,10 @@ import {
   telephonyExecutionCommands,
   telephonyExecutionSessions,
   telephonyHealthChecks,
+  telephonyMediaStreamTokens,
+  telephonyPremiumDispatchSnapshots,
   telephonyPhoneNumbers,
-  telephonyProcessedWebhookEvents,
+  telephonyPhoneTestCheckpoints,
   telephonyProviderHeartbeats,
   telephonyWebhookEvents,
   memoryEmbeddings,
@@ -170,6 +173,7 @@ describe("database foundations", () => {
       "region",
       "status",
       "healthStatus",
+      "outboundAbuseBlocked",
       "recordingPolicy",
       "blockRoutingOnHealthFailure",
       "credentialReference",
@@ -203,6 +207,7 @@ describe("database foundations", () => {
     expect(getTableName(telephonyHealthChecks)).toBe("telephony_health_checks");
     expect(getTableName(telephonyProviderHeartbeats)).toBe("telephony_provider_heartbeats");
     expect(getTableName(telephonyDispatches)).toBe("telephony_dispatches");
+    expect(getTableColumns(telephonyDispatches)).toHaveProperty("recordingConsent");
     expect(getTableName(telephonyExecutionSessions)).toBe("telephony_execution_sessions");
     expect(Object.keys(getTableColumns(telephonyExecutionSessions))).toEqual([
       "id",
@@ -214,6 +219,7 @@ describe("database foundations", () => {
       "ownershipMode",
       "direction",
       "status",
+      "version",
       "toPhoneNumber",
       "fromPhoneNumber",
       "workflowLabel",
@@ -224,17 +230,198 @@ describe("database foundations", () => {
       "mediaPath",
       "outageMode",
       "fallbackTarget",
+      "recordingConsent",
       "diagnostics",
       "policyState",
+      "lifecycleState",
       "createdAt",
       "updatedAt",
     ]);
+    expect(getTableName(telephonyMediaStreamTokens)).toBe("telephony_media_stream_tokens");
+    expect(Object.keys(getTableColumns(telephonyMediaStreamTokens))).toEqual([
+      "tenantId",
+      "callSessionId",
+      "dispatchId",
+      "connectionId",
+      "tokenHash",
+      "expiresAt",
+      "createdAt",
+      "claimedAt",
+      "ownerWorkerId",
+      "ownerEpoch",
+      "ownerLeaseExpiresAt",
+    ]);
+    expect(getTableName(telephonyPremiumDispatchSnapshots)).toBe(
+      "telephony_premium_dispatch_snapshots",
+    );
+    expect(Object.keys(getTableColumns(telephonyPremiumDispatchSnapshots))).toEqual([
+      "tenantId",
+      "callSessionId",
+      "dispatchId",
+      "workspaceId",
+      "publishedVersionId",
+      "schemaVersion",
+      "checksum",
+      "snapshot",
+      "createdAt",
+    ]);
+    expect(getTableName(telephonyPhoneTestCheckpoints)).toBe(
+      "telephony_phone_test_checkpoints",
+    );
+    const lifecycleMigration = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0010_bitter_pretty_boy.sql",
+      ),
+      "utf8",
+    );
+    expect(lifecycleMigration).toContain(
+      'ALTER TABLE "telephony_execution_sessions"',
+    );
+    expect(lifecycleMigration).toContain('"lifecycle_state" jsonb');
+    expect(lifecycleMigration).toContain(
+      `WHEN "status" = 'completed' THEN 'completed'`,
+    );
+    expect(lifecycleMigration).toContain(
+      `WHEN "status" IN ('terminated', 'blocked') THEN 'failed'`,
+    );
+    expect(lifecycleMigration).toContain(
+      'DROP INDEX IF EXISTS "telephony_phone_test_checkpoints_tenant_test_checkpoint_unique_idx"',
+    );
+    expect(lifecycleMigration).toContain(
+      'CREATE UNIQUE INDEX "telephony_phone_test_checkpoints_tenant_call_checkpoint_unique_idx"',
+    );
     expect(getTableName(telephonyExecutionCommands)).toBe("telephony_execution_commands");
     expect(getTableName(telephonyWebhookEvents)).toBe("telephony_webhook_events");
     expect(getTableName(telephonyCallControlEvents)).toBe("telephony_call_control_events");
     expect(getTableName(telephonyCredentialEnvelopes)).toBe("telephony_credential_envelopes");
-    expect(getTableName(telephonyProcessedWebhookEvents)).toBe(
-      "telephony_processed_webhook_events",
+    const schemaSource = readFileSync(
+      resolve(repositoryRoot, "apps/api/src/database/schema.ts"),
+      "utf8",
+    );
+    expect(schemaSource).not.toContain("telephony_processed_webhook_events");
+    const obsoleteDedupeMigration = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0012_superb_stellaris.sql",
+      ),
+      "utf8",
+    );
+    expect(obsoleteDedupeMigration).toContain(
+      "Retain telephony_processed_webhook_events for rolling-deploy compatibility",
+    );
+    expect(obsoleteDedupeMigration).not.toContain(
+      'DROP TABLE "telephony_processed_webhook_events"',
+    );
+    const obsoleteDedupeRollback = readFileSync(
+      resolve(
+        repositoryRoot,
+        "docs/Runbooks/rollback-0012-obsolete-webhook-dedupe.sql",
+      ),
+      "utf8",
+    );
+    expect(obsoleteDedupeRollback).toContain(
+      "No rollback action is required because migration 0012 retains the table",
+    );
+    expect(obsoleteDedupeRollback).not.toContain(
+      'CREATE TABLE "telephony_processed_webhook_events"',
+    );
+
+    const abusePostureMigration = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0013_telephony_outbound_abuse_posture.sql",
+      ),
+      "utf8",
+    );
+    expect(abusePostureMigration).toContain(
+      'ADD COLUMN IF NOT EXISTS "outbound_abuse_blocked" boolean DEFAULT false NOT NULL',
+    );
+    expect(abusePostureMigration).toContain(
+      'CREATE TABLE IF NOT EXISTS "telephony_processed_webhook_events"',
+    );
+
+    const abusePostureRollbackPath =
+      "docs/Runbooks/rollback-0013-telephony-outbound-abuse-posture.sql";
+    const abusePostureRollback = readFileSync(
+      resolve(repositoryRoot, abusePostureRollbackPath),
+      "utf8",
+    );
+    const workflowFile = readFileSync(
+      resolve(repositoryRoot, ".github/workflows/migration-check.yml"),
+      "utf8",
+    );
+    expect(abusePostureRollback).toContain(
+      "Rollback blocked: outbound abuse posture is active",
+    );
+    expect(abusePostureRollback).toContain(
+      `to_regclass('public.telephony_processed_webhook_events')`,
+    );
+    expect(abusePostureRollback).toContain(
+      'DROP COLUMN IF EXISTS "outbound_abuse_blocked"',
+    );
+    expect(abusePostureRollback).not.toContain(
+      'DROP TABLE "telephony_processed_webhook_events"',
+    );
+    expect(workflowFile.indexOf(abusePostureRollbackPath)).toBeGreaterThan(-1);
+    expect(workflowFile.indexOf(abusePostureRollbackPath)).toBeLessThan(
+      workflowFile.indexOf(
+        "docs/Runbooks/rollback-0012-obsolete-webhook-dedupe.sql",
+      ),
+    );
+    expect(workflowFile).toContain("has_outbound_abuse_blocked");
+    expect(workflowFile).toContain("compatibility_table");
+    expect(workflowFile).toContain("compatibility_write_count");
+  });
+
+  it("ships a durable premium worker ownership lease deadline", () => {
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0015_telephony_premium_owner_lease.sql",
+      ),
+      "utf8",
+    );
+    const migrationJournal = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, "apps/api/src/database/migrations/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+
+    expect(migrationFile).toContain(
+      'ALTER TABLE "telephony_media_stream_tokens" ADD COLUMN "owner_lease_expires_at"',
+    );
+    expect(migrationJournal.entries).toContainEqual(
+      expect.objectContaining({ tag: "0015_telephony_premium_owner_lease" }),
+    );
+  });
+
+  it("ships durable premium dispatch snapshots and fenced worker ownership forward", () => {
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0014_telephony_premium_dispatch_ownership.sql",
+      ),
+      "utf8",
+    );
+    const migrationJournal = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, "apps/api/src/database/migrations/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+
+    expect(migrationFile).toContain(
+      'CREATE TABLE "telephony_premium_dispatch_snapshots"',
+    );
+    expect(migrationFile).toContain('"owner_worker_id" text');
+    expect(migrationFile).toContain('"owner_epoch" integer DEFAULT 0 NOT NULL');
+    expect(migrationFile).toContain(
+      'FOREIGN KEY ("tenant_id","call_session_id") REFERENCES "public"."telephony_execution_sessions"',
+    );
+    expect(migrationJournal.entries).toContainEqual(
+      expect.objectContaining({ tag: "0014_telephony_premium_dispatch_ownership" }),
     );
   });
 
@@ -256,6 +443,156 @@ describe("database foundations", () => {
     expect(migrationJournal.entries).toContainEqual(
       expect.objectContaining({ tag: "0008_telephony_execution_policy_state" }),
     );
+  });
+
+  it("ships additive incremental telephony persistence with an ordered rollback", () => {
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0009_telephony_incremental_persistence.sql",
+      ),
+      "utf8",
+    );
+    const migrationJournal = JSON.parse(
+      readFileSync(
+        resolve(repositoryRoot, "apps/api/src/database/migrations/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    const rollbackFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
+      ),
+      "utf8",
+    );
+
+    expect(migrationFile).toContain('ADD COLUMN IF NOT EXISTS "version" integer');
+    expect(migrationFile).toContain('ADD COLUMN IF NOT EXISTS "recording_consent" jsonb');
+    expect(migrationFile).toContain('PRIMARY KEY ("tenant_id", "id")');
+    expect(migrationFile).toContain(
+      'ALTER TABLE "telephony_dispatches" ADD COLUMN IF NOT EXISTS "runtime_path" text',
+    );
+    expect(migrationFile).toContain('CREATE TABLE IF NOT EXISTS "telephony_media_stream_tokens"');
+    expect(migrationFile).toContain('char_length("token_hash") = 43');
+    expect(migrationFile).toContain(
+      'CREATE TABLE IF NOT EXISTS "telephony_phone_test_checkpoints"',
+    );
+    expect(migrationFile).toContain("Rollback order:");
+    expect(migrationFile).toContain("duplicate tenant call dispatches exist");
+    expect(rollbackFile).toContain('DROP TABLE IF EXISTS "telephony_media_stream_tokens"');
+    expect(rollbackFile).toContain("Cannot restore legacy webhook uniqueness");
+    expect(migrationJournal.entries).toContainEqual(
+      expect.objectContaining({ tag: "0009_telephony_incremental_persistence" }),
+    );
+  });
+
+  it("rolls lifecycle migration 0010 back before 0009 and verifies legacy inserts in CI", () => {
+    const lifecycleRollbackPath =
+      "docs/Runbooks/rollback-0010-telephony-call-lifecycle.sql";
+    const lifecycleRollback = readFileSync(
+      resolve(repositoryRoot, lifecycleRollbackPath),
+      "utf8",
+    );
+    const workflowFile = readFileSync(
+      resolve(repositoryRoot, ".github/workflows/migration-check.yml"),
+      "utf8",
+    );
+
+    expect(lifecycleRollback).toContain(
+      'DROP INDEX IF EXISTS "telephony_phone_test_checkpoints_tenant_call_checkpoint_unique_idx"',
+    );
+    expect(lifecycleRollback).toContain(
+      'CREATE UNIQUE INDEX "telephony_phone_test_checkpoints_tenant_test_checkpoint_unique_idx"',
+    );
+    expect(lifecycleRollback).toContain(
+      'ALTER TABLE "telephony_execution_sessions"',
+    );
+    expect(lifecycleRollback).toContain(
+      'DROP COLUMN IF EXISTS "lifecycle_state"',
+    );
+    expect(workflowFile.indexOf(lifecycleRollbackPath)).toBeGreaterThan(-1);
+    expect(workflowFile.indexOf(lifecycleRollbackPath)).toBeLessThan(
+      workflowFile.indexOf(
+        "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
+      ),
+    );
+    expect(workflowFile).toContain("insert into telephony_execution_sessions");
+    expect(workflowFile).toContain("legacy execution-session insert compatibility failed");
+  });
+
+  it("scopes execution command and call-control event identities by tenant with rollback", () => {
+    const rollbackPath =
+      "docs/Runbooks/rollback-0011-telephony-tenant-composite-identities.sql";
+    const commandPrimaryKey = getTableConfig(telephonyExecutionCommands).primaryKeys[0];
+    const eventPrimaryKey = getTableConfig(telephonyCallControlEvents).primaryKeys[0];
+    expect(commandPrimaryKey?.columns.map((column) => column.name)).toEqual([
+      "tenant_id",
+      "id",
+    ]);
+    expect(eventPrimaryKey?.columns.map((column) => column.name)).toEqual([
+      "tenant_id",
+      "id",
+    ]);
+
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0011_telephony_tenant_composite_identities.sql",
+      ),
+      "utf8",
+    );
+    const rollbackFile = readFileSync(
+      resolve(repositoryRoot, rollbackPath),
+      "utf8",
+    );
+    const workflowFile = readFileSync(
+      resolve(repositoryRoot, ".github/workflows/migration-check.yml"),
+      "utf8",
+    );
+    expect(migrationFile).toContain(
+      'PRIMARY KEY ("tenant_id","id")',
+    );
+    expect(migrationFile).toContain(
+      'ALTER TABLE "telephony_call_control_events" DROP CONSTRAINT',
+    );
+    expect(rollbackFile).toContain(
+      "Cannot restore global telephony execution-command identity",
+    );
+    expect(rollbackFile).toContain(
+      "Cannot restore global telephony call-control event identity",
+    );
+    expect(rollbackFile).toContain("BEGIN;");
+    expect(rollbackFile).toContain(
+      'LOCK TABLE "telephony_execution_commands", "telephony_call_control_events"',
+    );
+    expect(rollbackFile).toContain("COMMIT;");
+    expect(workflowFile.indexOf(rollbackPath)).toBeGreaterThan(-1);
+    expect(workflowFile.indexOf(rollbackPath)).toBeGreaterThan(
+      workflowFile.indexOf(
+        "docs/Runbooks/rollback-0012-obsolete-webhook-dedupe.sql",
+      ),
+    );
+    expect(workflowFile.indexOf(rollbackPath)).toBeLessThan(
+      workflowFile.indexOf(
+        "docs/Runbooks/rollback-0010-telephony-call-lifecycle.sql",
+      ),
+    );
+    const rollbackExecutionOrder = [
+      "await pool.query(abusePostureRollback);",
+      "await pool.query(obsoleteDedupeRollback);",
+      "await pool.query(tenantCompositeIdentityRollback);",
+      "await pool.query(lifecycleRollback);",
+      "await pool.query(incrementalRollback);",
+    ].map((statement) => workflowFile.indexOf(statement));
+    expect(rollbackExecutionOrder.every((position) => position > -1)).toBe(true);
+    expect(rollbackExecutionOrder).toEqual(
+      [...rollbackExecutionOrder].sort((left, right) => left - right),
+    );
+    expect(workflowFile).toContain("execution_command_primary_key_columns");
+    expect(workflowFile).toContain("call_control_primary_key_columns");
+    expect(workflowFile).toContain("previous_revision_command_write_count");
+    expect(workflowFile).toContain("previous_revision_control_write_count");
   });
 
   it("defines pgvector-backed memory embedding storage and index migration", () => {
@@ -300,5 +637,8 @@ describe("database foundations", () => {
     );
 
     expect(workflowFile).toContain("npm run db:check");
+    expect(workflowFile).toContain(
+      "apps/api/src/database/migration-0012-rolling.postgres.test.ts",
+    );
   });
 });

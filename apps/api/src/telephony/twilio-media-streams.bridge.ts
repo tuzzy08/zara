@@ -109,6 +109,8 @@ export function renderTwilioConnectStreamTwiML(input: {
   connectionId: string;
   publishedVersionId: string;
   runtimePath: PstnRuntimePath;
+  workerId?: string | undefined;
+  workerReleaseId?: string | undefined;
   workspaceId?: string | undefined;
 }) {
   const streamUrl = `${input.mediaStreamBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(input.callSessionId)}`;
@@ -119,6 +121,15 @@ export function renderTwilioConnectStreamTwiML(input: {
     ["zaraConnectionId", input.connectionId],
     ["zaraPublishedVersionId", input.publishedVersionId],
     ["zaraRuntimePath", input.runtimePath],
+    ...(input.workerId === undefined
+      ? []
+      : [["zaraWorkerId", input.workerId] satisfies [string, string]]),
+    ...(input.workerReleaseId === undefined
+      ? []
+      : [[
+          "zaraWorkerReleaseId",
+          input.workerReleaseId,
+        ] satisfies [string, string]]),
     ...(input.workspaceId === undefined
       ? []
       : [["zaraWorkspaceId", input.workspaceId] satisfies [string, string]]),

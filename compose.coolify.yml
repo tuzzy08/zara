@@ -16,6 +16,30 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7.2.14-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+    command:
+      - sh
+      - -c
+      - >-
+        exec redis-server
+        --requirepass "$$REDIS_PASSWORD"
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory "$$REDIS_MAXMEMORY"
+        --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -80,6 +104,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       minio-init:
@@ -90,6 +116,13 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: 4010
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Coolify}
+      PSTN_ADMISSION_REDIS_URL: ${PSTN_ADMISSION_REDIS_URL:?Set PSTN_ADMISSION_REDIS_URL in Coolify}
+      PSTN_ADMISSION_GLOBAL_MAX_CONCURRENT_CALLS: ${PSTN_ADMISSION_GLOBAL_MAX_CONCURRENT_CALLS:-20}
+      PSTN_ADMISSION_GLOBAL_CPS_RATE: ${PSTN_ADMISSION_GLOBAL_CPS_RATE:?Set PSTN_ADMISSION_GLOBAL_CPS_RATE in Coolify}
+      PSTN_ADMISSION_GLOBAL_CPS_BURST: ${PSTN_ADMISSION_GLOBAL_CPS_BURST:?Set PSTN_ADMISSION_GLOBAL_CPS_BURST in Coolify}
+      PSTN_ADMISSION_PROVIDER_CPS_RATE: ${PSTN_ADMISSION_PROVIDER_CPS_RATE:?Set PSTN_ADMISSION_PROVIDER_CPS_RATE in Coolify}
+      PSTN_ADMISSION_PROVIDER_CPS_BURST: ${PSTN_ADMISSION_PROVIDER_CPS_BURST:?Set PSTN_ADMISSION_PROVIDER_CPS_BURST in Coolify}
+      PSTN_ADMISSION_TWILIO_QUOTA_MAX_CONCURRENT_CALLS: ${PSTN_ADMISSION_TWILIO_QUOTA_MAX_CONCURRENT_CALLS:-20}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in Coolify}
       BETTER_AUTH_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL in Coolify}
       ZARA_TRUSTED_ORIGINS: ${ZARA_TRUSTED_ORIGINS:?Set ZARA_TRUSTED_ORIGINS in Coolify}
@@ -119,11 +152,76 @@ services:
     expose:
       - "4010"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4010/health | grep -q '\"status\":\"ok\"'"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4010/health/ready | grep -q '\"status\":\"ready\"'"]
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 60s
+
+  realtime-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: realtime-worker
+    restart: unless-stopped
+    stop_grace_period: 31m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      ZARA_ENV: production
+      ZARA_PROCESS_ROLE: pstn-realtime-worker
+      PORT: 4020
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Coolify}
+      PSTN_ADMISSION_REDIS_URL: ${PSTN_ADMISSION_REDIS_URL:?Set PSTN_ADMISSION_REDIS_URL in Coolify}
+      PSTN_ADMISSION_GLOBAL_CPS_RATE: ${PSTN_ADMISSION_GLOBAL_CPS_RATE:?Set PSTN_ADMISSION_GLOBAL_CPS_RATE in Coolify}
+      PSTN_ADMISSION_GLOBAL_CPS_BURST: ${PSTN_ADMISSION_GLOBAL_CPS_BURST:?Set PSTN_ADMISSION_GLOBAL_CPS_BURST in Coolify}
+      PSTN_ADMISSION_PROVIDER_CPS_RATE: ${PSTN_ADMISSION_PROVIDER_CPS_RATE:?Set PSTN_ADMISSION_PROVIDER_CPS_RATE in Coolify}
+      PSTN_ADMISSION_PROVIDER_CPS_BURST: ${PSTN_ADMISSION_PROVIDER_CPS_BURST:?Set PSTN_ADMISSION_PROVIDER_CPS_BURST in Coolify}
+      PSTN_WORKER_ID: ${PSTN_WORKER_ID:?Set a unique PSTN_WORKER_ID in Coolify}
+      PSTN_WORKER_RELEASE_ID: ${PSTN_WORKER_RELEASE_ID:?Set PSTN_WORKER_RELEASE_ID in Coolify}
+      PSTN_WORKER_PUBLIC_MEDIA_URL: ${REALTIME_WORKER_PUBLIC_URL:?Set REALTIME_WORKER_PUBLIC_URL in Coolify}
+      PSTN_WORKER_HEARTBEAT_INTERVAL_MS: ${PSTN_WORKER_HEARTBEAT_INTERVAL_MS:-5000}
+      PSTN_WORKER_HEARTBEAT_TTL_MS: ${PSTN_WORKER_HEARTBEAT_TTL_MS:-15000}
+      PSTN_WORKER_DRAIN_TIMEOUT_MS: ${PSTN_WORKER_DRAIN_TIMEOUT_MS:-1800000}
+      PSTN_WORKER_MAX_CALLS: ${PSTN_WORKER_MAX_CALLS:-20}
+      PSTN_WORKER_MAX_CPU_PERCENT: ${PSTN_WORKER_MAX_CPU_PERCENT:-85}
+      PSTN_WORKER_MAX_MEMORY_PERCENT: ${PSTN_WORKER_MAX_MEMORY_PERCENT:-85}
+      PSTN_WORKER_MAX_MEMORY_BYTES: ${PSTN_WORKER_MAX_MEMORY_BYTES:-1073741824}
+      PSTN_WORKER_MAX_EVENT_LOOP_LAG_MS: ${PSTN_WORKER_MAX_EVENT_LOOP_LAG_MS:-50}
+      PSTN_WORKER_MAX_OPEN_FILE_DESCRIPTORS: ${PSTN_WORKER_MAX_OPEN_FILE_DESCRIPTORS:-4096}
+      PSTN_WORKER_MAX_WEBSOCKETS: ${PSTN_WORKER_MAX_WEBSOCKETS:-200}
+      PSTN_CAPACITY_MAX_CONCURRENT_CALLS: ${PSTN_WORKER_MAX_CALLS:-20}
+      PSTN_INSTANCE_CPU_LIMIT_MILLICORES: ${PSTN_INSTANCE_CPU_LIMIT_MILLICORES:-1000}
+      PSTN_INSTANCE_MEMORY_LIMIT_BYTES: ${PSTN_WORKER_MAX_MEMORY_BYTES:-1073741824}
+      PSTN_INSTANCE_FILE_DESCRIPTOR_LIMIT: ${PSTN_WORKER_MAX_OPEN_FILE_DESCRIPTORS:-4096}
+      PGPOOL_MAX: ${PGPOOL_MAX:-10}
+      PSTN_EVENT_LOOP_DELAY_LIMIT_MS: ${PSTN_WORKER_MAX_EVENT_LOOP_LAG_MS:-50}
+      PSTN_ADMISSION_GLOBAL_MAX_CONCURRENT_CALLS: ${PSTN_ADMISSION_GLOBAL_MAX_CONCURRENT_CALLS:-20}
+      PSTN_ADMISSION_PREMIUM_MAX_CONCURRENT_CALLS: ${PSTN_ADMISSION_PREMIUM_MAX_CONCURRENT_CALLS:-20}
+      PSTN_ADMISSION_WORKER_MAX_CONCURRENT_CALLS: ${PSTN_ADMISSION_WORKER_MAX_CONCURRENT_CALLS:-20}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in Coolify}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in Coolify}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ZARA_PREMIUM_REALTIME_TRANSPORT: live
+      ZARA_INTEGRATION_STATE_DIR: /app/.zara/integrations
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+    volumes:
+      - api-state:/app/.zara:ro
+    expose:
+      - "4020"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4020/health/ready | grep -q '\"status\":\"ready\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
 
   web:
     build:
@@ -168,5 +266,6 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
   minio-data:
   api-state:

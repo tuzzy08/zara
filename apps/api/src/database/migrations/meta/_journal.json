@@ -64,6 +64,55 @@
       "when": 1784034000000,
       "tag": "0008_telephony_execution_policy_state",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784782800000,
+      "tag": "0009_telephony_incremental_persistence",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784851558073,
+      "tag": "0010_bitter_pretty_boy",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784865697510,
+      "tag": "0011_telephony_tenant_composite_identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784891904151,
+      "tag": "0012_superb_stellaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784906480812,
+      "tag": "0013_telephony_outbound_abuse_posture",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784978264602,
+      "tag": "0014_telephony_premium_dispatch_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1785091867581,
+      "tag": "0015_telephony_premium_owner_lease",
+      "breakpoints": true
     }
   ]
 }

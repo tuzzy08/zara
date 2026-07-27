@@ -2,7 +2,9 @@ import {
   BadRequestException,
   ForbiddenException,
   HttpException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 
@@ -12,13 +14,15 @@ import type {
   IntegrationProvider,
   SlackDestinationConfig,
 } from "./integrations.models";
+import {
+  CONNECTOR_TOOL_FAILURE_HEALTH_RECORDER,
+  type ConnectorToolFailureHealthRecorder,
+} from "./connector-tool-failure-health-recorder";
 import { IntegrationSecretVault } from "./integrations-secret-vault";
-import { IntegrationsService } from "./integrations.service";
 import {
   INTEGRATION_STATE_REPOSITORY,
   type IntegrationStateRepository,
 } from "./integrations-state.repository";
-import { Inject } from "@nestjs/common";
 
 type OAuthConnectorProvider = Exclude<IntegrationProvider, "webhook-http">;
 
@@ -1023,11 +1027,14 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
 
 @Injectable()
 export class ConnectorToolsService {
+  private readonly logger = new Logger(ConnectorToolsService.name);
+
   constructor(
     @Inject(INTEGRATION_STATE_REPOSITORY)
     private readonly stateRepository: IntegrationStateRepository,
     private readonly secretVault: IntegrationSecretVault,
-    private readonly integrationsService: IntegrationsService,
+    @Inject(CONNECTOR_TOOL_FAILURE_HEALTH_RECORDER)
+    private readonly failureHealthRecorder: ConnectorToolFailureHealthRecorder,
   ) {}
 
   listTools(provider: OAuthConnectorProvider) {
@@ -1085,15 +1092,21 @@ export class ConnectorToolsService {
         externalAccountId: openedCredential.externalAccountId,
       });
     } catch (error) {
-      await this.integrationsService.recordConnectionToolFailureHealth(
-        organizationId,
-        connection.id,
-        provider,
-        classifyConnectorToolFailureHealth({
+      try {
+        await this.failureHealthRecorder.recordConnectionToolFailureHealth(
+          organizationId,
+          connection.id,
           provider,
-          error,
-        }),
-      );
+          classifyConnectorToolFailureHealth({
+            provider,
+            error,
+          }),
+        );
+      } catch {
+        this.logger.warn(
+          "Connector failure health recording failed; preserving the provider error.",
+        );
+      }
       throw error;
     }
   }

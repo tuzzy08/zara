@@ -12,12 +12,13 @@ export function createOneTimeStreamToken(input: {
   subject: string;
   scope: Record<string, string>;
   expiresAt: string;
+  nonce?: string | undefined;
 }) {
   const claims: OneTimeStreamTokenClaims = {
     subject: input.subject,
     scope: sortScope(input.scope),
     expiresAt: input.expiresAt,
-    nonce: randomBytes(24).toString("base64url"),
+    nonce: input.nonce ?? randomBytes(24).toString("base64url"),
   };
   const payload = Buffer.from(JSON.stringify(claims), "utf8").toString("base64url");
   const signature = signPayload(input.secret, payload);
@@ -41,34 +42,67 @@ export function verifyOneTimeStreamToken(input: {
   expectedScope: Record<string, string>;
   now?: string | undefined;
 }) {
-  const [payload, signature] = input.token.split(".");
-  if (payload === undefined || signature === undefined || payload.length === 0 || signature.length === 0) {
-    return false;
-  }
-
-  if (!safeEqual(signature, signPayload(input.secret, payload))) {
-    return false;
-  }
-
-  const claims = parseClaims(payload);
-  if (claims === undefined || claims.subject !== input.expectedSubject) {
-    return false;
-  }
-
-  const nowMs = Date.parse(input.now ?? new Date().toISOString());
-  const expiresAtMs = Date.parse(claims.expiresAt);
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+  const claims = readVerifiedOneTimeStreamToken(input);
+  if (claims === undefined) {
     return false;
   }
 
   return JSON.stringify(sortScope(claims.scope)) === JSON.stringify(sortScope(input.expectedScope));
 }
 
+export function readVerifiedOneTimeStreamToken(input: {
+  secret: Buffer;
+  token: string;
+  expectedSubject: string;
+  now?: string | undefined;
+}) {
+  const claims = readSignedOneTimeStreamToken(input);
+  if (claims === undefined) {
+    return undefined;
+  }
+
+  const nowMs = Date.parse(input.now ?? new Date().toISOString());
+  const expiresAtMs = Date.parse(claims.expiresAt);
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+    return undefined;
+  }
+
+  return claims;
+}
+
+export function readSignedOneTimeStreamToken(input: {
+  secret: Buffer;
+  token: string;
+  expectedSubject: string;
+}) {
+  const [payload, signature] = input.token.split(".");
+  if (payload === undefined || signature === undefined || payload.length === 0 || signature.length === 0) {
+    return undefined;
+  }
+
+  if (!safeEqual(signature, signPayload(input.secret, payload))) {
+    return undefined;
+  }
+
+  const claims = parseClaims(payload);
+  if (claims === undefined || claims.subject !== input.expectedSubject) {
+    return undefined;
+  }
+
+  return claims;
+}
+
 export function resolveOneTimeStreamTokenSecret() {
   const configuredSecret = process.env.ZARA_STREAM_TOKEN_SECRET ?? process.env.BETTER_AUTH_SECRET;
-  return configuredSecret === undefined || configuredSecret.length === 0
-    ? randomBytes(32)
-    : createHash("sha256").update(configuredSecret, "utf8").digest();
+  if (configuredSecret === undefined || configuredSecret.length === 0) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "ZARA_STREAM_TOKEN_SECRET or BETTER_AUTH_SECRET is required in production.",
+      );
+    }
+    return randomBytes(32);
+  }
+  return createHash("sha256").update(configuredSecret, "utf8").digest();
 }
 
 function parseClaims(payload: string): OneTimeStreamTokenClaims | undefined {

@@ -3,6 +3,7 @@ import type { PlatformRole } from "@zara/core";
 
 import { AuditLogService } from "../compliance/audit-log.service";
 import { runtimeObservabilityMetricsStore } from "../runtime-observability/runtime-observability";
+import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import type {
   CreateRuntimePromptPolicyAgentClassInput,
   UpdateRuntimePromptPolicyInput,
@@ -50,6 +51,7 @@ export class PlatformAdminService {
     private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
     private readonly runtimeRoutePolicyService: RuntimeRoutePolicyService,
     private readonly telephonyService: TelephonyService,
+    private readonly pstnCapacityObservability: PstnCapacityObservability,
   ) {}
 
   getDashboard(): PlatformAdminDashboard {
@@ -211,7 +213,10 @@ export class PlatformAdminService {
   getRuntimeAiObservability() {
     const observability = clone(this.aiRuntimeObservability);
     observability.providerLatency = runtimeObservabilityMetricsStore.getProviderHealthSummary().providers;
-    return observability;
+    return {
+      ...observability,
+      pstnCapacity: this.pstnCapacityObservability.getSnapshot(),
+    };
   }
 
   async getRuntimePromptPolicy() {
@@ -732,7 +737,7 @@ function seedRuntimeProviders(): PlatformRuntimeProviderHealth[] {
   ];
 }
 
-function seedAiRuntimeObservability(): PlatformAiRuntimeObservability {
+function seedAiRuntimeObservability(): Omit<PlatformAiRuntimeObservability, "pstnCapacity"> {
   return {
     summary: {
       intentFallbackRate: 0.08,

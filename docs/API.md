@@ -304,7 +304,9 @@ Platform staff can inspect AI runtime health and eval gate posture through:
 
 - `GET /platform-admin/runtime/ai-observability`
 
-The route requires a platform role and never authorizes from tenant organization roles. It returns `summary` metrics for intent fallback rate, classifier confidence, tool use/failure rate, transfer loop prevention, policy warnings, packet truncation, LangSmith export health, and eval regression status. It also returns the runtime eval gate command, protected change categories, deterministic and LLM-as-judge thresholds, emergency override policy, and redacted failing run references.
+The route requires a platform role and never authorizes from tenant organization roles. It returns `summary` metrics for intent fallback rate, classifier confidence, tool use/failure rate, transfer loop prevention, policy warnings, packet truncation, LangSmith export health, and eval regression status. It also returns the runtime eval gate command, protected change categories, deterministic and LLM-as-judge thresholds, emergency override policy, redacted failing run references, and a live `pstnCapacity` posture for the current API instance.
+
+`pstnCapacity` contains the provisional, explicitly uncertified resource envelope; aggregate call lifecycle by runtime/provider; process pressure; aggregate Twilio/provider WebSocket posture and rates; database pool and last-operation pressure; bounded media queue posture; and the overall `healthy`, `warning`, `critical`, or `exhausted` classification. It never includes tenant, call, stream, response, phone-number, or tool identifiers. The value is operator evidence only and does not imply that the provisional call ceiling is enforced or certified.
 
 Failing run references may include LangSmith experiment URLs and local trace IDs for Zara staff. They must not include tenant secrets, OAuth values, raw provider payloads, raw caller text, raw tool output, or unredacted trace data.
 

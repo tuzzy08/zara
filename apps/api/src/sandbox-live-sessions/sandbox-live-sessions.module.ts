@@ -18,15 +18,13 @@ import {
   UnavailableLiveSandboxIntentClassifierProvider,
 } from "./sandbox-intent-classifier.provider";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
-import { RuntimeAgentToolExecutorService } from "./runtime-agent-tool-executor.service";
+import { RuntimeAgentToolExecutionModule } from "./runtime-agent-tool-execution.module";
 import { createLiveSandboxTextModelProvider } from "./sandbox-text-model-provider-factory";
 import { SandboxLiveSessionsController } from "./sandbox-live-sessions.controller";
 import {
-  DefaultLiveSandboxToolRegistry,
   liveSandboxIntentClassifierProviderToken,
   liveSandboxSttProviderToken,
   liveSandboxTextModelProviderToken,
-  liveSandboxToolRegistryToken,
   liveSandboxTtsProviderToken,
   UnavailableLiveSandboxSttProvider,
   UnavailableLiveSandboxTtsProvider,
@@ -35,16 +33,17 @@ import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.websocket-bridge";
 
 @Module({
-  imports: [IntegrationsModule, RuntimePromptPolicyModule, VoiceLibraryModule, WorkspacesModule],
+  imports: [
+    IntegrationsModule,
+    RuntimeAgentToolExecutionModule,
+    RuntimePromptPolicyModule,
+    VoiceLibraryModule,
+    WorkspacesModule,
+  ],
   controllers: [SandboxLiveSessionsController],
   providers: [
-    RuntimeAgentToolExecutorService,
     SandboxLiveSessionsService,
     SandboxLiveSessionsWebSocketBridge,
-    {
-      provide: liveSandboxToolRegistryToken,
-      useClass: DefaultLiveSandboxToolRegistry,
-    },
     {
       provide: runtimeObservabilityRecorderToken,
       useFactory: () => createConfiguredRuntimeObservabilityRecorder(process.env),
@@ -118,6 +117,10 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
       inject: [VoiceLibraryService],
     },
   ],
-  exports: [RuntimeAgentToolExecutorService, SandboxLiveSessionsService, liveSandboxIntentClassifierProviderToken],
+  exports: [
+    RuntimeAgentToolExecutionModule,
+    SandboxLiveSessionsService,
+    liveSandboxIntentClassifierProviderToken,
+  ],
 })
 export class SandboxLiveSessionsModule {}
