@@ -40,7 +40,7 @@
 - `npm.cmd run eval:pstn` passed: 25 tests.
 - `docker compose -f compose.coolify.yml config --quiet` passed after programmatically populating all 22 required variables with validation-only values.
 - Targeted `git diff --check` passed.
-- GitHub PR #120 head `2c283bd` passed quality gates, migration compatibility and rollback, GitGuardian, and Vercel.
+- GitHub PR #120 passed quality gates, migration compatibility and rollback, GitGuardian, and Vercel.
 - RED: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` failed with `ENOENT` for the missing rollback-0015 runbook. The fresh-database rollback workflow then reproduced the production dependency failure when rollback 0009 tried to drop the tenant session identity index while the premium dispatch snapshot foreign key still depended on it.
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed after adding rollback 0015 and 0014 in strict reverse order.
 - REFACTOR: strengthened the regression to assert actual rollback execution order and the premium snapshot postcondition; the focused test and `npm.cmd exec -- eslint apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed.
@@ -87,4 +87,4 @@
 
 ## Next Recommended Step
 
-Deploy PR #120 head `2c283bd` without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
+Deploy the merged PR #120 release SHA without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
