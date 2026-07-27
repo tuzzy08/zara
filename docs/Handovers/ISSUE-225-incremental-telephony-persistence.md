@@ -1,6 +1,6 @@
 # ISSUE-225: Incremental telephony persistence contracts
 
-- Status: In Progress
+- Status: Implemented
 - External: [Linear ZAR-226](https://linear.app/zara-voice/issue/ZAR-226/pstn-capacity-412-expand-incremental-telephony-persistence-contracts)
 - Parent: [Linear ZAR-223](https://linear.app/zara-voice/issue/ZAR-223/pstn-capacity-qualification-admission-control-and-horizontally)
 
@@ -37,18 +37,17 @@
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` - 1 test passed after adding explicit 0015 and 0014 rollback runbooks and reverse-order workflow coverage.
 - REFACTOR: strengthened the focused test to assert the actual `pool.query(...)` execution order and premium snapshot rollback postcondition; the focused test and scoped ESLint passed.
 - GREEN: locally reproduced `.github/workflows/migration-check.yml` against isolated PostgreSQL databases: both fresh migration chains applied, the two PostgreSQL migration suites passed 26 tests, rollback 0015 through 0009 completed, legacy compatibility inserts and schema assertions passed, and both scratch databases were removed.
+- GREEN: GitHub PR #120 on commit `8e3394b` passed the fresh-migration, PostgreSQL compatibility, and rollback workflow.
 
 ## Pending Work
 
-- Push the candidate commit when authorized and require `.github/workflows/migration-check.yml` to pass on that exact commit.
-- Mark ZAR-226 complete only after the GitHub fresh-migration, PostgreSQL, and rollback job confirms the locally reproduced gate.
+- None for ISSUE-225.
 
 ## Risks
 
 - Database emulators do not reproduce every Postgres locking behavior, so SQL must rely on portable unique constraints, transactions, and compare-and-swap predicates rather than process-local locks.
 - A rollback after different tenants have reused the same provider/domain IDs is intentionally blocked by duplicate preflights because the legacy global primary keys cannot represent that valid expanded state.
 - Deployment and capacity certification risks are tracked by the later PSTN capacity tickets; they do not leave this persistence contract incomplete.
-- The candidate commit has not been pushed, so the required GitHub migration check remains unproven even though its exact database workflow passes locally.
 
 ## Decisions
 
@@ -65,4 +64,4 @@
 
 ## Next Recommended Step
 
-After push authorization, run the GitHub migration check on this candidate. Close ZAR-226 only if it passes, without reopening snapshot fallbacks.
+Proceed with the later deployed capacity-qualification tickets without reopening snapshot fallbacks.

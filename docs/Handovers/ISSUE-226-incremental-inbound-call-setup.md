@@ -1,6 +1,6 @@
 # ISSUE-226: Incremental inbound webhook and call setup
 
-- Status: In Progress
+- Status: Implemented
 - External: [Linear ZAR-228](https://linear.app/zara-voice/issue/ZAR-228/pstn-capacity-512-migrate-inbound-webhook-dispatch-and-media-token)
 - Parent: [Linear ZAR-223](https://linear.app/zara-voice/issue/ZAR-223/pstn-capacity-qualification-admission-control-and-horizontally)
 
@@ -35,17 +35,16 @@
 - Closure gate with `ZARA_TEST_POSTGRES_URL` configured: `npm.cmd exec -- vitest run apps/api/src/security/one-time-stream-token.test.ts apps/api/src/telephony/telephony-inbound-incremental.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts apps/pstn-protocol-simulator/src/load-runner.test.ts` -> 8 files, 180 tests passed, 0 skipped.
 - Closure `npm.cmd --workspace @zara/api run typecheck` -> passed.
 - Closure `npm.cmd run db:check` -> passed with no schema changes or migration drift.
+- GREEN: GitHub PR #120 on commit `8e3394b` passed the dependency's fresh-migration, PostgreSQL compatibility, and rollback workflow.
 
 ## Pending Work
 
-- ZAR-228's implementation and local acceptance evidence are complete.
-- Keep the issue In Progress until its ZAR-226 dependency passes the candidate commit's GitHub migration check, then close both tracker and local status together.
+- None for ISSUE-226.
 
 ## Risks
 
 - Non-live manual dispatch and telephony management must remain on their current behavior in this slice.
 - Remaining deployed-staging, multi-worker, and provider qualification risks belong to later PSTN capacity tickets and do not leave the inbound persistence migration incomplete.
-- The only issue-status blocker is the unrun candidate-commit CI gate on ZAR-226; no ZAR-228 production-code work remains.
 
 ## Decisions
 
@@ -58,4 +57,4 @@
 
 ## Next Recommended Step
 
-After ZAR-226's candidate migration check passes, close ZAR-228 without changing the row-owned inbound setup contract.
+Proceed with later deployed capacity qualification without changing the row-owned inbound setup contract.
