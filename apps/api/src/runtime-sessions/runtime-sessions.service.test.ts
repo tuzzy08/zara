@@ -198,6 +198,47 @@ describe("RuntimeSessionsService", () => {
     expect(service.getRegisteredSession(session.sessionId)?.conversationPolicy.version).toBe(12);
   });
 
+  it("starts a worker session from immutable resolved policy without reading mutable policy stores", async () => {
+    const policy = structuredClone(defaultPremiumRealtimeConversationPolicy);
+    policy.version = 27;
+    policy.providers.openaiRealtime.defaultModel =
+      "gpt-realtime-worker-snapshot";
+    const service = new RuntimeSessionsService(
+      createLoop(),
+      {
+        getPromptPolicy: async () => {
+          throw new Error("mutable prompt policy must not be read");
+        },
+      },
+      {
+        getPolicy: async () => {
+          throw new Error("mutable conversation policy must not be read");
+        },
+      },
+    );
+    const manifest = removeRealtimeProviderFields(buildRoutePolicyManifest());
+
+    const session = await service.createRealtimeSessionFromSnapshot({
+      manifest,
+      conversationPolicy: policy,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      mediaProfile: "pstn",
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "pstn:call-1",
+      now: "2099-06-14T09:30:00.000Z",
+    });
+
+    expect(session.providerConfig).toMatchObject({
+      model: "gpt-realtime-worker-snapshot",
+      conversationPolicyVersion: 27,
+    });
+    expect(
+      service.getRegisteredSession(session.sessionId)?.conversationPolicy.version,
+    ).toBe(27);
+  });
+
   it("keeps the call-start conversation policy snapshot across a cross-provider handoff", async () => {
     const policy = structuredClone(defaultPremiumRealtimeConversationPolicy);
     policy.version = 12;

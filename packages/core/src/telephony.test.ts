@@ -1225,6 +1225,10 @@ describe("telephony domain", () => {
     });
 
     expect(session.status).toBe("ringing");
+    expect(session.lifecycleState).toEqual({
+      stage: "ringing",
+      observedAt: "2026-05-15T10:02:00.000Z",
+    });
     expect(session.diagnostics.join(" ")).toContain("SIP INVITE");
 
     const advanced = applyTelephonyCallControlEventToSession({

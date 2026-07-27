@@ -1,4 +1,5 @@
 import {
+  configureOpenTelemetryRuntimeMetrics,
   configureOpenTelemetryRuntimeTracing,
   resolveRuntimeObservabilityConfig,
 } from "../runtime-observability/runtime-observability";
@@ -13,4 +14,5 @@ export function initializeApiObservability(env: Record<string, string | undefine
   initialized = true;
   const config = resolveRuntimeObservabilityConfig(env);
   configureOpenTelemetryRuntimeTracing({ config, env });
+  configureOpenTelemetryRuntimeMetrics({ config, env });
 }

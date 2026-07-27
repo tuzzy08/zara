@@ -3723,6 +3723,7 @@ Implemented:
 - Replaced the old `/workflows` routed-number dispatch simulation with Published test (browser) and Phone test (Twilio/PSTN) mode labels plus deep links to the shared Phone test sandbox.
 - Added `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete` for sanitized manual phone-test completion.
 - Follow-up: workflow-page Phone test is clickable even when no routed numbers exist so the no-route checklist is visible, and the workflow canvas, inspector, sandbox drawer, and sandbox metric cards have more vertical room to avoid overlap.
+- Follow-up: the full sandbox keeps Live cost and Session metrics as its only persistent right-rail cards and moves Escalations, Monitor, Replay, Routing, Tools, and Manifest into one tabbed utility dock; the separate Runtime decision card was removed without removing routing inspection.
 - Follow-up: `/calls` now prints persisted incoming call logs from webhook and dispatch records so operators can see real Twilio callback/route attempts in the UI.
 - Follow-up: `/sandbox` keeps the Phone test start button green and disabled while a waiting/active test is in progress, and automatically completes the test as `expired` when the waiting window closes.
 - Follow-up: active Twilio Phone test expiry/manual end now completes the matching provider call best-effort from the API using dispatch and execution-session correlation.
@@ -5023,6 +5024,7 @@ Implementation summary:
 - Replaced the tenant hero and inline setup cards with the approved provider setup surface and responsive connection modal.
 - Removed tenant-side Platform edge, Health, and Outbound cards and deleted their obsolete component/model paths.
 - Added a non-persisting Twilio credential probe and platform-admin-owned platform connection provisioning endpoint/control.
+- Follow-up: kept the existing Connections table layout while enlarging configured-connection text and replacing tiny icon-only heartbeat, validation, number-import, and deletion controls with labeled buttons and functional colored borders.
 
 Implementation summary:
 - Added asynchronous redacted premium lifecycle, pressure, playback, failure, handoff, and cleanup telemetry with exact safe failure classification.
@@ -5079,3 +5081,241 @@ Implementation summary:
 - Added Better Auth custom Postgres storage with atomic upsert/increment behavior.
 - Reused the rate-limit row ID as an expired-window generation token and kept timestamps monotonic.
 - Installed custom storage only for database-backed production rate limiting.
+
+### ISSUE-222: PSTN single-instance capacity posture
+
+- Priority: P1
+- Area: Runtime / Telephony / Observability / Platform Admin
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, telephony, observability, platform-admin, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md](../docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md)
+- External: [Linear ZAR-224](https://linear.app/zara-voice/issue/ZAR-224/pstn-capacity-112-expose-single-instance-capacity-posture)
+
+Acceptance criteria:
+- Low-cardinality telemetry reports PSTN call lifecycle by runtime/provider, process pressure, Twilio/provider WebSocket posture, database pressure, and bounded media queues.
+- Platform staff can inspect the live redacted single-instance posture while tenant users remain excluded by the platform guard.
+- Relevant declared resources classify 70 percent as warning, 85 percent as critical, and 100 percent as exhausted.
+- The provisional premium ceiling remains 20 calls and is documented as an overload guard rather than certified capacity.
+- Exporter or optional-sample failure cannot fail a live call, and tests prevent high-cardinality metric dimensions.
+
+Implementation summary:
+- Added periodic process/resource sampling, lifecycle/WebSocket/queue/Postgres/exporter telemetry, and the redacted staff-only capacity posture.
+- Documented the exact provisional worker envelope and its non-certified, non-enforcing status.
+- Verified 79 focused API tests plus API typecheck and focused lint; the wider run passed 139 files and 1101 tests with unrelated dirty landing-page failures and an existing fixed-timeout production-output scan limitation recorded in the handover.
+
+### ISSUE-223: Deterministic PSTN protocol simulator
+
+- Priority: P1
+- Area: Runtime / Telephony / Testing / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, telephony, observability, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-223-pstn-protocol-simulator.md](../docs/Handovers/ISSUE-223-pstn-protocol-simulator.md)
+- External: [Linear ZAR-225](https://linear.app/zara-voice/issue/ZAR-225/pstn-capacity-212-build-deterministic-twilio-and-openai-protocol)
+
+Acceptance criteria:
+- An external virtual caller signs the real Twilio form webhook, validates queryless Connect Stream TwiML, opens the returned WebSocket, and emits deterministic 8 kHz mono PCMU at 20 ms cadence.
+- Twilio mark latency/loss, silence, interruption, abrupt disconnect, clear, and media behavior are configurable and observable without logging raw media or stream credentials.
+- An external OpenAI Realtime simulator covers readiness, caller turns, response audio, transcripts, tools, handoffs, incomplete responses, protocol errors, rate limits, output pressure, and provider closure under deterministic timing modes.
+- Calls carry unique call, stream, response, and media fingerprints; cross-call media fails fingerprint validation.
+- Simulator transport is test/staging-only, selected at the existing provider transport seam, and rejected during production startup.
+- One smoke command covers normal, interrupted, tool/handoff, and provider-failure paths with redacted output.
+
+Implementation summary:
+- Added an external Twilio virtual caller and OpenAI Realtime protocol simulator with deterministic timing, call-isolated media fingerprints, real playback/mark/clear behavior, tool/handoff and failure scenarios, guarded test/staging transport selection, and one redacted smoke command.
+- Verified 56 focused simulator/transport tests, 140 premium/telephony regressions, 25 PSTN evals, both workspace typechecks, focused lint, and the two full-suite outliers independently after the saturated repository run.
+
+### ISSUE-224: PSTN stepped, burst, failure, and soak load profiles
+
+- Priority: P1
+- Area: Runtime / Telephony / Testing / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, runtime, telephony, observability, testing, tdd-required
+- Status: In Progress
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-224-pstn-load-profiles.md](../docs/Handovers/ISSUE-224-pstn-load-profiles.md)
+- External: [Linear ZAR-227](https://linear.app/zara-voice/issue/ZAR-227/pstn-capacity-312-add-stepped-burst-failure-and-soak-load-profiles)
+
+Acceptance criteria:
+- External profiles cover stepped concurrency at 1, 5, 10, 20, 40, 60, and 100 calls, burst/failure scenarios, and a two-hour soak at an explicitly qualified target.
+- Resource exhaustion stops further load safely; required telemetry, meaningful traffic, call identity isolation, drain recovery, and hard SLOs fail closed.
+- Machine-readable reports carry release/environment/resource/scenario/latency/failure/SLO evidence without credentials, media, caller PII, or token material.
+- Deterministic CI smoke stays separate from explicitly approved release-scale and real-provider jobs.
+- A current single-instance baseline report is retained before incremental persistence migration begins.
+
+### ISSUE-225: Incremental telephony persistence contracts
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: In Progress
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-225-incremental-telephony-persistence.md](../docs/Handovers/ISSUE-225-incremental-telephony-persistence.md)
+- External: [Linear ZAR-226](https://linear.app/zara-voice/issue/ZAR-226/pstn-capacity-412-expand-incremental-telephony-persistence-contracts)
+
+Acceptance criteria:
+- Additive Postgres contracts cover webhook dedupe, atomic call setup, execution and call lifecycle transitions, one-time media token claim, and phone-test checkpoints without replacing the existing snapshot callers.
+- Provider event and call identities are database-unique, retries return explicit existing/conflict outcomes, and competing transitions use versioned compare-and-swap semantics.
+- Media credentials are stored as bounded hashes with expiry and one-time claim state; raw token material is never persisted.
+- Incremental mutations own only their target rows, preserve same-tenant concurrent calls, and cannot read or mutate another tenant's rows.
+- The migration is backward-safe, documents rollback order, and has Postgres-compatible tests for retry, conflict, stale transition, tenant isolation, expiry, and atomic rollback behavior.
+
+Implementation summary:
+- Added an expansion-only incremental repository with database identities, atomic call setup and unclaimed-token replay rotation, versioned lifecycle CAS, database-clock one-time token claims, bounded tenant cleanup, and append-only test checkpoints.
+- Added production-compatible base64url token hashing, tenant-composite call identities, persisted consent/failover retry checks, runtime-path persistence, migration duplicate preflights, executable rollback parity checks, and a real-PostgreSQL CI gate while leaving all live snapshot callers unchanged.
+
+### ISSUE-226: Incremental inbound webhook and call setup
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: In Progress
+- Blocked by: ISSUE-225
+- Handover: [docs/Handovers/ISSUE-226-incremental-inbound-call-setup.md](../docs/Handovers/ISSUE-226-incremental-inbound-call-setup.md)
+- External: [Linear ZAR-228](https://linear.app/zara-voice/issue/ZAR-228/pstn-capacity-512-migrate-inbound-webhook-dispatch-and-media-token)
+
+Acceptance criteria:
+- Verified Twilio webhook events use row-owned idempotent persistence without replacing tenant state.
+- Routed dispatch, execution session, and hashed one-time media credential commit atomically before Connect Stream TwiML is returned.
+- Duplicate deliveries, process restart, partial failure, concurrent starts, and tenant isolation preserve one durable call setup with explicit retry or conflict outcomes.
+- Blocked dispatches persist incrementally and caller-safe failures carry stable operator diagnostic reason codes.
+- Deterministic concurrent-burst evidence records webhook response p95 and fails the answer-path SLO above 1,000 ms.
+- Existing route, workflow, runtime, subscription, budget, caller, and non-live telephony management behavior remains unchanged.
+- The synchronous Twilio answer path no longer invokes whole-tenant snapshot persistence.
+
+### ISSUE-227: Incremental active-call lifecycle and checkpoints
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-225, ISSUE-226
+- Handover: [docs/Handovers/ISSUE-227-incremental-active-call-lifecycle.md](../docs/Handovers/ISSUE-227-incremental-active-call-lifecycle.md)
+- External: [Linear ZAR-229](https://linear.app/zara-voice/issue/ZAR-229/pstn-capacity-612-migrate-active-call-lifecycle-and-checkpoint)
+
+Acceptance criteria:
+- Media authorization atomically claims the durable one-time token after restart and rejects expired, reused, mismatched, and cross-tenant credentials.
+- Active-call lifecycle transitions use versioned row-owned persistence, tolerate duplicate and reordered provider events, and never revive a terminal session.
+- Twilio status callbacks and every termination source are idempotent and update only the intended tenant call.
+- Phone-test checkpoints are atomic, isolated, and independent of whole-tenant snapshot persistence.
+- Nonessential observability remains bounded and cannot block call execution.
+- Tests cover concurrent calls, duplicate and reordered callbacks, restart, expired tokens, and each terminal path while preserving all runtime-provider behavior.
+
+Implementation summary:
+- Added durable one-time media claims, versioned row-owned lifecycle transitions, restart-safe premium context loading, idempotent provider callbacks, and a single classified terminal authority for clean, abnormal, provider, and shutdown paths.
+- Added independent per-call phone-test checkpoints with nonblocking retry and protected incremental call state from stale whole-tenant snapshot replacement.
+- Added backward-safe lifecycle/index migration coverage and verified 351 telephony tests with real Redis and PostgreSQL enabled, plus API typecheck, focused lint, schema drift, and diff hygiene.
+
+### ISSUE-228: Contract live-call snapshot persistence
+
+- Priority: P1
+- Area: Runtime / Telephony / Database
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, database, runtime, telephony, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-225, ISSUE-226, ISSUE-227
+- Handover: [docs/Handovers/ISSUE-228-contract-live-call-snapshot-persistence.md](../docs/Handovers/ISSUE-228-contract-live-call-snapshot-persistence.md)
+- External: [Linear ZAR-230](https://linear.app/zara-voice/issue/ZAR-230/pstn-capacity-712-contract-whole-tenant-persistence-out-of-the-live)
+
+Acceptance criteria:
+- No inbound webhook, media authorization, lifecycle, status callback, checkpoint, handoff, policy, or termination path invokes whole-tenant snapshot replacement.
+- Live-call writes use explicit tenant-and-call row ownership with atomic incremental repository operations and no compatibility fallback.
+- Full-snapshot persistence remains only for documented configuration workflows that intentionally own the complete tenant aggregate.
+- Real PostgreSQL qualification starts at least 50 concurrent calls for one tenant plus concurrent calls across tenants without lost updates, duplicate sessions, or cross-call mutation.
+- Concurrent lifecycle and terminal events remain monotonic and cannot revive completed calls.
+- Qualification evidence includes database pool wait, transaction latency, lock wait, deadlock, and retry metrics.
+- Migration, backfill, deployment, rollback, dependency, telephony regression, runtime, persistence, and tenant-isolation gates pass.
+
+Implementation summary:
+- Contracted live-call writes onto tenant-and-call scoped incremental repository methods while retaining whole-tenant persistence only for configuration ownership.
+- Added rolling-safe migrations and strict rollback qualification, row-owned phone-test projections, and a durable outbound-abuse marker that stale replicas must check under a connection-row lock before queuing work.
+- Qualified 351 telephony tests with real Redis and PostgreSQL enabled, including the real-PostgreSQL migration, concurrency, and retention qualification.
+
+### ISSUE-229: Redis-backed PSTN call admission
+
+- Priority: P1
+- Area: Runtime / Telephony / Infrastructure / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, infrastructure, runtime, telephony, observability, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-222, ISSUE-228
+- Handover: [docs/Handovers/ISSUE-229-redis-backed-pstn-call-admission.md](../docs/Handovers/ISSUE-229-redis-backed-pstn-call-admission.md)
+- External: [Linear ZAR-231](https://linear.app/zara-voice/issue/ZAR-231/pstn-capacity-812-enforce-redis-backed-call-admission-on-the-current)
+
+Acceptance criteria:
+- Production Redis admission runs before Twilio Connect Stream TwiML and fails new calls closed with a stable operator reason when unavailable or indeterminate.
+- Atomic reservations enforce global, provider, tenant, runtime, and worker concurrency limits plus global and provider-account CPS limits without duplicate consumption.
+- Claim and active leases expire safely, renew outside media forwarding, recover abandoned capacity, and release idempotently on every terminal path.
+- Provider health and quota signals can reduce or close new-call admission without terminating active calls.
+- The provisional platform cap remains configurable at 20 and is not represented as certified capacity.
+- Race, oversubscription, duplicate, lease expiry, crash recovery, Redis outage, terminal release, health, telemetry, and tenant-isolation tests pass.
+
+Implementation summary:
+- Added production Redis 7 admission before Twilio Connect Stream TwiML with atomic global, provider, tenant, runtime, and worker concurrency limits plus global and provider-account CPS limits.
+- Added idempotent claim and active leases, cross-replica activation metadata, bounded renewal outside media forwarding, durable terminal release, and fail-closed readiness without interrupting active media when Redis degrades.
+- Added policy-aware provider-health posture and explicit platform-owned Twilio quota clamping, retained the provisional 20-call guardrail, and qualified 351 telephony tests, 15 real-Redis cases, and the real-PostgreSQL migration, concurrency, and retention cases.
+
+### ISSUE-230: Claim-based premium PSTN realtime workers
+
+- Priority: P1
+- Area: Runtime / Telephony / Infrastructure / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, infrastructure, runtime, telephony, observability, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-223, ISSUE-229
+- Handover: [docs/Handovers/ISSUE-230-claim-based-premium-pstn-realtime-workers.md](../docs/Handovers/ISSUE-230-claim-based-premium-pstn-realtime-workers.md)
+- External: [Linear ZAR-232](https://linear.app/zara-voice/issue/ZAR-232/pstn-capacity-912-move-premium-pstn-execution-into-claim-based)
+
+Acceptance criteria:
+- The API remains the authenticated control and TwiML entry point while premium Twilio media and premium-provider WebSockets terminate on a separately deployable realtime worker.
+- A worker atomically claims an admitted call with a fencing epoch before consuming media; duplicate and stale owners cannot create provider sessions or replay tools and handoffs.
+- One worker owns both WebSocket legs, codec and buffer state, marks, interruption state, tools, handoffs, and finalization for the ownership period.
+- Workers load immutable tenant-scoped dispatch and published-manifest context from durable stores without depending on API-process memory.
+- OpenAI and Gemini premium execution preserve greeting, turn detection, barge-in, tools, same-provider and cross-provider handoff, voice selection, and caller context.
+- Worker heartbeats publish health, draining state, available slots, active calls, and bounded resource posture for admission and operations.
+- API restart after TwiML response does not terminate an owned media call, and every setup, provider, caller, and internal failure deterministically cleans up and releases admission.
+- The deterministic simulator covers admitted normal, interrupted, handoff, duplicate-media, and failure paths through the worker.
+- Media, credentials, tokens, and caller content remain redacted, and deployment, discovery, health, timeout, and minimum-resource contracts are documented.
+
+Implementation summary:
+- Added a separately deployable premium realtime worker that owns both WebSocket legs, provider-native execution, tools, handoffs, codec and bounded-buffer state, and finalization while loading durable tenant-scoped dispatch context.
+- Added fenced PostgreSQL ownership, worker-pinned one-time media tokens, validated worker-advertised endpoints, awaited drain publication, fail-stop ownership-loss handling, and no API-hosted premium media fallback.
+- Added bounded capacity-race reselection, release-fenced routing, durable duplicate-webhook replay, status-before-media lifecycle compatibility, and simulator propagation of exact worker release identity across normal and duplicate sockets.
+- Added deterministic duplicate, restart, interruption, handoff, failure, worker-routing, Redis, PostgreSQL, schema, deployment, typecheck, lint, build, and runtime/PSTN eval qualification. Deployed staging smoke and exact-worker ingress validation remain release gates.
+
+### ISSUE-231: Multi-worker drain, fencing, and failure recovery
+
+- Priority: P1
+- Area: Runtime / Telephony / Infrastructure / Observability
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, infrastructure, runtime, telephony, observability, testing, tdd-required
+- Status: In Progress
+- Blocked by: ISSUE-230
+- Handover: [docs/Handovers/ISSUE-231-multi-worker-drain-fencing-failure-recovery.md](../docs/Handovers/ISSUE-231-multi-worker-drain-fencing-failure-recovery.md)
+- External: [Linear ZAR-233](https://linear.app/zara-voice/issue/ZAR-233/pstn-capacity-1012-qualify-multi-worker-drain-fencing-and-failure)
+
+Acceptance criteria:
+- At least two worker instances advertise slots and accept calls without exceeding effective global, provider, tenant, runtime, or worker allowances.
+- Load distribution and capacity accounting remain correct when workers have different slot counts or resource posture.
+- A draining worker stops receiving new claims immediately while established calls receive the configured completion window.
+- Deployment automation enforces a maximum drain period and reports calls terminated when that period expires.
+- Abrupt worker loss expires its leases and reclaims reservations without allowing a second worker to concurrently own or replay the failed call.
+- Every call mutation and release is fenced so a stale worker cannot alter state after ownership changes or expiry.
+- Reconnect policy is explicit: unsupported media replay is never attempted silently, and callers receive deterministic termination when continuity cannot be guaranteed.
+- Redis interruption closes admission for new calls; established workers use a bounded ownership grace policy that cannot create dual ownership and is observable.
+- PostgreSQL interruption behavior is explicit and bounded: active media may continue only where authorization and ownership are already established, with finalization retried through a bounded, idempotent path.
+- Load-balancer WebSocket affinity, idle timeout, connection draining, file-descriptor limits, and health-check behavior are validated against long-running calls.
+- Fault tests cover worker crash, rolling deploy, Redis loss and recovery, PostgreSQL loss and recovery, provider closure, Twilio disconnect, and delayed terminal callbacks.
+- Metrics and alerts identify stale leases, forced drain termination, failed finalization, capacity leakage, duplicate claim attempts, and infrastructure degradation.
+
+Implementation progress:
+- Durable worker/epoch fencing, confirmed-lease continuity bounds, explicit forced drain termination, bounded terminal retry, stale-owner reconciliation, and low-cardinality recovery metrics are implemented and locally qualified.
+- Two-worker deployment is documented as separate Coolify applications with immutable identities, distinct endpoints, and serial drain-and-replace without overlapping same-ID processes.
+- API typecheck, 202 focused tests, 22 real-Postgres tests, 39 Redis tests, 25 PSTN evals, and the Coolify Compose contract pass.
+- Status remains In Progress until the exact candidate completes deployed Coolify routing, long-running WebSocket, serial replacement, abrupt-stop, live-provider, and alert-delivery validation.

@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
 import { Logger } from "@nestjs/common";
 
+import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
+import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
+import { PstnPremiumCallActor } from "./pstn-premium-call-actor";
+import {
+  computeTelephonyPremiumDispatchSnapshotChecksum,
+} from "./telephony-incremental.repository";
 import {
   PstnPremiumCallExecution,
   type PstnPremiumCallOutput,
@@ -21,6 +27,7 @@ describe("PstnPremiumCallExecution", () => {
     let cleared = 0;
     let providerClosed = false;
     let terminatedRuntimeSessionId: string | undefined;
+    const capacityEvents: string[] = [];
     const providerReady = deferred<void>();
     const registered = {
       organizationId: "tenant-west-africa",
@@ -52,58 +59,35 @@ describe("PstnPremiumCallExecution", () => {
     };
     const execution = new PstnPremiumCallExecution(
       {
-        async getState() {
+        async loadPstnCallRuntimeContext() {
           return {
-            organizationId: "tenant-west-africa",
-            connections: [],
-            phoneNumbers: [],
-            healthChecks: [],
-            providerHeartbeats: [],
-            dispatches: [
-              {
-                id: "dispatch-premium-1",
-                tenantId: "tenant-west-africa",
-                direction: "inbound",
-                disposition: "routed",
-                reason: "Live premium route.",
-                callSessionId: "CA-premium:telephony",
-                connectionId: "connection-1",
-                publishedVersionId: "workflow-premium-v1",
-                workspaceId: "workspace-support",
-                workflowLabel: "Premium support",
-                runtimeProfile: "premium-realtime",
-                runtimePath: "pstn-premium-realtime",
-                recording: { enabled: false, consentMode: "disabled", consentMessage: "" },
-                recordingConsent: {
-                  state: "not-required",
-                  consentMode: "disabled",
-                  message: "",
-                  noticeRequired: false,
-                  updatedAt: "2026-07-11T10:00:00.000Z",
-                },
-                toPhoneNumber: "+14155557890",
-                fromPhoneNumber: "+233201110001",
-                createdAt: "2026-07-11T10:00:00.000Z",
-                source: "webhook",
-              },
-            ],
-            executionSessions: [],
-            executionCommands: [],
-            webhookEvents: [],
-            callControlEvents: [],
+            outcome: "found",
+            context: createPremiumCallRuntimeContext(),
           };
         },
         async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
           checkpoints.push(input.checkpoint);
         },
+        async recordPstnCallLifecycle() {
+          return {
+            outcome: "applied" as const,
+            context: createPremiumCallRuntimeContext(),
+          };
+        },
       } as never,
       {
-        async getPublishedManifest() {
-          return manifest;
+        async loadPremiumDispatchSnapshot() {
+          return {
+            outcome: "found",
+            snapshot: createPremiumDispatchSnapshot(manifest),
+          };
         },
       } as never,
       {
         async createRealtimeSession() {
+          throw new Error("Mutable runtime policy must not be read by a PSTN worker.");
+        },
+        async createRealtimeSessionFromSnapshot() {
           return registered.session;
         },
         getRegisteredSession() {
@@ -149,6 +133,21 @@ describe("PstnPremiumCallExecution", () => {
           return { exportedSpanCount: 0, langsmithExported: false, warnings: [], metrics: {} };
         },
       } as never,
+      {
+        trackCall(input: { state: string }) { capacityEvents.push(`call:${input.state}`); },
+        endCall(input: { outcome: string }) { capacityEvents.push(`end:${input.outcome}`); },
+        openSocket(input: { leg: string }) { capacityEvents.push(`socket:${input.leg}`); },
+        updateSocketContext() {},
+        recordSocketHandshake(input: { outcome: string }) {
+          capacityEvents.push(`handshake:${input.outcome}`);
+        },
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        recordQueue(input: { queue: string }) { capacityEvents.push(`queue:${input.queue}`); },
+        recordQueueDrop() {},
+        clearCallQueues() {},
+      } as never,
     );
 
     await execution.start({
@@ -156,6 +155,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output,
     });
     await execution.appendInboundFrame({
@@ -273,6 +273,16 @@ describe("PstnPremiumCallExecution", () => {
     await execution.stop({ callSessionId: "CA-premium:telephony" });
     expect(providerClosed).toBe(true);
     expect(terminatedRuntimeSessionId).toBe("premium-session-1");
+    expect(capacityEvents).toEqual(expect.arrayContaining([
+      "call:starting",
+      "socket:provider",
+      "handshake:accepted",
+      "call:active",
+      "queue:provider_output",
+      "queue:twilio_playback",
+      "call:draining",
+      "end:completed",
+    ]));
     providerCloseHandler?.({ code: 1000, reason: "done" });
   });
 
@@ -283,6 +293,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -341,6 +352,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -368,6 +380,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -391,6 +404,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia(frame) { outboundFrames.push(frame); },
         clearAudio() {},
@@ -435,6 +449,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia(frame) { outboundFrames.push(frame); },
         clearAudio() { clears += 1; },
@@ -483,6 +498,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await waitFor(() => observed.some((event) => event.type === "premium.readiness"));
@@ -494,8 +510,16 @@ describe("PstnPremiumCallExecution", () => {
       mediaProfile: "pstn",
     });
     expect(JSON.stringify(observed)).not.toMatch(/prompt|transcript|credential|token|apiKey/i);
+    await waitFor(() => harness.lifecycleStages.length === 2);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active"]);
 
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+    expect(harness.lifecycleStages).toEqual([
+      "provider-ready",
+      "active",
+      "draining",
+      "completed",
+    ]);
   });
 
   it("accounts for the actual resident Gemini provider payload while startup is pending", async () => {
@@ -510,6 +534,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
@@ -537,6 +562,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
@@ -559,6 +585,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},
@@ -594,6 +621,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await harness.execution.appendInboundFrame({
@@ -631,21 +659,171 @@ describe("PstnPremiumCallExecution", () => {
 
   it("removes the runtime session when the provider connection cannot start", async () => {
     const terminatedSessionIds: string[] = [];
-    const { execution } = createMinimalExecutionHarness("openai-realtime", {
+    const failedHandshakes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
       connectError: new Error("provider unavailable"),
       onTerminate(sessionId) {
         terminatedSessionIds.push(sessionId);
       },
+      capacityObservability: {
+        recordSocketHandshakeAttempt(input: { outcome: string }) {
+          failedHandshakes.push(input.outcome);
+        },
+      },
     });
 
-    await expect(execution.start({
+    await expect(harness.execution.start({
       organizationId: "tenant-west-africa",
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     })).rejects.toThrow("provider unavailable");
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
+    expect(failedHandshakes).toEqual(["failed"]);
+    expect(harness.lifecycleStages).toEqual(["failed"]);
+  });
+
+  it("does not end capacity when installed startup terminal persistence fails", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(stage) {
+        if (stage !== "failed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+    const actorStart = vi.spyOn(PstnPremiumCallActor.prototype, "start")
+      .mockImplementation(function startWithReadinessFailure(this: PstnPremiumCallActor) {
+        this.fail("premium_provider_readiness_failed");
+        return Promise.reject(new Error("provider readiness failed"));
+      });
+
+    try {
+      await expect(harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      })).rejects.toThrow("terminal lifecycle unavailable");
+
+      expect(terminalAttempts).toBe(1);
+      expect(capacityOutcomes).toEqual([]);
+
+      await harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+        outcome: "failed",
+        reasonCode: "premium_provider_readiness_failed",
+      });
+
+      expect(terminalAttempts).toBe(2);
+      expect(capacityOutcomes).toEqual(["failed"]);
+    } finally {
+      actorStart.mockRestore();
+    }
+  });
+
+  it("retries pre-install terminal persistence through stop without ending capacity early", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      connectError: new Error("provider unavailable"),
+      async recordLifecycle(stage) {
+        if (stage !== "failed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+    const startInput = {
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    };
+
+    await expect(harness.execution.start(startInput))
+      .rejects.toThrow("terminal lifecycle unavailable");
+    expect(terminalAttempts).toBe(1);
+    expect(capacityOutcomes).toEqual([]);
+
+    await harness.execution.stop({
+      callSessionId: startInput.callSessionId,
+      outcome: "failed",
+      reasonCode: "premium_provider_start_failed",
+    });
+
+    expect(terminalAttempts).toBe(2);
+    expect(capacityOutcomes).toEqual(["failed"]);
+
+    await harness.execution.stop({
+      callSessionId: startInput.callSessionId,
+      outcome: "failed",
+      reasonCode: "premium_provider_start_failed",
+    });
+
+    expect(terminalAttempts).toBe(2);
+    expect(capacityOutcomes).toEqual(["failed"]);
+  });
+
+  it("retries pre-install terminal persistence during shutdown", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      connectError: new Error("provider unavailable"),
+      async recordLifecycle(stage) {
+        if (stage !== "failed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+
+    await expect(harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    })).rejects.toThrow("terminal lifecycle unavailable");
+
+    expect(terminalAttempts).toBe(1);
+    expect(capacityOutcomes).toEqual([]);
+
+    await harness.execution.shutdown();
+
+    expect(terminalAttempts).toBe(2);
+    expect(capacityOutcomes).toEqual(["failed"]);
+  });
+
+  it("rejects stop for a call that was never started", async () => {
+    const harness = createMinimalExecutionHarness("openai-realtime");
+
+    await expect(harness.execution.stop({
+      callSessionId: "CA-unknown:telephony",
+    })).rejects.toThrow(
+      "Premium PSTN execution 'CA-unknown:telephony' is not active.",
+    );
   });
 
   it("never writes provider-controlled startup error text to logs", async () => {
@@ -660,6 +838,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     })).rejects.toThrow(sensitive);
 
@@ -681,6 +860,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     harness.emitProviderMessage(JSON.stringify({
@@ -726,6 +906,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -773,6 +954,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -822,6 +1004,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { outputFrameCount += 1; },
         clearAudio() { clearCount += 1; },
@@ -876,6 +1059,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { outputFrameCount += 1; },
         clearAudio() { clearCount += 1; },
@@ -925,6 +1109,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark(name) { marks.push(name); }, close() {},
       },
@@ -983,6 +1168,7 @@ describe("PstnPremiumCallExecution", () => {
         dispatchId: "dispatch-premium-1",
         callSessionId: "CA-premium:telephony",
         streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
         output: {
           sendMedia() {}, clearAudio() {}, sendMark() {},
           close(_code, reason) { callerCloses.push(reason); },
@@ -1011,6 +1197,7 @@ describe("PstnPremiumCallExecution", () => {
         dispatchId: "dispatch-premium-1",
         callSessionId: "CA-premium:telephony",
         streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
         output: {
           sendMedia() {}, clearAudio() {}, sendMark() {},
           close(_code, reason) { callerCloses.push(reason); },
@@ -1042,6 +1229,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -1081,6 +1269,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
@@ -1094,6 +1283,8 @@ describe("PstnPremiumCallExecution", () => {
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(callerCloses).toEqual(["premium_provider_closed"]);
     expect(providerCloses).toEqual(["premium_provider_closed"]);
+    await waitFor(() => harness.lifecycleStages.length === 3);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
   });
 
   it("stops every active actor once during application shutdown", async () => {
@@ -1109,44 +1300,426 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {}, clearAudio() {}, sendMark() {},
         close(_code, reason) { callerCloses.push(reason); },
       },
     });
 
-    await harness.execution.onApplicationShutdown();
-    await harness.execution.onApplicationShutdown();
+    await harness.execution.shutdown();
+    await harness.execution.shutdown();
 
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(callerCloses).toEqual(["app_shutdown"]);
     expect(providerCloses).toEqual(["app_shutdown"]);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
+  });
+
+  it("uses the drain deadline reason when forced to stop an active actor", async () => {
+    const providerCloses: string[] = [];
+    const callerCloses: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      onProviderClose: (reason) => providerCloses.push(reason),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: {
+        sendMedia() {}, clearAudio() {}, sendMark() {},
+        close(_code, reason) { callerCloses.push(reason); },
+      },
+    });
+
+    await harness.execution.shutdown({
+      reasonCode: "worker_drain_deadline",
+      forcedCallCount: 1,
+    });
+
+    expect(callerCloses).toEqual(["worker_drain_deadline"]);
+    expect(providerCloses).toEqual(["worker_drain_deadline"]);
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
+  });
+
+  it("carries the immutable worker ownership fence through every lifecycle mutation", async () => {
+    const lifecycleMutations: Array<{
+      stage: string;
+      ownership?: { workerId: string; ownerEpoch: number };
+    }> = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(_stage, input) {
+        lifecycleMutations.push(input);
+      },
+    });
+
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+      outcome: "completed",
+      reasonCode: "twilio_stop",
+    });
+
+    expect(lifecycleMutations.length).toBeGreaterThan(0);
+    expect(lifecycleMutations).toEqual(
+      lifecycleMutations.map((mutation) => ({
+        ...mutation,
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      })),
+    );
+  });
+
+  it("keeps a completed execution retryable until its terminal lifecycle is durable", async () => {
+    let terminalAttempts = 0;
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(stage) {
+        if (stage !== "completed") return;
+        terminalAttempts += 1;
+        if (terminalAttempts === 1) {
+          throw new Error("terminal lifecycle unavailable");
+        }
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    await expect(harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+    })).rejects.toThrow("terminal lifecycle unavailable");
+
+    expect(terminalAttempts).toBe(1);
+    expect(capacityOutcomes).toEqual([]);
+
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+    });
+
+    expect(terminalAttempts).toBe(2);
+    expect(harness.lifecycleStages).toEqual([
+      "provider-ready",
+      "active",
+      "draining",
+      "completed",
+      "completed",
+    ]);
+    expect(capacityOutcomes).toEqual(["completed"]);
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(1),
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
+  });
+
+  it("retries terminal lifecycle persistence without another caller action", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const finalizationOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "completed") return;
+          terminalAttempts += 1;
+          if (terminalAttempts === 1) {
+            throw new Error("terminal lifecycle unavailable");
+          }
+        },
+        capacityObservability: {
+          recordFinalization(input) {
+            finalizationOutcomes.push(input.outcome);
+          },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      await expect(harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+      })).rejects.toThrow("terminal lifecycle unavailable");
+
+      expect(terminalAttempts).toBe(1);
+      expect(finalizationOutcomes).toEqual(["retry_scheduled"]);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(terminalAttempts).toBe(2);
+      expect(finalizationOutcomes).toEqual(["retry_scheduled", "persisted"]);
+      await expect(harness.execution.appendInboundFrame({
+        callSessionId: "CA-premium:telephony",
+        frame: premiumInboundFrame(1),
+      })).resolves.toEqual({ accepted: false, reason: "terminal" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds terminal persistence retries and reports exhaustion", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const finalizationOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "failed") return;
+          terminalAttempts += 1;
+          throw new Error("terminal lifecycle unavailable");
+        },
+        capacityObservability: {
+          recordFinalization(input) {
+            finalizationOutcomes.push(input.outcome);
+          },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      await expect(harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+        outcome: "failed",
+        reasonCode: "provider_failed",
+      })).rejects.toThrow("terminal lifecycle unavailable");
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(terminalAttempts).toBe(3);
+      expect(finalizationOutcomes).toEqual([
+        "retry_scheduled",
+        "retry_scheduled",
+        "exhausted",
+      ]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(terminalAttempts).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not report a non-terminal ignored lifecycle result as persisted", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const finalizationOutcomes: string[] = [];
+      const capacityOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "failed") return;
+          terminalAttempts += 1;
+          return {
+            outcome: "ignored" as const,
+            context: createPremiumCallRuntimeContext(),
+          };
+        },
+        capacityObservability: {
+          endCall(input) {
+            capacityOutcomes.push(input.outcome);
+          },
+          recordFinalization(input) {
+            finalizationOutcomes.push(input.outcome);
+          },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      await expect(harness.execution.stop({
+        callSessionId: "CA-premium:telephony",
+        outcome: "failed",
+        reasonCode: "provider_failed",
+      })).rejects.toThrow("did not persist a terminal lifecycle");
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(terminalAttempts).toBe(3);
+      expect(finalizationOutcomes).toEqual([
+        "retry_scheduled",
+        "retry_scheduled",
+        "exhausted",
+      ]);
+      expect(capacityOutcomes).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts an already-terminal ignored lifecycle result as durable", async () => {
+    const capacityOutcomes: string[] = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async recordLifecycle(stage) {
+        if (stage !== "completed") return;
+        return {
+          outcome: "ignored" as const,
+          context: {
+            ...createPremiumCallRuntimeContext(),
+            status: "terminated" as const,
+            lifecycleState: {
+              stage: "failed" as const,
+              observedAt: "2026-07-26T20:00:00.000Z",
+              reasonCode: "provider_failed",
+            },
+          },
+        };
+      },
+      capacityObservability: {
+        endCall(input) {
+          capacityOutcomes.push(input.outcome);
+        },
+      },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+    });
+
+    expect(capacityOutcomes).toEqual(["failed"]);
+  });
+
+  it("retries terminal persistence before worker shutdown returns", async () => {
+    vi.useFakeTimers();
+    try {
+      let terminalAttempts = 0;
+      const capacityOutcomes: string[] = [];
+      const harness = createMinimalExecutionHarness("openai-realtime", {
+        async recordLifecycle(stage) {
+          if (stage !== "failed") return;
+          terminalAttempts += 1;
+          if (terminalAttempts === 1) {
+            throw new Error("terminal lifecycle unavailable");
+          }
+        },
+        capacityObservability: {
+          endCall(input) { capacityOutcomes.push(input.outcome); },
+        },
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      const shutdown = harness.execution.shutdown();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await shutdown;
+
+      expect(terminalAttempts).toBe(2);
+      expect(harness.lifecycleStages).toEqual([
+        "provider-ready",
+        "active",
+        "failed",
+        "failed",
+      ]);
+      expect(capacityOutcomes).toEqual(["failed"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("classifies an abnormal Twilio media close as failed", async () => {
+    const harness = createMinimalExecutionHarness("openai-realtime");
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    await harness.execution.stop({
+      callSessionId: "CA-premium:telephony",
+      outcome: "failed",
+      reasonCode: "twilio_media_socket_closed_1006",
+    });
+
+    expect(harness.lifecycleStages).toEqual(["provider-ready", "active", "failed"]);
   });
 
   it("does not install an execution when Twilio closes during provider startup", async () => {
     const connectGate = deferred<void>();
     const terminatedSessionIds: string[] = [];
     const providerCloses: string[] = [];
+    const capacityOutcomes: string[] = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       connectGate: connectGate.promise,
       onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
-      onProviderClose: (reason) => providerCloses.push(reason),
+      onProviderClose: (reason) => {
+        providerCloses.push(reason);
+        throw new Error("provider close failed");
+      },
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
     });
     const starting = harness.execution.start({
       organizationId: "tenant-west-africa",
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await Promise.resolve();
 
-    await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
+    let stopResolved = false;
+    const stopping = harness.execution
+      .stop({ callSessionId: "CA-premium:telephony" })
+      .then(() => {
+        stopResolved = true;
+      });
+    await Promise.resolve();
+
+    expect(stopResolved).toBe(false);
     connectGate.resolve();
-    await starting;
+    await Promise.all([starting, stopping]);
 
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(providerCloses).toEqual(["pstn_stream_stopped"]);
+    expect(harness.lifecycleStages).toEqual(["completed"]);
+    expect(capacityOutcomes).toEqual(["completed"]);
     await expect(harness.execution.appendInboundFrame({
       callSessionId: "CA-premium:telephony",
       frame: {
@@ -1158,33 +1731,46 @@ describe("PstnPremiumCallExecution", () => {
         timestampMs: 20,
         payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
       },
-    })).rejects.toThrow("is not active");
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
   });
 
   it("does not install an execution when application shutdown starts during provider startup", async () => {
     const connectGate = deferred<void>();
     const terminatedSessionIds: string[] = [];
     const providerCloses: string[] = [];
+    const capacityOutcomes: string[] = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       connectGate: connectGate.promise,
       onTerminate: (sessionId) => terminatedSessionIds.push(sessionId),
       onProviderClose: (reason) => providerCloses.push(reason),
+      capacityObservability: {
+        endCall(input) { capacityOutcomes.push(input.outcome); },
+      },
     });
     const starting = harness.execution.start({
       organizationId: "tenant-west-africa",
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     await Promise.resolve();
 
-    await harness.execution.onApplicationShutdown();
+    let shutdownResolved = false;
+    const shuttingDown = harness.execution.shutdown().then(() => {
+      shutdownResolved = true;
+    });
+    await Promise.resolve();
+
+    expect(shutdownResolved).toBe(false);
     connectGate.resolve();
-    await starting;
+    await Promise.all([starting, shuttingDown]);
 
     expect(terminatedSessionIds).toEqual(["premium-session-minimal"]);
     expect(providerCloses).toEqual(["app_shutdown"]);
+    expect(harness.lifecycleStages).toEqual(["failed"]);
+    expect(capacityOutcomes).toEqual(["failed"]);
     await expect(harness.execution.appendInboundFrame({
       callSessionId: "CA-premium:telephony",
       frame: {
@@ -1196,7 +1782,7 @@ describe("PstnPremiumCallExecution", () => {
         timestampMs: 20,
         payloadBase64: Buffer.alloc(160, 0xff).toString("base64"),
       },
-    })).rejects.toThrow("is not active");
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
   });
 
   it("removes a failed execution when provider readiness rejects without a close event", async () => {
@@ -1213,6 +1799,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
@@ -1254,18 +1841,25 @@ describe("PstnPremiumCallExecution", () => {
     const providerCloses: string[] = [];
     let updates = 0;
     const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const queueDrops: string[] = [];
     const harness = createMinimalExecutionHarness("openai-realtime", {
       processProviderGate: processGate.promise,
       onTerminate: (sessionId) => terminations.push(sessionId),
       onProviderClose: (reason) => providerCloses.push(reason),
       onUpdate: () => { updates += 1; },
       onObservedEvent: (event) => observed.push(event),
+      capacityObservability: {
+        recordQueueDrop(input: { queue: string; reason: string }) {
+          queueDrops.push(`${input.queue}:${input.reason}`);
+        },
+      },
     });
     await harness.execution.start({
       organizationId: "tenant-west-africa",
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
     const message = JSON.stringify({
@@ -1289,6 +1883,7 @@ describe("PstnPremiumCallExecution", () => {
     );
 
     expect(providerCloses).toEqual(["premium_provider_output_overflow"]);
+    expect(queueDrops).toContain("tool_handoff:overflow");
     processGate.resolve();
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(updates).toBe(0);
@@ -1313,6 +1908,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { sentMediaFrames += 1; },
         clearAudio() {},
@@ -1349,7 +1945,7 @@ describe("PstnPremiumCallExecution", () => {
     await harness.execution.stop({ callSessionId: "CA-premium:telephony" });
   });
 
-  it("does not terminate premium media when a phone-test checkpoint cannot be persisted", async () => {
+  it("retries phone-test checkpoints without terminating or blocking premium media", async () => {
     const terminations: string[] = [];
     const providerCloses: string[] = [];
     const checkpointAttempts: string[] = [];
@@ -1359,7 +1955,9 @@ describe("PstnPremiumCallExecution", () => {
       onProviderClose: (reason) => providerCloses.push(reason),
       async recordCheckpoint(checkpoint) {
         checkpointAttempts.push(checkpoint);
-        throw new Error("duplicate key value violates unique constraint");
+        if (checkpointAttempts.length === 1) {
+          throw new Error("checkpoint database temporarily unavailable");
+        }
       },
     });
     await harness.execution.start({
@@ -1367,6 +1965,7 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() { sentMediaFrames += 1; },
         clearAudio() {},
@@ -1397,11 +1996,13 @@ describe("PstnPremiumCallExecution", () => {
       transcript: "Hello from the configured assistant.",
     }));
 
-    await waitFor(() => checkpointAttempts.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await waitFor(() => checkpointAttempts.length === 2);
 
     expect(sentMediaFrames).toBe(1);
-    expect(checkpointAttempts).toEqual(["agentResponseGenerated"]);
+    expect(checkpointAttempts).toEqual([
+      "agentResponseGenerated",
+      "agentResponseGenerated",
+    ]);
     expect(terminations).toEqual([]);
     expect(providerCloses).toEqual([]);
 
@@ -1419,11 +2020,15 @@ describe("PstnPremiumCallExecution", () => {
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
     });
 
     harness.providerClosed();
     await waitFor(() => terminations.length === 1);
+    await waitFor(() => cleanupLog.mock.calls.some(([message]) =>
+      typeof message === "string" && message.includes("premium_cleanup"),
+    ));
 
     expect(cleanupLog).toHaveBeenCalledWith(expect.stringMatching(
       /premium_cleanup .*"reason":"failed".*"failureCode":"premium_provider_closed"/,
@@ -1516,6 +2121,12 @@ describe("PstnPremiumCallExecution", () => {
     ]);
     expect(harness.connections[0]!.closedReasons).toEqual(["provider_agent_handoff"]);
     expect(handoffLog).toHaveBeenCalledWith(expect.stringContaining("agent.handoff.completed"));
+    expect(harness.lifecycleStages).toEqual([
+      "provider-ready",
+      "active",
+      "handoff",
+      "active",
+    ]);
     handoffLog.mockRestore();
   });
 
@@ -1755,11 +2366,42 @@ describe("PstnPremiumCallExecution", () => {
     harness.connections[0]!.emitMessage(createTestControlMessage("test.handoff.shutdown"));
     await waitFor(() => harness.connections.length === 2);
 
-    await harness.execution.onApplicationShutdown();
+    await harness.execution.shutdown();
 
     expect(harness.connections[1]!.closedReasons).toEqual(["provider_handoff_cancelled"]);
   });
 });
+
+function createPremiumDispatchSnapshot(
+  manifest: CompiledRuntimeManifest,
+) {
+  if (manifest.workspaceId === undefined) {
+    throw new Error("Premium test manifest requires a workspace.");
+  }
+  const snapshot = {
+    schemaVersion: 1 as const,
+    tenantId: manifest.tenantId,
+    workspaceId: manifest.workspaceId,
+    callSessionId: "CA-premium:telephony",
+    dispatchId: "dispatch-premium-1",
+    publishedVersionId: manifest.publishedVersionId,
+    resolvedManifest: structuredClone(manifest),
+    resolvedConversationPolicy: structuredClone(
+      defaultPremiumRealtimeConversationPolicy,
+    ),
+    workerTarget: {
+      workerId: "worker-test-1",
+      releaseId: "release-test-1",
+      mediaStreamBaseUrl:
+        "wss://worker-test.zara.test/telephony/twilio/media-streams",
+    },
+    createdAt: "2026-07-11T11:00:00.000Z",
+  };
+  return {
+    ...snapshot,
+    checksum: computeTelephonyPremiumDispatchSnapshotChecksum(snapshot),
+  };
+}
 
 function createPremiumManifest() {
   return {
@@ -1805,6 +2447,27 @@ function createPremiumManifest() {
   } as unknown as CompiledRuntimeManifest;
 }
 
+function createPremiumCallRuntimeContext() {
+  return {
+    tenantId: "tenant-west-africa",
+    callSessionId: "CA-premium:telephony",
+    dispatchId: "dispatch-premium-1",
+    connectionId: "connection-1",
+    disposition: "routed" as const,
+    publishedVersionId: "workflow-premium-v1",
+    workspaceId: "workspace-support",
+    workflowLabel: "Premium support",
+    runtimeProfile: "premium-realtime",
+    runtimePath: "pstn-premium-realtime" as const,
+    status: "ringing" as const,
+    version: 0,
+    lifecycleState: {
+      stage: "media-connected" as const,
+      observedAt: "2026-07-11T10:00:00.000Z",
+    },
+  };
+}
+
 function createMinimalExecutionHarness(
   runtime: "openai-realtime" | "gemini-live",
   options: {
@@ -1819,10 +2482,19 @@ function createMinimalExecutionHarness(
     onUpdate?: (() => void) | undefined;
     onObservedEvent?: ((event: { type: string; payload: Record<string, unknown> }) => void) | undefined;
     recordCheckpoint?: ((checkpoint: string) => Promise<void>) | undefined;
+    recordLifecycle?: ((
+      stage: string,
+      input: {
+        stage: string;
+        ownership?: { workerId: string; ownerEpoch: number };
+      },
+    ) => Promise<unknown>) | undefined;
+    capacityObservability?: Partial<PstnCapacityObservability> | undefined;
   } = {},
 ) {
   const manifest = options.manifest ?? createPremiumManifest();
   const sentProviderMessages: Record<string, unknown>[] = [];
+  const lifecycleStages: string[] = [];
   const registered = {
     organizationId: "tenant-west-africa",
     workspaceId: "workspace-support",
@@ -1845,43 +2517,55 @@ function createMinimalExecutionHarness(
   };
   let providerCloseHandler: ((event: { code: number; reason: string }) => void) | undefined;
   let providerMessageHandler: ((message: string) => void) | undefined;
+  const capacityObservability = options.capacityObservability === undefined
+    ? undefined
+    : {
+        trackCall() {},
+        endCall() {},
+        openSocket() {},
+        updateSocketContext() {},
+        recordSocketHandshake() {},
+        recordSocketHandshakeAttempt() {},
+        recordSocketTraffic() {},
+        recordSocketBuffered() {},
+        closeSocket() {},
+        recordQueue() {},
+        recordQueueDrop() {},
+        clearCallQueues() {},
+        ...options.capacityObservability,
+      } as PstnCapacityObservability;
   const execution = new PstnPremiumCallExecution(
     {
-      async getState() {
-        return {
-          organizationId: "tenant-west-africa",
-          connections: [], phoneNumbers: [], healthChecks: [], providerHeartbeats: [],
-          dispatches: [{
-            id: "dispatch-premium-1",
-            tenantId: "tenant-west-africa",
-            direction: "inbound",
-            disposition: "routed",
-            reason: "Live premium route.",
-            callSessionId: "CA-premium:telephony",
-            publishedVersionId: "workflow-premium-v1",
-            workspaceId: "workspace-support",
-            runtimeProfile: "premium-realtime",
-            runtimePath: "pstn-premium-realtime",
-            recording: { enabled: false, consentMode: "disabled", consentMessage: "" },
-            recordingConsent: {
-              state: "not-required", consentMode: "disabled", message: "",
-              noticeRequired: false, updatedAt: "2026-07-11T10:00:00.000Z",
-            },
-            toPhoneNumber: "+14155557890",
-            fromPhoneNumber: "+233201110001",
-            createdAt: "2026-07-11T10:00:00.000Z",
-            source: "webhook",
-          }],
-          executionSessions: [], executionCommands: [], webhookEvents: [], callControlEvents: [],
-        };
+      async loadPstnCallRuntimeContext() {
+        return { outcome: "found", context: createPremiumCallRuntimeContext() };
       },
       async recordPstnPhoneTestCheckpoint(input: { checkpoint: string }) {
         await options.recordCheckpoint?.(input.checkpoint);
       },
+      async recordPstnCallLifecycle(input: {
+        stage: string;
+        ownership?: { workerId: string; ownerEpoch: number };
+      }) {
+        lifecycleStages.push(input.stage);
+        return (
+          await options.recordLifecycle?.(input.stage, input)
+          ?? {
+            outcome: "applied" as const,
+            context: createPremiumCallRuntimeContext(),
+          }
+        );
+      },
     } as never,
-    { async getPublishedManifest() { return manifest; } } as never,
     {
-      async createRealtimeSession() { return registered.session; },
+      async loadPremiumDispatchSnapshot() {
+        return {
+          outcome: "found",
+          snapshot: createPremiumDispatchSnapshot(manifest),
+        };
+      },
+    } as never,
+    {
+      async createRealtimeSessionFromSnapshot() { return registered.session; },
       getRegisteredSession() { return registered; },
       async processProviderMessage(message: { rawProviderMessage: string }) {
         if (typeof options.processProviderGate === "function") {
@@ -1928,10 +2612,12 @@ function createMinimalExecutionHarness(
             } };
           },
         },
+    capacityObservability,
   );
   return {
     execution,
     sentProviderMessages,
+    lifecycleStages,
     emitProviderMessage(message: string) {
       providerMessageHandler?.(message);
     },
@@ -1970,41 +2656,31 @@ function createHandoffExecutionHarness(input: {
   const connections: ReturnType<typeof createFakeProviderConnection>[] = [];
   const marks: string[] = [];
   const callerCloses: string[] = [];
+  const lifecycleStages: string[] = [];
   const execution = new PstnPremiumCallExecution(
     {
-      async getState() {
-        return {
-          organizationId: "tenant-west-africa",
-          connections: [], phoneNumbers: [], healthChecks: [], providerHeartbeats: [],
-          dispatches: [{
-            id: "dispatch-premium-1",
-            tenantId: "tenant-west-africa",
-            direction: "inbound",
-            disposition: "routed",
-            reason: "Live premium route.",
-            callSessionId: "CA-premium:telephony",
-            publishedVersionId: "workflow-premium-v1",
-            workspaceId: "workspace-support",
-            runtimeProfile: "premium-realtime",
-            runtimePath: "pstn-premium-realtime",
-            recording: { enabled: false, consentMode: "disabled", consentMessage: "" },
-            recordingConsent: {
-              state: "not-required", consentMode: "disabled", message: "",
-              noticeRequired: false, updatedAt: "2026-07-11T10:00:00.000Z",
-            },
-            toPhoneNumber: "+14155557890",
-            fromPhoneNumber: "+233201110001",
-            createdAt: "2026-07-11T10:00:00.000Z",
-            source: "webhook",
-          }],
-          executionSessions: [], executionCommands: [], webhookEvents: [], callControlEvents: [],
-        };
+      async loadPstnCallRuntimeContext() {
+        return { outcome: "found", context: createPremiumCallRuntimeContext() };
       },
       async recordPstnPhoneTestCheckpoint() {},
+      async recordPstnCallLifecycle(input: { stage: string }) {
+        lifecycleStages.push(input.stage);
+        return {
+          outcome: "applied" as const,
+          context: createPremiumCallRuntimeContext(),
+        };
+      },
     } as never,
-    { async getPublishedManifest() { return manifest; } } as never,
     {
-      async createRealtimeSession() { return registered.session; },
+      async loadPremiumDispatchSnapshot() {
+        return {
+          outcome: "found",
+          snapshot: createPremiumDispatchSnapshot(manifest),
+        };
+      },
+    } as never,
+    {
+      async createRealtimeSessionFromSnapshot() { return registered.session; },
       getRegisteredSession() { return registered; },
       async processProviderMessage(message: { rawProviderMessage: string }) {
         return input.processProviderMessage(message.rawProviderMessage, registered);
@@ -2048,11 +2724,13 @@ function createHandoffExecutionHarness(input: {
     connections,
     marks,
     callerCloses,
+    lifecycleStages,
     start: () => execution.start({
       organizationId: "tenant-west-africa",
       dispatchId: "dispatch-premium-1",
       callSessionId: "CA-premium:telephony",
       streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
       output: {
         sendMedia() {},
         clearAudio() {},

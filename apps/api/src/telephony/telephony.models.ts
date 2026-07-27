@@ -112,6 +112,4 @@ export interface TelephonyCredentialVaultEntry {
 
 export interface TelephonyStateStore extends TelephonyStateResponse {
   credentialVault: Map<string, TelephonyCredentialVaultEntry>;
-  processedWebhookEventIds: Set<string>;
-  mediaStreamTokens: TelephonyMediaStreamTokenRecord[];
 }

@@ -428,6 +428,30 @@ Implemented baseline:
 - `npm run eval:pstn` runs deterministic `zara.pstn-media.v1` Twilio media scenarios separately from ordinary tests and non-PSTN runtime evals.
 - Premium realtime PSTN traces include `runtimePath: pstn-premium-realtime`, provider/model/conversation-policy version/media profile, readiness and resident ingress pressure, interruption/truncation counts and acknowledged duration, first outbound frame latency, provider failure classifications, and the same redaction rules as sandwich PSTN traces.
 
+### Provisional Per-Process Capacity Posture
+
+Each media-serving process reports capacity against its configured resource envelope. Cost-optimized PSTN media remains on the API process, while premium PSTN media and provider WebSockets terminate on the separately deployable realtime worker. The current provisional realtime-worker envelope is:
+
+| Resource | Provisional value |
+| --- | ---: |
+| Premium PSTN calls | 20 concurrent calls |
+| CPU | 2 vCPU / 2,000 millicores |
+| Memory | 1 GiB / 1,073,741,824 bytes |
+| File descriptors | 4,096 |
+| Postgres pool | 10 connections |
+| Event-loop delay | p99 50 ms |
+| Premium WebSocket posture | 2 open legs per call: Twilio and realtime provider |
+
+These values are overload-posture denominators, not certified capacity or the source of admission limits. A deployment must set `PSTN_INSTANCE_CPU_LIMIT_MILLICORES`, `PSTN_INSTANCE_MEMORY_LIMIT_BYTES`, `PSTN_INSTANCE_FILE_DESCRIPTOR_LIMIT`, `PGPOOL_MAX`, `PSTN_EVENT_LOOP_DELAY_LIMIT_MS`, and `PSTN_CAPACITY_MAX_CONCURRENT_CALLS` to the actual limits of each media-serving process when they differ from the provisional defaults. ISSUE-229 provides Redis-backed concurrency, calls-per-second, provider-health, and provider-quota admission before a new call receives Connect Stream TwiML. ISSUE-230 adds healthy-worker selection and worker-scoped admission for premium calls.
+
+Relevant resources classify utilization below 70 percent as healthy, from 70 percent as warning, from 85 percent as critical, and at or above 100 percent as exhausted. The posture combines call lifecycle, process pressure, both WebSocket legs, database pool/latency/lock pressure, and existing bounded media queues. Metric dimensions are limited to runtime path, provider, lifecycle state, socket leg/direction/outcome, queue, database operation, and close classification; tenant, call, stream, response, phone-number, and tool identities are forbidden.
+
+### Distributed Call Admission
+
+Production admission uses Redis 7 as the cross-replica authority. The signed inbound Twilio webhook reserves capacity after route resolution and before durable call setup or Connect Stream TwiML; the authorized media stream activates the bounded lease. Admission atomically enforces global, provider, tenant, runtime-path, and worker concurrency limits plus global and provider-account calls-per-second token buckets. Duplicate webhook delivery reuses the existing reservation and CPS debit. Active calls renew their leases outside the per-frame media path, and durable terminal lifecycle handling releases admission.
+
+Production fails new calls closed when Redis is missing, unavailable, or configured outside the bounded script contract, and `/health/ready` reports admission unavailable. Existing active media is not synchronously dependent on each Redis command and continues through the last confirmed lease deadline. It must terminate when that deadline expires without a successful renewal, because the worker no longer has fenced ownership authority. Provider health closes new-call admission only when the connection's blocking-health policy requires it. The platform-owned Twilio quota allowance may tighten the provider concurrency limit but is never inferred from account balance, heartbeat data, or unrelated provider signals. Explicit zero concurrency limits intentionally close the corresponding admission dimension.
+
 Synthetic PSTN evals use a Twilio media harness with deterministic scenarios:
 
 - clean successful phone test
@@ -442,6 +466,12 @@ Synthetic PSTN evals use a Twilio media harness with deterministic scenarios:
 - provider stop before response
 - safe closeout after provider failure
 - premium realtime provider path with separate runtime path, model/provider metadata, and blocked fallback semantics
+
+### Qualified Runtime Persistence Posture
+
+Active-call durability is row-owned. Signed webhooks, dispatches, execution sessions and commands, one-time media tokens, phone-test checkpoints, call controls, lifecycle transitions, policy changes, handoffs, and terminal events use tenant-and-call scoped Postgres operations. Full tenant snapshots remain configuration-only and cannot replace runtime rows. `telephony_webhook_events` is the sole durable idempotency authority. The compatibility-only `telephony_processed_webhook_events` table remains through the immediately preceding revision's rolling-deploy window, but current code neither reads nor writes it. Retention removes a call graph only when its execution session is terminal and older than the configured cutoff; active calls are never retention candidates, regardless of age.
+
+The real-Postgres qualification creates 50 concurrent calls for one tenant plus 10 concurrent calls for a second tenant. It asserts no duplicate sessions, lost updates, cross-call mutation, or cross-tenant mutation; terminal calls cannot be revived by late events. The same repository emits bounded-cardinality pool acquisition wait, transaction duration, row-lock wait, deadlock, and accepted-retry metrics. These tests qualify persistence behavior under concurrency and do not certify total single-instance media capacity.
 
 ## Security And Policy Guards
 
@@ -496,3 +526,6 @@ Required guards:
 | ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. Implemented. |
 | ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. Implemented. |
 | ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN provider slice. Implemented. |
+| ISSUE-228 | [ZAR-230](https://linear.app/zara-voice/issue/ZAR-230/pstn-capacity-712-contract-whole-tenant-persistence-out-of-the-live) | Contract whole-tenant snapshot persistence out of live-call execution and qualify row-owned Postgres concurrency. Implemented. |
+| ISSUE-229 | [ZAR-231](https://linear.app/zara-voice/issue/ZAR-231/pstn-capacity-812-enforce-redis-backed-call-admission-on-the-current) | Enforce Redis-backed cross-replica PSTN concurrency, CPS, lease, provider-health, and provider-quota admission. Implemented. |
+| ISSUE-230 | [ZAR-232](https://linear.app/zara-voice/issue/ZAR-232/pstn-capacity-912-move-premium-pstn-execution-into-claim-based) | Move premium Twilio and provider media into claim-based realtime workers with durable dispatch snapshots, ownership fencing, worker affinity, heartbeats, and deterministic cleanup. Implemented. |

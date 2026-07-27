@@ -15,6 +15,50 @@ import { buildPremiumRealtimeAgentPrompt } from "./premium-realtime-agent-prompt
 
 export const premiumRealtimeProviderTransportToken = Symbol("premiumRealtimeProviderTransport");
 
+export type PremiumRealtimeProviderEndpoint =
+  | { mode: "live" }
+  | { mode: "simulator"; url: string; token?: string | undefined };
+
+export function resolvePremiumRealtimeProviderEndpoint(
+  env: NodeJS.ProcessEnv,
+): PremiumRealtimeProviderEndpoint {
+  const mode = env.ZARA_PREMIUM_REALTIME_TRANSPORT?.trim() || "live";
+  if (mode === "live") return { mode: "live" };
+  if (mode !== "simulator") {
+    throw new Error(`Unsupported premium realtime transport '${mode}'.`);
+  }
+  if (env.NODE_ENV === "production") {
+    throw new Error("Premium realtime protocol simulator cannot run in production.");
+  }
+  if (env.NODE_ENV !== "test" && env.NODE_ENV !== "staging") {
+    throw new Error("Premium realtime protocol simulator is restricted to test and staging.");
+  }
+
+  const configuredUrl = env.ZARA_PREMIUM_REALTIME_SIMULATOR_URL?.trim() ?? "";
+  const url = new URL(configuredUrl);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error("Premium realtime protocol simulator URL must use ws or wss.");
+  }
+  if (url.protocol === "ws:" && !isLoopbackHost(url.hostname)) {
+    throw new Error("Premium realtime protocol simulator must use wss outside loopback.");
+  }
+  if (!isLoopbackHost(url.hostname)) {
+    const token = env.ZARA_PREMIUM_REALTIME_SIMULATOR_TOKEN?.trim() ?? "";
+    if (token.length < 32) {
+      throw new Error("Remote premium realtime protocol simulator requires a 32-character authentication token.");
+    }
+    return { mode: "simulator", url: url.toString(), token };
+  }
+  return { mode: "simulator", url: url.toString() };
+}
+
+function isLoopbackHost(hostname: string) {
+  return hostname === "localhost"
+    || hostname === "[::1]"
+    || hostname === "::1"
+    || /^127(?:\.\d{1,3}){3}$/u.test(hostname);
+}
+
 export interface PremiumRealtimeProviderTransportConnectInput {
   organizationId: string;
   workspaceId: string;
@@ -53,6 +97,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       url: string,
       options?: { headers?: Record<string, string> | undefined },
     ) => WebSocketLike = (url, options) => new WebSocket(url, options),
+    private readonly env: NodeJS.ProcessEnv = process.env,
   ) {}
 
   async connect(input: PremiumRealtimeProviderTransportConnectInput): Promise<PremiumRealtimeProviderConnection> {
@@ -89,17 +134,19 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
     systemPrompt: string,
     agent: Agent | undefined,
   ): Promise<PremiumRealtimeProviderConnection> {
-    const config = resolveLiveSandboxProviderConfig(process.env);
-    if (config.openAiApiKey.length === 0) {
-      throw new Error("OpenAI Realtime is not configured. Missing: OPENAI_API_KEY.");
-    }
-
-    const url = new URL("/v1/realtime", config.openAiBaseUrl.replace(/^http/, "ws"));
+    const endpoint = resolvePremiumRealtimeProviderEndpoint(this.env);
     const providerConfig = input.session.providerConfig;
     if (providerConfig.provider !== "openai-realtime") {
       throw new Error("OpenAI transport received a non-OpenAI premium realtime session contract.");
     }
-    url.searchParams.set("model", providerConfig.model);
+    const config = resolveLiveSandboxProviderConfig(this.env);
+    if (endpoint.mode === "live" && config.openAiApiKey.length === 0) {
+      throw new Error("OpenAI Realtime is not configured. Missing: OPENAI_API_KEY.");
+    }
+    const url = endpoint.mode === "simulator"
+      ? new URL(endpoint.url)
+      : new URL("/v1/realtime", config.openAiBaseUrl.replace(/^http/, "ws"));
+    if (endpoint.mode === "live") url.searchParams.set("model", providerConfig.model);
     const adapter = new OpenAiRealtimeAdapter({
       model: providerConfig.model,
       systemPrompt,
@@ -112,10 +159,17 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       turnDetection: providerConfig.turnDetection,
     });
     const socket = this.websocketFactory(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${config.openAiApiKey}`,
-        "OpenAI-Safety-Identifier": input.actorUserId,
-      },
+      headers: endpoint.mode === "simulator"
+        ? {
+            "X-Zara-Simulator-Call-Id": input.actorUserId.replace(/^pstn:/u, ""),
+            "X-Zara-Simulator-Agent-Id": input.session.activeAgentId,
+            "X-Zara-Simulator-Model": providerConfig.model,
+            ...(endpoint.token === undefined ? {} : { "X-Zara-Simulator-Token": endpoint.token }),
+          }
+        : {
+            Authorization: `Bearer ${config.openAiApiKey}`,
+            "OpenAI-Safety-Identifier": input.actorUserId,
+          },
     });
     const connection = await WebSocketProviderConnection.open(
       socket,

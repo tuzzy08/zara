@@ -42,6 +42,12 @@ USER node
 EXPOSE 4010
 CMD ["node", "apps/api/dist-js/main.js"]
 
+FROM api AS realtime-worker
+ENV PORT=4020
+ENV ZARA_PROCESS_ROLE=pstn-realtime-worker
+EXPOSE 4020
+CMD ["node", "apps/api/dist-js/realtime-worker/realtime-worker.main.js"]
+
 FROM source AS web-build
 ARG VITE_API_BASE_URL
 ARG VITE_AUTH_BASE_URL

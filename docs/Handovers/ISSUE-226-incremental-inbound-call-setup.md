@@ -1,0 +1,61 @@
+# ISSUE-226: Incremental inbound webhook and call setup
+
+- Status: In Progress
+- External: [Linear ZAR-228](https://linear.app/zara-voice/issue/ZAR-228/pstn-capacity-512-migrate-inbound-webhook-dispatch-and-media-token)
+- Parent: [Linear ZAR-223](https://linear.app/zara-voice/issue/ZAR-223/pstn-capacity-qualification-admission-control-and-horizontally)
+
+## Work Completed
+
+- Made `TelephonyIncrementalRepository` a required Nest dependency and added a standalone idempotent blocked-dispatch insert.
+- Migrated verified Twilio webhook events to row-owned idempotent persistence and retained the authoritative first-receipt timestamp for retries.
+- Migrated routed inbound setup to one transaction covering dispatch, execution session, and hashed one-time media credential before Connect Stream TwiML can be returned.
+- Preserved route resolution and non-live manual dispatch behavior while removing whole-tenant snapshot saves from the synchronous Twilio answer path.
+- Added deterministic token regeneration for duplicate webhook delivery without storing or logging raw credentials. Expired, claimed, conflicting, and progressed-session retries return safe unavailable TwiML.
+- Isolated webhook call preparation from shared cached state so failed or incomplete setup cannot leak into a concurrent snapshot save. Successful setup is projected into the current process only after durable writes complete.
+- Locked owned connection and phone-number references during dispatch/setup transactions and added a real-Postgres deletion-race test.
+- Persisted protected phone-test admission checkpoints before Connect and blocked Connect when checkpoint persistence fails.
+- Added stable diagnostic reason codes for webhook, dispatch, setup, token-expiry, and phone-test checkpoint persistence failures.
+- Required an explicit production stream-token secret through `ZARA_STREAM_TOKEN_SECRET` or `BETTER_AUTH_SECRET`; development and tests retain an ephemeral fallback.
+- Added deterministic four-worker burst evidence and a 1,000 ms webhook p95 SLO to the PSTN load report.
+- Verified the migrated answer path after ZAR-229 moved media authorization and lifecycle writes to incremental persistence and ZAR-230 removed the remaining live-call snapshot writers.
+
+## Tests Run
+
+- RED: incremental inbound tests failed on snapshot writes, duplicate busy behavior, missing blocked dispatch persistence, and Connect returned after setup failure.
+- RED: concurrent duplicate tests failed because retries produced different raw credentials.
+- RED: expired/claimed retry, production secret, phone-test checkpoint, shared-state isolation, progressed-session retry, and concurrent-burst SLO tests failed before their production changes.
+- `npm.cmd exec -- vitest run apps/api/src/security/one-time-stream-token.test.ts apps/api/src/telephony/telephony-inbound-incremental.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts apps/pstn-protocol-simulator/src/load-runner.test.ts` -> 70 passed, 10 skipped.
+- `npm.cmd exec -- vitest run apps/pstn-protocol-simulator/src` -> 66 passed.
+- `npm.cmd run eval:pstn` -> 25 passed.
+- `npm.cmd run typecheck --workspace @zara/api` -> passed.
+- `npm.cmd run typecheck --workspace @zara/pstn-protocol-simulator` -> passed.
+- Scoped ESLint across all changed API and simulator source/test files -> passed.
+- `npm.cmd run db:check` -> passed with no migration drift.
+- Historical pre-closure run: real PostgreSQL tests were collected but skipped because `ZARA_TEST_POSTGRES_URL` was unavailable locally at that time.
+- Closure gate with `ZARA_TEST_POSTGRES_URL` configured: `npm.cmd exec -- vitest run apps/api/src/security/one-time-stream-token.test.ts apps/api/src/telephony/telephony-inbound-incremental.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.test.ts apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts apps/pstn-protocol-simulator/src/load-runner.test.ts` -> 8 files, 180 tests passed, 0 skipped.
+- Closure `npm.cmd --workspace @zara/api run typecheck` -> passed.
+- Closure `npm.cmd run db:check` -> passed with no schema changes or migration drift.
+
+## Pending Work
+
+- ZAR-228's implementation and local acceptance evidence are complete.
+- Keep the issue In Progress until its ZAR-226 dependency passes the candidate commit's GitHub migration check, then close both tracker and local status together.
+
+## Risks
+
+- Non-live manual dispatch and telephony management must remain on their current behavior in this slice.
+- Remaining deployed-staging, multi-worker, and provider qualification risks belong to later PSTN capacity tickets and do not leave the inbound persistence migration incomplete.
+- The only issue-status blocker is the unrun candidate-commit CI gate on ZAR-226; no ZAR-228 production-code work remains.
+
+## Decisions
+
+- Do not dual-write snapshot and incremental persistence on the live Twilio answer path.
+- Do not store or log raw media tokens; only the fixed SHA-256 base64url hash is durable.
+- Derive a stable signed token from the durable first-receipt timestamp and call identity so an exact unclaimed retry can reproduce the usable credential without retaining raw token material.
+- Reject retries after token claim, expiry, or execution-session progression; only an unchanged initial setup may return the established Connect outcome.
+- Use row locks for ownership validation so concurrent provider-number deletion resolves before setup insertion.
+- A durable event conflict or call-setup failure returns caller-safe unavailable TwiML and a stable operator diagnostic reason code.
+
+## Next Recommended Step
+
+After ZAR-226's candidate migration check passes, close ZAR-228 without changing the row-owned inbound setup contract.

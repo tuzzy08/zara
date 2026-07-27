@@ -2,11 +2,12 @@
 
 ## Production Environment
 
-Production runs the three public deployment units behind separate origins:
+Production runs public deployment units behind separate origins:
 
 - Tenant app: `apps/web` at `https://app.zara.ai`
 - Platform admin app: `apps/platform-admin` at `https://admin.zara.ai`
 - NestJS API: `apps/api` at `https://api.zara.ai`
+- Premium PSTN realtime workers: two separate Coolify Dockerfile Applications built with target `realtime-worker` and distinct worker-specific origins
 
 The API is the authority for auth, organizations, workspaces, telephony, integrations, memory, billing, compliance, and live sandbox transport. The tenant and platform-admin apps are static Vite builds configured with production API/auth origins. Production must use durable Postgres with pgvector enabled, object storage for recordings and exports, provider webhook URLs on the production API origin, and managed log/metric collection.
 
@@ -34,6 +35,11 @@ Production-critical environment variables:
 - `TELEPHONY_CREDENTIAL_LEGACY_KEYS` when rotating keys
 - `ZARA_TWILIO_WEBHOOK_URL=https://api.zara.ai/telephony/webhooks/twilio` when the Twilio webhook path cannot be derived from `API_PUBLIC_URL`
 - `ZARA_TWILIO_MEDIA_STREAM_BASE_URL=wss://api.zara.ai/telephony/twilio/media-streams` when the Twilio media stream path cannot be derived from `API_PUBLIC_URL`
+- a distinct Coolify service domain in `https://host:4020` form for each worker application
+- a distinct `PSTN_WORKER_PUBLIC_MEDIA_URL=wss://host/telephony/twilio/media-streams` value advertised by each Dockerfile worker application; the checked-in Compose baseline accepts `REALTIME_WORKER_PUBLIC_URL` and maps it to this worker variable
+- `PSTN_ADMISSION_REDIS_URL`
+- a unique `PSTN_WORKER_ID` in each worker application and the same deployed artifact identifier in `PSTN_WORKER_RELEASE_ID`
+- worker heartbeat, drain, resource, WebSocket, and concurrency limits from `deploy/coolify.env.example`
 - Provider secrets for AssemblyAI, Cartesia, OpenAI, Twilio, OAuth connectors, Polar, and webhook signing
 
 ## Release Process
@@ -44,15 +50,18 @@ For the VPS/Coolify path, use `docs/Coolify-Deployment.md` and the root `compose
 2. Confirm CI has passed `npm ci`, `npm run lint`, `npm run typecheck`, `npm run test:run`, `npm run eval:runtime`, `npm run eval:pstn`, and `npm run db:check`.
 3. Build all deployable units with `npm run build`.
 4. Review generated migration diff and confirm it matches the intended schema change.
-5. Deploy the API artifact first with migrations gated but not yet applied to live traffic.
+5. Build the API and realtime-worker targets from the same release artifact with migrations gated but not yet applied to live traffic.
 6. Run migration preflight against production with the release artifact.
 7. Apply migrations during an approved release window.
-8. Deploy tenant and platform-admin static artifacts.
-9. Shift traffic gradually to the new API and frontend versions.
-10. Confirm observability dashboards, alert thresholds, backup restore point, and rollback owner are ready.
-11. Run production smoke tests before announcing the release complete.
+8. Confirm both realtime workers are healthy, then apply Zara's serial drain-and-replace procedure to one worker at a time. Drain the selected worker, wait for owned calls to finish or the forced deadline and terminal persistence, replace it without process overlap using a fresh worker ID, verify its exact endpoint and new-release heartbeat, restore eligibility, and only then repeat for the sibling.
+9. Deploy the API, then tenant and platform-admin static artifacts.
+10. Shift new call traffic gradually to the new API and verified worker release.
+11. Confirm observability dashboards, alert thresholds, backup restore point, and rollback owner are ready.
+12. Run production smoke tests before announcing the release complete.
 
 Releases that touch telephony, runtime, auth, billing, memory, or migrations require an explicit rollback owner and an active-call review before traffic shift.
+
+Both workers must run the same `PSTN_WORKER_RELEASE_ID` from the production candidate. Configure each as a separate Coolify Dockerfile Application with a distinct domain that routes only to that application. Coolify's overlapping rolling update must remain disabled. Every replacement receives a fresh immutable process-level worker ID and follows Zara's non-overlapping serial drain-and-replace procedure. The checked-in Docker Compose resource is the single-worker baseline and does not provide rolling updates or the two-worker HA topology.
 
 ## Secrets
 
@@ -98,10 +107,12 @@ Rollback must preserve active calls and tenant data.
 Application rollback:
 
 1. Freeze new traffic shift.
-2. Keep current API instances alive until active calls drain or are transferred to fallback.
-3. Route new traffic back to the last known-good API artifact.
-4. Redeploy the last known-good tenant and platform-admin builds.
-5. Re-run smoke tests against the restored version.
+2. Mark affected realtime workers draining so they stop advertising capacity while retaining their claimed calls.
+3. Bring up last-known-good workers and require healthy registry heartbeats before routing new premium calls.
+4. Keep current API and worker instances alive until active calls drain. Never transfer an in-progress premium media socket to the API or silently change its runtime.
+5. Route new traffic back to the last known-good API artifact.
+6. Redeploy the last known-good tenant and platform-admin builds.
+7. Re-run smoke tests against the restored version.
 
 Database rollback:
 
@@ -124,6 +135,11 @@ Provider rollback:
 - [ ] Production `DATABASE_URL` points to the production database.
 - [ ] Better Auth production URL, browser auth/API base URLs, and trusted origins match same-site production domains.
 - [ ] Tenant app, platform-admin app, and API artifacts are versioned.
+- [ ] Two separate worker applications use the same candidate release ID, rolling updates are disabled, each running process has a unique immutable worker ID, and enabled-provider credentials match advertised capabilities.
+- [ ] Worker readiness is healthy, registry heartbeat age is below the configured TTL, and at least one compatible worker has an available slot before premium traffic is enabled.
+- [ ] Each Coolify worker domain is configured as `https://host:4020`; each advertised media URL uses `wss://host/telephony/twilio/media-streams`, preserves WebSocket upgrades, and targets that exact worker.
+- [ ] Every advertised worker ID resolves to its own media endpoint, or worker-aware ingress routes the signed target deterministically; no random replica routing sits between Twilio and the selected worker.
+- [ ] Deployed staging evidence covers effective WebSocket idle behavior, non-overlapping serial replacement, worker drain and stop grace, terminal persistence, and effective file-descriptor limits for both worker applications.
 - [ ] Provider webhook URLs target `https://api.zara.ai`.
 - [ ] Telephony credential key version and legacy keys are reviewed.
 - [ ] Polar is set to production mode with production webhook secret.
@@ -150,6 +166,8 @@ Run these after each production deployment:
 - Read `/organizations/:orgId/compliance/readiness` and confirm general SaaS posture.
 - Run a telephony connection health check against a non-customer test connection.
 - Confirm provider webhook signature validation rejects an unsigned request.
+- Confirm an unavailable or draining worker causes premium call setup to fail closed before Twilio receives a media stream URL.
+- Run the protocol simulator duplicate-media scenario and confirm one worker owns the call, the duplicate socket closes with `4409`, and only one provider connection opens.
 - Confirm calls, latency, errors, cost, integrations, and telephony dashboards show the release version and `traceId` correlation.
 - Confirm platform-admin runtime observability shows the latest `npm run eval:runtime` result and LangSmith trace check without exposing unredacted trace data.
 - Confirm platform-admin PSTN call quality shows the latest `npm run eval:pstn` result, first-response p95 latency, no-frame timeout count, Twilio stop reasons, and successful Phone test rate.

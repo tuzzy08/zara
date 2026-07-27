@@ -26,6 +26,15 @@ import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
 } from "./telephony-state.repository";
+import { TELEPHONY_INCREMENTAL_REPOSITORY } from "./telephony-incremental.repository";
+import { InMemoryTelephonyIncrementalRepository } from "./telephony-incremental.repository.test-helper";
+import { PremiumPstnDispatchSnapshotResolver } from "./premium-pstn-dispatch-snapshot-resolver";
+import {
+  PSTN_PREMIUM_WORKER_AVAILABILITY,
+  type PstnPremiumWorkerAvailability,
+} from "../realtime-worker/pstn-premium-worker-availability";
+import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
+import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
 import {
   TWILIO_NUMBER_INVENTORY_PROVIDER,
   type TwilioNumberInventoryProvider,
@@ -281,6 +290,9 @@ describe("TelephonyController", () => {
     expect(webhookResponse.text).toContain(
       '<Parameter name="zaraRuntimePath" value="pstn-sandwich" />',
     );
+    const initialStreamToken = webhookResponse.text.match(
+      /<Parameter name="zaraStreamToken" value="([^"]+)" \/>/,
+    )?.[1];
 
     const duplicateWebhookResponse = await request(app.getHttpServer())
       .post("/telephony/webhooks/twilio")
@@ -289,7 +301,10 @@ describe("TelephonyController", () => {
 
     expect(duplicateWebhookResponse.status).toBe(200);
     expect(duplicateWebhookResponse.headers["content-type"]).toContain("text/xml");
-    expect(duplicateWebhookResponse.text).toContain("<Reject reason=\"busy\" />");
+    expect(duplicateWebhookResponse.text).toContain("<Connect>");
+    expect(duplicateWebhookResponse.text.match(
+      /<Parameter name="zaraStreamToken" value="([^"]+)" \/>/,
+    )?.[1]).toBe(initialStreamToken);
 
     await app.close();
   }, 30_000);
@@ -947,9 +962,28 @@ describe("TelephonyController", () => {
   }, 30_000);
 
   it("creates premium realtime PSTN test routes and carries the premium runtime path into Twilio media", async () => {
-    const app = await createTestingApp();
+    const selectedWorker = {
+      workerId: "test-premium-worker",
+      releaseId: "test-release",
+      mediaStreamBaseUrl:
+        "wss://realtime.zara.test/telephony/twilio/media-streams",
+      availableSlots: 20,
+      activeCalls: 0,
+      startingCalls: 0,
+    };
+    const select = vi.fn(async (
+      providers: readonly ("openai-realtime" | "gemini-live")[],
+    ) => ({
+      status: "available" as const,
+      providers,
+      worker: selectedWorker,
+    }));
+    const app = await createTestingApp({
+      workerAvailability: { select },
+    });
 
-    const connectResponse = await request(app.getHttpServer())
+    try {
+      const connectResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/connections")
       .send({
         actorUserId: "user-ops-lead",
@@ -1011,7 +1045,41 @@ describe("TelephonyController", () => {
     expect(webhookResponse.text).toContain(
       '<Parameter name="zaraRuntimePath" value="pstn-premium-realtime" />',
     );
+    expect(webhookResponse.text).toContain(
+      '<Parameter name="zaraWorkerId" value="test-premium-worker" />',
+    );
+    expect(webhookResponse.text).toMatch(
+      /<Stream url="wss:\/\/realtime\.zara\.test\/telephony\/twilio\/media-streams\/CA-premium-phone-test%3Atelephony">/,
+    );
+    expect(webhookResponse.text).not.toContain(
+      "wss://127.0.0.1/telephony/twilio/media-streams",
+    );
     expect(webhookResponse.body.dispatch).toBeUndefined();
+    const premiumCallSetup = app
+      .get<InMemoryTelephonyIncrementalRepository>(
+        TELEPHONY_INCREMENTAL_REPOSITORY,
+      )
+      .callSetups.find(
+        (setup) =>
+          setup.executionSession.callSessionId
+          === "CA-premium-phone-test:telephony",
+      );
+    expect(premiumCallSetup?.premiumDispatchSnapshot).toMatchObject({
+      schemaVersion: 1,
+      tenantId: "tenant-west-africa",
+      workspaceId: "workspace-premium",
+      callSessionId: "CA-premium-phone-test:telephony",
+      publishedVersionId: "workflow-premium-test-v1",
+      workerTarget: {
+        workerId: "test-premium-worker",
+        releaseId: "test-release",
+        mediaStreamBaseUrl:
+          "wss://realtime.zara.test/telephony/twilio/media-streams",
+      },
+      checksum: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+
+    expect(select).toHaveBeenCalledTimes(1);
 
     const stateResponse = await request(app.getHttpServer()).get(
       "/organizations/tenant-west-africa/telephony/state",
@@ -1028,6 +1096,284 @@ describe("TelephonyController", () => {
       },
     });
 
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it("reselects another premium worker when admission races on worker capacity", async () => {
+    const workers = {
+      primary: {
+        workerId: "test-premium-worker-primary",
+        releaseId: "test-release-primary",
+        mediaStreamBaseUrl:
+          "wss://realtime-primary.zara.test/telephony/twilio/media-streams",
+        availableSlots: 20,
+        activeCalls: 0,
+        startingCalls: 0,
+      },
+      secondary: {
+        workerId: "test-premium-worker-secondary",
+        releaseId: "test-release-secondary",
+        mediaStreamBaseUrl:
+          "wss://realtime-secondary.zara.test/telephony/twilio/media-streams",
+        availableSlots: 10,
+        activeCalls: 0,
+        startingCalls: 0,
+      },
+    };
+    const select = vi.fn(async (
+      providers: readonly ("openai-realtime" | "gemini-live")[],
+      excludedWorkerIds: readonly string[] = [],
+    ) => ({
+      status: "available" as const,
+      providers,
+      worker: excludedWorkerIds.includes(workers.primary.workerId)
+        ? workers.secondary
+        : workers.primary,
+    }));
+    const app = await createTestingApp({
+      workerAvailability: { select },
+    });
+
+    try {
+      const reserve = vi.spyOn(
+        app.get(PstnAdmissionCoordinator),
+        "reserve",
+      );
+      reserve
+        .mockResolvedValueOnce({
+          outcome: "denied",
+          reasonCode: "worker_concurrency_limit",
+          limitingDimension: "worker_concurrency",
+          remainingCapacity: 0,
+        })
+        .mockResolvedValueOnce({
+          outcome: "admitted",
+          disposition: "created",
+          leaseExpiresAt: "2099-05-14T16:02:00.000Z",
+          limitingDimension: "worker_concurrency",
+          remainingCapacity: 9,
+        });
+      const connectResponse = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/telephony/connections")
+        .send({
+          actorUserId: "user-ops-lead",
+          label: "Tenant Twilio account",
+          ownershipMode: "byo_provider_account",
+          provider: "twilio",
+          region: "us-east-1",
+          blockRoutingOnHealthFailure: true,
+          accountSid: "AC1234567890abcdef1234567890abcd",
+          authToken: "twilio-auth-token-1234567890",
+        });
+      const connectionId =
+        connectResponse.body.state.connections[0].id as string;
+      const importResponse = await request(app.getHttpServer())
+        .post(
+          `/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`,
+        )
+        .send({});
+      const phoneNumberId =
+        importResponse.body.state.phoneNumbers[0].id as string;
+      const phoneNumber =
+        importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+      await request(app.getHttpServer())
+        .post(
+          `/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`,
+        )
+        .send({
+          publishedVersionId: "workflow-premium-reselection-v1",
+          workflowLabel: "Premium worker reselection",
+          workspaceId: "workspace-premium",
+          runtimeProfile: "premium-realtime",
+          allowedCallerNumbers: ["+233201110001"],
+          expiresAt: "2099-05-14T16:30:00.000Z",
+          now: "2026-05-14T16:00:00.000Z",
+        });
+      select
+        .mockReset()
+        .mockResolvedValue({
+          status: "available",
+          providers: ["openai-realtime"],
+          worker: workers.primary,
+        });
+      reserve
+        .mockReset()
+        .mockResolvedValueOnce({
+          outcome: "denied",
+          reasonCode: "worker_concurrency_limit",
+          limitingDimension: "worker_concurrency",
+          remainingCapacity: 0,
+        })
+        .mockResolvedValueOnce({
+          outcome: "admitted",
+          disposition: "created",
+          leaseExpiresAt: "2099-05-14T16:02:00.000Z",
+          limitingDimension: "worker_concurrency",
+          remainingCapacity: 9,
+        });
+      const repeatedWorkerPayload = {
+        AccountSid: "AC1234567890abcdef1234567890abcd",
+        CallSid: "CA-premium-worker-reselection-repeated",
+        EventSid: "EVT-premium-worker-reselection-repeated",
+        EventType: "incoming.call",
+        To: phoneNumber,
+        From: "+233201110001",
+      };
+      const repeatedWorkerSignature = computeTwilioWebhookSignature({
+        url: "http://127.0.0.1/telephony/webhooks/twilio",
+        parameters: repeatedWorkerPayload,
+        authToken: "twilio-auth-token-1234567890",
+      });
+
+      const repeatedWorkerResponse = await request(app.getHttpServer())
+        .post("/telephony/webhooks/twilio")
+        .set("x-twilio-signature", repeatedWorkerSignature)
+        .send(repeatedWorkerPayload);
+
+      expect(repeatedWorkerResponse.status).toBe(200);
+      expect(repeatedWorkerResponse.text).not.toContain("<Connect>");
+      expect(select).toHaveBeenCalledTimes(2);
+      expect(reserve).toHaveBeenCalledTimes(1);
+
+      select
+        .mockReset()
+        .mockImplementation(async (
+          providers: readonly ("openai-realtime" | "gemini-live")[],
+          excludedWorkerIds: readonly string[] = [],
+        ) => ({
+          status: "available",
+          providers,
+          worker: excludedWorkerIds.includes(workers.primary.workerId)
+            ? workers.secondary
+            : workers.primary,
+        }));
+      reserve
+        .mockReset()
+        .mockResolvedValueOnce({
+          outcome: "denied",
+          reasonCode: "worker_concurrency_limit",
+          limitingDimension: "worker_concurrency",
+          remainingCapacity: 0,
+        })
+        .mockResolvedValueOnce({
+          outcome: "admitted",
+          disposition: "created",
+          leaseExpiresAt: "2099-05-14T16:02:00.000Z",
+          limitingDimension: "worker_concurrency",
+          remainingCapacity: 9,
+        });
+      const webhookPayload = {
+        AccountSid: "AC1234567890abcdef1234567890abcd",
+        CallSid: "CA-premium-worker-reselection",
+        EventSid: "EVT-premium-worker-reselection",
+        EventType: "incoming.call",
+        To: phoneNumber,
+        From: "+233201110001",
+      };
+      const signature = computeTwilioWebhookSignature({
+        url: "http://127.0.0.1/telephony/webhooks/twilio",
+        parameters: webhookPayload,
+        authToken: "twilio-auth-token-1234567890",
+      });
+
+      const response = await request(app.getHttpServer())
+        .post("/telephony/webhooks/twilio")
+        .set("x-twilio-signature", signature)
+        .send(webhookPayload);
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain("<Connect>");
+      expect(response.text).toContain(
+        '<Parameter name="zaraWorkerId" value="test-premium-worker-secondary" />',
+      );
+      expect(response.text).toContain(
+        '<Parameter name="zaraWorkerReleaseId" value="test-release-secondary" />',
+      );
+      expect(select).toHaveBeenNthCalledWith(
+        1,
+        ["openai-realtime"],
+      );
+      expect(select).toHaveBeenNthCalledWith(
+        2,
+        ["openai-realtime"],
+        ["test-premium-worker-primary"],
+      );
+      expect(reserve).toHaveBeenCalledTimes(2);
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it("fails premium Twilio answering closed when no compatible realtime worker is ready", async () => {
+    const select = vi.fn(async (
+      providers: readonly ("openai-realtime" | "gemini-live")[],
+    ) => ({
+      status: "unavailable" as const,
+      providers,
+      reason: "no_ready_worker" as const,
+    }));
+    const app = await createTestingApp({
+      workerAvailability: { select },
+    });
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.state.connections[0].id as string;
+    const importResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({});
+    const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+    const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+    await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-premium-no-worker-v1",
+        workflowLabel: "Premium worker admission",
+        workspaceId: "workspace-premium",
+        runtimeProfile: "premium-realtime",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2099-05-14T16:30:00.000Z",
+        now: "2026-05-14T16:00:00.000Z",
+      });
+    const webhookPayload = {
+      AccountSid: "AC1234567890abcdef1234567890abcd",
+      CallSid: "CA-premium-no-worker",
+      EventSid: "EVT-premium-no-worker",
+      EventType: "incoming.call",
+      To: phoneNumber,
+      From: "+233201110001",
+    };
+    const signature = computeTwilioWebhookSignature({
+      url: "http://127.0.0.1/telephony/webhooks/twilio",
+      parameters: webhookPayload,
+      authToken: "twilio-auth-token-1234567890",
+    });
+
+    const response = await request(app.getHttpServer())
+      .post("/telephony/webhooks/twilio")
+      .set("x-twilio-signature", signature)
+      .send(webhookPayload);
+
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain("<Connect>");
+    expect(response.text).toContain("temporarily unavailable");
+    expect(select).toHaveBeenCalledWith(["openai-realtime"]);
+    expect(
+      app.get<InMemoryTelephonyIncrementalRepository>(
+        TELEPHONY_INCREMENTAL_REPOSITORY,
+      ).callSetups,
+    ).toHaveLength(0);
     await app.close();
   }, 30_000);
 
@@ -1211,6 +1557,7 @@ describe("TelephonyController", () => {
       .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/pstn-test-checkpoints`)
       .send({ checkpoint: "mediaWebSocketConnected", at: "2026-05-14T17:00:01.000Z" });
     expect(checkpointResponse.status).toBe(201);
+    expect(checkpointResponse.body).toEqual({ outcome: "inserted" });
 
     for (const checkpoint of [
       "inboundFrameReceived",
@@ -1224,28 +1571,11 @@ describe("TelephonyController", () => {
         .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/pstn-test-checkpoints`)
         .send({ checkpoint, at: "2026-05-14T17:00:02.000Z" });
       expect(checkpointResponse.status).toBe(201);
+      expect(checkpointResponse.body).toEqual({ outcome: "inserted" });
     }
 
-    const successfulNumber = checkpointResponse.body.state.phoneNumbers.find(
-      (candidate: { id: string }) => candidate.id === secondPhoneNumberId,
-    );
-    expect(successfulNumber.phoneTestResults[0]).toMatchObject({
-      status: "passed",
-      numberId: secondPhoneNumberId,
-      publishedVersionId: "workflow-success-v1",
-      runtimeProfile: "cost-optimized",
-      checklist: {
-        verifiedWebhook: true,
-        allowedCallerMatched: true,
-        mediaWebSocketConnected: true,
-        inboundFrameReceived: true,
-        transcriptCreated: true,
-        agentResponseGenerated: true,
-        outboundAudioSent: true,
-        cleanEnd: true,
-        noFatalError: true,
-      },
-    });
+    const successfulTestResultId =
+      `${successRouteResponse.body.phoneNumber.testRoute.waitingSession.id}:passed`;
 
     const activationResponse = await request(app.getHttpServer())
       .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/live-route/activate`)
@@ -1268,7 +1598,7 @@ describe("TelephonyController", () => {
     });
     expect(activationResponse.body.phoneNumber.liveRoute).toMatchObject({
       activationStatus: "active",
-      activationTestResultId: successfulNumber.phoneTestResults[0].id,
+      activationTestResultId: successfulTestResultId,
     });
 
     const crossTenantActivationResponse = await request(app.getHttpServer())
@@ -2626,16 +2956,43 @@ describe("TelephonyController", () => {
 async function createTestingApp(input: {
   installTenantAuth?: boolean | undefined;
   twilioRouting?: TwilioNumberRoutingProvider | undefined;
+  workerAvailability?: PstnPremiumWorkerAvailability | undefined;
 } = {}) {
+  const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
+  const stateRepository = new FileTelephonyStateRepository(
+    join(tmpdir(), "zara-telephony-tests", randomUUID()),
+  );
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
-    .useValue(
-      new FileTelephonyStateRepository(
-        join(tmpdir(), "zara-telephony-tests", randomUUID()),
-      ),
-    )
+    .useValue({
+      listOrganizationIds: () => stateRepository.listOrganizationIds(),
+      load: (organizationId: string) => stateRepository.load(organizationId),
+      save: (record: Parameters<FileTelephonyStateRepository["save"]>[0]) => {
+        stateRepository.save(record);
+        incrementalRepository.loadConnections(
+          record.organizationId,
+          record.connections.map(({ id }) => id),
+        );
+        incrementalRepository.loadPhoneNumberProjections(
+          record.organizationId,
+          record.phoneNumbers,
+        );
+      },
+    })
+    .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
+    .useValue(incrementalRepository)
+    .overrideProvider(PremiumPstnDispatchSnapshotResolver)
+    .useValue({
+      async resolve(snapshotInput: {
+        organizationId: string;
+        workspaceId: string;
+        publishedVersionId: string;
+      }) {
+        return createPremiumSnapshotResolution(snapshotInput);
+      },
+    })
     .overrideProvider(BILLING_STATE_REPOSITORY)
     .useValue(
       new FileBillingStateRepository(
@@ -2652,6 +3009,26 @@ async function createTestingApp(input: {
     .useValue(createGeneratedTwilioInventoryProvider())
     .overrideProvider(TWILIO_NUMBER_ROUTING_PROVIDER)
     .useValue(input.twilioRouting ?? createCapturingTwilioRoutingProvider())
+    .overrideProvider(PSTN_PREMIUM_WORKER_AVAILABILITY)
+    .useValue(input.workerAvailability ?? {
+      async select(
+        providers: readonly ("openai-realtime" | "gemini-live")[],
+      ) {
+        return {
+          status: "available" as const,
+          providers,
+          worker: {
+            workerId: "test-premium-worker",
+            releaseId: "test-release",
+            mediaStreamBaseUrl:
+              "wss://realtime.zara.test/telephony/twilio/media-streams",
+            availableSlots: 20,
+            activeCalls: 0,
+            startingCalls: 0,
+          },
+        };
+      },
+    })
     .overrideProvider(BILLING_POLAR_CLIENT)
     .useValue(createPolarClient())
     .compile();
@@ -2664,6 +3041,34 @@ async function createTestingApp(input: {
   await app.init();
 
   return app;
+}
+
+function createPremiumSnapshotResolution(input: {
+  organizationId: string;
+  workspaceId: string;
+  publishedVersionId: string;
+}) {
+  return {
+    resolvedManifest: {
+      schemaVersion: 1,
+      tenantId: input.organizationId,
+      workspaceId: input.workspaceId,
+      workflowId: "workflow-test",
+      publishedVersionId: input.publishedVersionId,
+      publishedAt: "2026-05-14T15:59:00.000Z",
+      runtimeProfile: "premium-realtime",
+      entryNodeId: "agent-test",
+      entryAgentId: "agent-test",
+      graph: { nodes: [], edges: [] },
+      routePolicies: [],
+      agents: [],
+      toolGrants: [],
+      warnings: [],
+    },
+    resolvedConversationPolicy: structuredClone(
+      defaultPremiumRealtimeConversationPolicy,
+    ),
+  };
 }
 
 function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider {
