@@ -20,6 +20,7 @@
 - Added root and simulator commands for CI smoke and explicitly approved release profiles, plus operator documentation, report interpretation, cost boundaries, and baseline retention rules.
 - Re-audited staging readiness before push from candidate commit `0620ad2` and confirmed that no staging target, external tenant fixture, staff telemetry authorization, or load approval variables are configured in the workspace. The replacement candidate is now pushed in PR #120; the staging inputs remain outstanding.
 - Identified the missed baseline sequence explicitly. Commit `fa08cb7` contains the completed load suite and is the direct parent of `a9f7022`, the first incremental-persistence commit; only `fa08cb7` can reconstruct the intended pre-persistence artifact from repository history.
+- Requalified the merged PR #120 release SHA `f5bf9b36903d81b7a87f7d8373f2250a8ca2e7f1` in a clean worktree on 2026-07-28 against disposable pgvector/PostgreSQL and Redis services. The focused deterministic test matrix is green; the externally transported CI smoke remains blocked by missing staging inputs, and no release-scale or production traffic was generated.
 
 ## Tests Run
 
@@ -30,9 +31,19 @@
 - GREEN: `npm.cmd exec -- eslint apps/pstn-protocol-simulator/src`.
 - GREEN: `npm.cmd run eval:pstn` - 25 PSTN media evals passed.
 - GREEN: `git diff --check`.
+- GREEN: merged release focused qualification with real PostgreSQL and Redis - 19 files, 315 tests passed across realtime-worker lifecycle, admission, ownership/fencing, finalization, premium execution, Twilio media, and capacity observability.
+- GREEN: `npm.cmd exec -- vitest run --maxWorkers=1 apps/pstn-protocol-simulator/src` - 13 files, 72 tests passed.
+- GREEN: `npm.cmd run eval:pstn` - 25 tests passed.
+- GREEN: `npm.cmd run typecheck`.
+- GREEN: `npm.cmd run db:check` - no migration drift.
 - RED: the reservation-debt regression passed a stage even though tracked reservations and pending releases remained above baseline.
 - GREEN: the focused capacity client, load runner, admission coordinator, observability, worker, and deployment suites passed with 80 tests after admission posture became a required telemetry field and drain gate.
 - BLOCKED: `npm.cmd run load:pstn:ci` exited with the intentionally redacted `pstn_protocol_smoke_failed` result before traffic generation because the documented test/staging tenant and telemetry configuration is absent. This is not staging certification evidence.
+
+## Operational Blocker
+
+- An isolated staging target and external load-generator environment cannot currently be provisioned. The historical baseline, approved release profiles, and soak run therefore cannot be executed or represented as capacity certification.
+- Until that environment exists, keep the effective platform cap at or below the provisional 20-call guardrail. The value is a safety limit, not a supported-concurrency claim, and must not be raised from deterministic tests alone.
 
 ## Pending Work
 
@@ -56,7 +67,8 @@
 - Keep release-scale execution behind an explicit operator approval flag.
 - Fail closed when telemetry is missing or incomplete, while calls are still active when posture reaches `exhausted`, or when required first-audio evidence is absent.
 - Keep ISSUE-224 and Linear ZAR-227 In Progress until the approved staging baseline is captured; implementation tests alone do not satisfy the operational acceptance criterion.
+- Do not use production as a substitute load environment. Production validation is limited to passive observation; CI smoke traffic, fault injection, stepped load, burst load, and soak qualification remain prohibited there.
 
 ## Next Recommended Step
 
-Provision the isolated target and generator, capture the `fa08cb7` historical baseline, then run the merged PR #120 release SHA on the same shape for comparison. Otherwise obtain an explicit ZAR-227 baseline waiver before closure.
+When an isolated target becomes available, capture the `fa08cb7` historical baseline, then run merged release SHA `f5bf9b36903d81b7a87f7d8373f2250a8ca2e7f1` on the same shape for comparison. Otherwise obtain an explicit ZAR-227 baseline waiver before closure; do not infer certification from the green pre-staging matrix.
