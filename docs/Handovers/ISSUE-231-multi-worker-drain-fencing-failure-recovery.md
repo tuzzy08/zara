@@ -30,6 +30,7 @@
 - Stabilized Twilio capacity verification by waiting for the server-side local-close accounting callback after the client observes socket closure; production socket ordering remains unchanged.
 - Closed final review findings before replacement-branch commit: mapped all four production-required admission CPS variables into the realtime worker, exposed tracked reservation and pending-release posture to the load harness, and aligned canonical Redis-outage language with the last-confirmed-lease fencing decision.
 - Closed the standards re-review follow-ups: sandwich media now obeys the same lease-expiry fail-stop contract as premium media, separate Dockerfile worker documentation names `PSTN_WORKER_PUBLIC_MEDIA_URL`, and the ISSUE-229 handover no longer promises unfenced outage continuity.
+- Requalified merged PR #120 release SHA `f5bf9b36903d81b7a87f7d8373f2250a8ca2e7f1` in a clean worktree on 2026-07-28 with disposable real PostgreSQL and Redis services. Deterministic ownership, fencing, drain, reservation, finalization, media, and observability behavior remains green after merge.
 
 ## Tests Run
 
@@ -71,11 +72,23 @@
 - RED: standards re-review found sandwich ownership loss was ignored, the separate-worker deployment guide named only the Compose URL alias, and ISSUE-229 retained superseded outage wording.
 - GREEN: focused premium/sandwich ownership-loss and Dockerfile-worker documentation contracts passed; the final eight-file regression set passed 122 tests.
 - REFACTOR: full lint and full typecheck passed after the ownership-loss and deployment-documentation corrections.
+- GREEN: merged release focused qualification with real PostgreSQL and Redis - 19 files, 315 tests passed across realtime-worker lifecycle, admission, ownership/fencing, finalization, premium execution, Twilio media, and capacity observability.
+- GREEN: protocol simulator regression - 13 files, 72 tests passed.
+- GREEN: `npm.cmd run eval:pstn` - 25 tests passed.
+- GREEN: `npm.cmd run typecheck`.
+- GREEN: `npm.cmd run db:check` - no migration drift.
+
+## Operational Blocker
+
+- A deployed two-worker staging environment cannot currently be provisioned. Reverse-proxy WebSocket behavior, distinct worker ingress, real process replacement, container file-descriptor posture, live providers, and OTel alert delivery therefore remain unverified.
+- Deterministic local tests prove the contracts and datastore behavior, but they do not satisfy the deployment-specific acceptance criteria. Production must not be used for worker-stop, Redis/Postgres interruption, drain-deadline, or load-balancer fault injection.
 
 ## Pending Work
 
 - Deploy the exact candidate release to two separate Coolify realtime-worker applications and capture evidence for unique worker/release identities, exact endpoints, heartbeat freshness, and slot accounting.
-- Run deployed exact-worker ingress, sibling rejection, long-running WebSocket idle, serial drain-and-replace, forced deadline, abrupt worker-stop, and active-call API-restart scenarios.
+- Drive calls through both workers with deliberately unequal slot counts and resource posture; verify distribution and effective global, provider, tenant, runtime, and worker allowances.
+- Run deployed exact-worker ingress, sibling rejection, long-running WebSocket idle, load-balancer affinity, idle timeout, connection draining, health-check behavior, file-descriptor posture, serial drain-and-replace, forced deadline, abrupt worker-stop, and active-call API-restart scenarios.
+- Complete the staging fault matrix for Redis loss and recovery, PostgreSQL loss and recovery, provider closure, Twilio disconnect, and delayed terminal callbacks, in addition to worker crash and rolling replacement.
 - Run live OpenAI and Gemini provider smoke calls against the deployed candidate.
 - Configure and exercise the documented OTel alerts in the staging observability backend.
 
@@ -84,7 +97,8 @@
 - Local tests cannot prove Coolify reverse-proxy WebSocket timeout, external routing affinity, process replacement order, or effective container file-descriptor limits.
 - The checked-in Compose service remains the single-worker baseline; production HA depends on the documented pair of separately configured Coolify applications.
 - Alert metric contracts exist in code, but alert delivery and paging remain unverified until the staging OTel backend is configured.
+- The issue must remain In Progress while the staging-only acceptance criteria are blocked; a merged implementation is not equivalent to completed operational qualification.
 
 ## Next Recommended Step
 
-Deploy the merged PR #120 release SHA without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
+When staging is available, deploy release SHA `f5bf9b36903d81b7a87f7d8373f2250a8ca2e7f1` without overlapping same-worker identities and execute the ISSUE-231 two-worker checklist. Until then, retain the deterministic evidence as pre-staging qualification and keep the issue open.
