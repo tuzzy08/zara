@@ -250,6 +250,38 @@ Redis-backed PSTN admission is required in production and configured by these en
 
 In production, missing Redis, Redis readiness failure, malformed or out-of-range concurrency/CPS/lease/quota configuration, or a failed provider-health observation whose connection policy blocks routing makes admission unavailable for new calls. The readiness endpoint exposes backend and configuration unavailability. Existing active media continues during a Redis outage only through its last confirmed lease deadline; if authority cannot be renewed before that deadline, the media owner fails closed and terminates the call. Admission is released through durable terminal lifecycle handling. The Twilio quota allowance is explicit platform configuration; Zara does not infer it from balance, heartbeat, or unrelated provider data.
 
+### Operational Capacity Policy
+
+The platform-admin Capacity page controls a durable operational policy that can tighten, but never widen, the environment ceilings above. New reservations resolve limits in this order:
+
+1. Environment concurrency, CPS, and provider-quota settings establish the non-bypassable ceiling.
+2. Durable global, provider, provider-account, tenant, runtime, and worker policy values reduce the applicable ceiling.
+3. Active temporary reductions reduce the matching dimension again.
+4. Provider-health closure and admission-backend unavailability remain authoritative and fail new calls closed.
+
+Use a temporary reduction for incident response. Set a unique reduction ID, exact scope key, lower call limit, start and expiry timestamps, and an operational reason. Expired reductions stop affecting new reservations automatically; no cleanup action is required to restore the durable policy.
+
+A policy may contain at most 128 temporary reductions and at most 512 entries in each scoped override map (provider quotas, provider-account quotas, tenant allowances, and worker limits). These bounds keep per-call policy resolution and operator reads predictable. Consolidate incident controls by scope instead of creating per-call or per-number reductions.
+
+Every accepted mutation requires the current policy version and a reason. Zara stores the actor, reason, timestamp, and full before/after policy in the immutable capacity audit. A stale version is rejected rather than overwriting a concurrent operator change.
+
+The Capacity page lists every configured temporary reduction with its scope, limit, start, expiry, and reason. Ending a reduction early is a new versioned policy mutation: select the reduction for removal, provide the operational reason, and apply against the latest version.
+
+Rollback is a new audited policy mutation, not deletion of history. Refresh the Capacity page, inspect the exact before/after snapshots, restore the intended prior values, remove or replace the relevant temporary reduction, explain the rollback in the reason, and apply against the latest version. Confirm the resulting dimension posture and available slots before declaring the rollback complete.
+
+Staff posture discovers active tenants and configured provider accounts from Postgres and ready realtime workers from the worker registry, even when those scopes have no explicit policy override. Treat unavailable or stale telemetry as unknown. The current live read path does not cache capacity observations: a successful read is `fresh`, while a failed Redis or scope observation is `unavailable`; `stale` is reserved for a future bounded cache. Never infer zero use or healthy headroom from a missing observation. Qualification remains provisional until a staging qualification supplies evidence date, environment, highest passing concurrency, and safety headroom.
+
+Production requires `DATABASE_URL`; startup fails rather than substituting in-memory capacity policy, rejection history, or scope discovery. Staff operational rows come from active discovered tenants, configured provider accounts, and ready workers; inactive override keys remain visible in policy and audit history but do not bypass inventory paging. Scope inventory is paged in bounded sets of 512 tenants, provider accounts, and workers, and the platform-admin Capacity page exposes previous/next controls for larger installations. Provider health is aggregated across every configured account before paging so an unhealthy account cannot be hidden on another page. Any partial inventory page reports the overall posture as unavailable while preserving the current page's per-dimension telemetry. Dimension reads within each page are issued in batches of at most 128. Redis prunes expired leases and refuses a usage observation if a dimension contains more than 1,000 members. This observability cap is independent of configured concurrency, so a widened deployment ceiling cannot create an unbounded operator read. An unavailable batch makes usage unknown instead of returning a partial healthy picture.
+
+Publish approved qualification evidence through all four deployment variables below. Zara reports capacity as `certified` only when every value is present and valid; otherwise it remains `provisional`.
+
+- `PSTN_CAPACITY_QUALIFICATION_EVIDENCE_DATE`: qualification date in `YYYY-MM-DD` format.
+- `PSTN_CAPACITY_QUALIFICATION_ENVIRONMENT`: the environment that produced the evidence.
+- `PSTN_CAPACITY_QUALIFICATION_HIGHEST_PASSING_CALLS`: positive integer for the highest passing concurrent-call step.
+- `PSTN_CAPACITY_QUALIFICATION_SAFETY_HEADROOM_PERCENT`: percentage from 0 inclusive to 100 exclusive reserved from the highest passing result.
+
+The displayed qualified limit is `floor(highest passing calls * (1 - headroom / 100))`. The staff posture flags when the deployed global policy limit exceeds that value. Supplying these variables records approved evidence; it does not run or replace the qualification itself.
+
 ## Persistence Ownership
 
 Telephony configuration and active-call runtime state have separate write contracts:

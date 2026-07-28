@@ -8,6 +8,7 @@ import {
   type PstnCallAdmission,
   type PstnCallAdmissionActivationInput,
   type PstnCallAdmissionActivateResult,
+  type PstnCallAdmissionDimensionUsageInput,
   type PstnCallAdmissionHealth,
   type PstnCallAdmissionInput,
   type PstnCallAdmissionLeaseInput,
@@ -16,6 +17,7 @@ import {
   type PstnCallAdmissionRenewResult,
   type PstnCallAdmissionReserveResult,
   type PstnCallAdmissionTokenBucket,
+  type PstnCallAdmissionUsageInput,
 } from "./pstn-call-admission";
 
 interface InMemoryReservation {
@@ -74,6 +76,14 @@ const concurrencyChecks: ReadonlyArray<{
     matches: (left, right) => left.provider === right.provider,
   },
   {
+    limit: "providerAccount",
+    reasonCode: "provider_account_concurrency_limit",
+    limitingDimension: "provider_account_concurrency",
+    matches: (left, right) =>
+      left.provider === right.provider &&
+      left.providerAccountId === right.providerAccountId,
+  },
+  {
     limit: "tenant",
     reasonCode: "tenant_concurrency_limit",
     limitingDimension: "tenant_concurrency",
@@ -93,12 +103,66 @@ const concurrencyChecks: ReadonlyArray<{
   },
 ];
 
+function resolveConcurrencyLimit(
+  input: PstnCallAdmissionInput,
+  limit: keyof PstnCallAdmissionInput["limits"],
+) {
+  return limit === "providerAccount"
+    ? input.limits.providerAccount ?? input.limits.provider
+    : input.limits[limit];
+}
+
 export class InMemoryPstnCallAdmission implements PstnCallAdmission {
   private readonly reservations = new Map<string, InMemoryReservation>();
   private readonly recoveryHolds = new Map<string, InMemoryRecoveryHold>();
   private readonly tokenBuckets = new Map<string, InMemoryTokenBucket>();
 
   constructor(private readonly now: () => number = Date.now) {}
+
+  async getUsage(input: PstnCallAdmissionUsageInput) {
+    this.reclaimExpiredReservations(this.now());
+    const reservations = [...this.reservations.values()];
+    return {
+      status: "available" as const,
+      counts: {
+        global: dimensionUsage(reservations),
+        provider: dimensionUsage(reservations.filter(
+          (reservation) => reservation.input.provider === input.provider,
+        )),
+        providerAccount: dimensionUsage(reservations.filter(
+          (reservation) =>
+            reservation.input.provider === input.provider &&
+            reservation.input.providerAccountId === input.providerAccountId,
+        )),
+        tenant: dimensionUsage(reservations.filter(
+          (reservation) => reservation.input.tenantId === input.tenantId,
+        )),
+        runtime: dimensionUsage(reservations.filter(
+          (reservation) => reservation.input.runtime === input.runtime,
+        )),
+        worker: dimensionUsage(reservations.filter(
+          (reservation) => reservation.input.workerId === input.workerId,
+        )),
+      },
+    };
+  }
+
+  async getDimensionUsage(
+    inputs: readonly PstnCallAdmissionDimensionUsageInput[],
+  ) {
+    this.reclaimExpiredReservations(this.now());
+    const reservations = [...this.reservations.values()];
+    return {
+      status: "available" as const,
+      counts: inputs.map((input) =>
+        dimensionUsage(
+          reservations.filter((reservation) =>
+            matchesUsageDimension(reservation, input)
+          ),
+        )
+      ),
+    };
+  }
 
   async reserve(
     input: PstnCallAdmissionInput,
@@ -143,7 +207,7 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
       const used = [...this.reservations.values()].filter((reservation) =>
         check.matches(reservation.input, input),
       ).length;
-      const remainingCapacity = input.limits[check.limit] - used;
+      const remainingCapacity = resolveConcurrencyLimit(input, check.limit) - used;
       if (remainingCapacity < lowestRemainingCapacity) {
         limitingCheck = check;
         lowestRemainingCapacity = remainingCapacity;
@@ -243,7 +307,7 @@ export class InMemoryPstnCallAdmission implements PstnCallAdmission {
         const used = [...this.reservations.values()].filter((candidate) =>
           check.matches(candidate.input, input),
         ).length;
-        const remainingCapacity = input.limits[check.limit] - used;
+        const remainingCapacity = resolveConcurrencyLimit(input, check.limit) - used;
         if (remainingCapacity < lowestRemainingCapacity) {
           limitingCheck = check;
           lowestRemainingCapacity = remainingCapacity;
@@ -496,6 +560,38 @@ function createScopeFingerprint(input: PstnCallAdmissionInput) {
     input.provider,
     input.runtime,
   ]);
+}
+
+function matchesUsageDimension(
+  reservation: InMemoryReservation,
+  input: PstnCallAdmissionDimensionUsageInput,
+) {
+  if (input.dimension === "global") return true;
+  if (input.dimension === "provider") {
+    return reservation.input.provider === input.provider;
+  }
+  if (input.dimension === "providerAccount") {
+    return reservation.input.provider === input.provider &&
+      reservation.input.providerAccountId === input.providerAccountId;
+  }
+  if (input.dimension === "tenant") {
+    return reservation.input.tenantId === input.tenantId;
+  }
+  if (input.dimension === "runtime") {
+    return reservation.input.runtime === input.runtime;
+  }
+  return reservation.input.workerId === input.workerId;
+}
+
+function dimensionUsage(reservations: InMemoryReservation[]) {
+  return {
+    total: reservations.length,
+    active: reservations.filter((reservation) => reservation.state === "active")
+      .length,
+    reservations: reservations.filter(
+      (reservation) => reservation.state === "claim",
+    ).length,
+  };
 }
 
 function isValidActivationInput(input: PstnCallAdmissionActivationInput) {

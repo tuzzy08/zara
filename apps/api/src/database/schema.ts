@@ -36,6 +36,9 @@ import type {
 } from "../telephony/telephony.models";
 import type { TelephonyPremiumDispatchSnapshot } from "../telephony/telephony-incremental.repository";
 import type { EncryptedTelephonySecretEnvelope } from "../telephony/telephony-secret-vault";
+import type {
+  PstnCapacityPolicy,
+} from "../telephony/pstn-capacity-policy.models";
 
 export const tenantStatus = pgEnum("tenant_status", ["active", "suspended", "archived"]);
 
@@ -809,5 +812,77 @@ export const telephonyPhoneTestCheckpoints = pgTable(
     tenantCallCheckpointUniqueIndex: uniqueIndex(
       "telephony_phone_test_checkpoints_tenant_call_checkpoint_unique_idx",
     ).on(table.tenantId, table.callSessionId, table.checkpoint),
+  }),
+);
+
+export const pstnCapacityPolicy = pgTable(
+  "pstn_capacity_policy",
+  {
+    id: text("id").primaryKey(),
+    version: integer("version").notNull(),
+    policy: jsonb("policy").$type<PstnCapacityPolicy>().notNull(),
+    updatedBy: text("updated_by").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    singletonCheck: check(
+      "pstn_capacity_policy_singleton_check",
+      sql`${table.id} = 'global'`,
+    ),
+    versionCheck: check(
+      "pstn_capacity_policy_version_check",
+      sql`${table.version} > 0`,
+    ),
+    policyObjectCheck: check(
+      "pstn_capacity_policy_object_check",
+      sql`jsonb_typeof(${table.policy}) = 'object'`,
+    ),
+  }),
+);
+
+export const pstnCapacityPolicyAudit = pgTable(
+  "pstn_capacity_policy_audit",
+  {
+    id: text("id").primaryKey(),
+    policyVersion: integer("policy_version").notNull().unique(),
+    actorUserId: text("actor_user_id").notNull(),
+    reason: text("reason").notNull(),
+    beforePolicy: jsonb("before_policy").$type<PstnCapacityPolicy>().notNull(),
+    afterPolicy: jsonb("after_policy").$type<PstnCapacityPolicy>().notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    occurredAtIndex: index("pstn_capacity_policy_audit_occurred_at_idx").on(
+      table.occurredAt,
+    ),
+    reasonCheck: check(
+      "pstn_capacity_policy_audit_reason_check",
+      sql`char_length(btrim(${table.reason})) >= 3`,
+    ),
+    beforeObjectCheck: check(
+      "pstn_capacity_policy_audit_before_object_check",
+      sql`jsonb_typeof(${table.beforePolicy}) = 'object'`,
+    ),
+    afterObjectCheck: check(
+      "pstn_capacity_policy_audit_after_object_check",
+      sql`jsonb_typeof(${table.afterPolicy}) = 'object'`,
+    ),
+  }),
+);
+
+export const pstnCapacityRejections = pgTable(
+  "pstn_capacity_rejections",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    reasonCode: text("reason_code").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    tenantOccurredAtIndex: index(
+      "pstn_capacity_rejections_tenant_occurred_at_idx",
+    ).on(table.tenantId, table.occurredAt),
   }),
 );

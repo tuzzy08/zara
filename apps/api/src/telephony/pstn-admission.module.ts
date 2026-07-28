@@ -5,6 +5,7 @@ import {
   type OnModuleInit,
 } from "@nestjs/common";
 
+import { PostgresPoolService } from "../database/postgres-pool.service";
 import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import { InMemoryPstnCallAdmission } from "./in-memory-pstn-call-admission";
 import {
@@ -14,6 +15,27 @@ import {
 } from "./pstn-admission-config";
 import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
 import {
+  InMemoryPstnCapacityPolicyRepository,
+  PSTN_CAPACITY_POLICY_REPOSITORY,
+  type PstnCapacityPolicyRepository,
+} from "./pstn-capacity-policy.repository";
+import { PstnCapacityPolicyService } from "./pstn-capacity-policy.service";
+import {
+  InMemoryPstnCapacityRejectionRepository,
+  PSTN_CAPACITY_REJECTION_REPOSITORY,
+  type PstnCapacityRejectionRepository,
+} from "./pstn-capacity-rejection.repository";
+import { PstnCapacityRejectionService } from "./pstn-capacity-rejection.service";
+import { PstnCapacityReadService } from "./pstn-capacity-read.service";
+import {
+  InMemoryPstnCapacityScopeCatalog,
+  PostgresPstnCapacityScopeCatalog,
+  PSTN_CAPACITY_SCOPE_CATALOG,
+  type PstnCapacityScopeCatalog,
+} from "./pstn-capacity-scope-catalog";
+import { PostgresPstnCapacityRejectionRepository } from "./postgres-pstn-capacity-rejection.repository";
+import { PostgresPstnCapacityPolicyRepository } from "./postgres-pstn-capacity-policy.repository";
+import {
   createPstnAdmissionRedisClient,
   type PstnAdmissionRedisClient,
 } from "./pstn-admission-redis-client";
@@ -22,11 +44,29 @@ import {
   type PstnCallAdmission,
 } from "./pstn-call-admission";
 import { RedisPstnCallAdmission } from "./redis-pstn-call-admission";
+import { PstnRealtimeWorkerRegistry } from "../realtime-worker/pstn-realtime-worker-registry";
 
 export const PSTN_ADMISSION_CONFIG = Symbol("PSTN_ADMISSION_CONFIG");
 export const PSTN_ADMISSION_REDIS_CLIENT = Symbol(
   "PSTN_ADMISSION_REDIS_CLIENT",
 );
+
+export function resolvePstnCapacityPersistenceMode(
+  env: Record<string, string | undefined>,
+) {
+  if (env.NODE_ENV === "test") {
+    return "memory" as const;
+  }
+  if ((env.DATABASE_URL?.trim().length ?? 0) > 0) {
+    return "postgres" as const;
+  }
+  if (env.NODE_ENV === "production") {
+    throw new Error(
+      "DATABASE_URL is required for production PSTN capacity state.",
+    );
+  }
+  return "memory" as const;
+}
 
 class UnavailablePstnCallAdmission implements PstnCallAdmission {
   constructor(
@@ -102,6 +142,7 @@ export class PstnAdmissionRedisLifecycle
 @Global()
 @Module({
   providers: [
+    PostgresPoolService,
     PstnCapacityObservability,
     {
       provide: PSTN_ADMISSION_CONFIG,
@@ -137,21 +178,116 @@ export class PstnAdmissionRedisLifecycle
       inject: [PSTN_ADMISSION_CONFIG, PSTN_ADMISSION_REDIS_CLIENT],
     },
     {
+      provide: PSTN_CAPACITY_POLICY_REPOSITORY,
+      useFactory: (
+        postgres: PostgresPoolService,
+      ): PstnCapacityPolicyRepository =>
+        resolvePstnCapacityPersistenceMode(process.env) === "memory"
+          ? new InMemoryPstnCapacityPolicyRepository()
+          : new PostgresPstnCapacityPolicyRepository(postgres.pool),
+      inject: [PostgresPoolService],
+    },
+    {
+      provide: PstnCapacityPolicyService,
+      useFactory: (
+        repository: PstnCapacityPolicyRepository,
+        config: PstnAdmissionConfig,
+      ) => new PstnCapacityPolicyService(repository, config),
+      inject: [
+        PSTN_CAPACITY_POLICY_REPOSITORY,
+        PSTN_ADMISSION_CONFIG,
+      ],
+    },
+    {
+      provide: PSTN_CAPACITY_REJECTION_REPOSITORY,
+      useFactory: (
+        postgres: PostgresPoolService,
+      ): PstnCapacityRejectionRepository =>
+        resolvePstnCapacityPersistenceMode(process.env) === "memory"
+          ? new InMemoryPstnCapacityRejectionRepository()
+          : new PostgresPstnCapacityRejectionRepository(postgres.pool),
+      inject: [PostgresPoolService],
+    },
+    {
+      provide: PstnCapacityRejectionService,
+      useFactory: (repository: PstnCapacityRejectionRepository) =>
+        new PstnCapacityRejectionService(repository),
+      inject: [PSTN_CAPACITY_REJECTION_REPOSITORY],
+    },
+    {
+      provide: PSTN_CAPACITY_SCOPE_CATALOG,
+      useFactory: (
+        postgres: PostgresPoolService,
+        redisClient: PstnAdmissionRedisClient | undefined,
+      ): PstnCapacityScopeCatalog =>
+        resolvePstnCapacityPersistenceMode(process.env) === "memory"
+          ? new InMemoryPstnCapacityScopeCatalog()
+          : new PostgresPstnCapacityScopeCatalog(postgres.pool, {
+              listReadyWorkerIds: async () => {
+                if (redisClient === undefined) return [];
+                const registry = new PstnRealtimeWorkerRegistry(
+                  redisClient,
+                  {},
+                );
+                const workers = await Promise.all([
+                  registry.findReadyWorkers("openai-realtime"),
+                  registry.findReadyWorkers("gemini-live"),
+                ]);
+                return [
+                  ...new Set(
+                    workers.flat().map((worker) => worker.workerId),
+                  ),
+                ];
+              },
+            }),
+      inject: [PostgresPoolService, PSTN_ADMISSION_REDIS_CLIENT],
+    },
+    {
+      provide: PstnCapacityReadService,
+      useFactory: (
+        policyService: PstnCapacityPolicyService,
+        rejectionService: PstnCapacityRejectionService,
+        admission: PstnCallAdmission,
+        config: PstnAdmissionConfig,
+        scopeCatalog: PstnCapacityScopeCatalog,
+      ) =>
+        new PstnCapacityReadService(
+          policyService,
+          rejectionService,
+          admission,
+          config,
+          scopeCatalog,
+        ),
+      inject: [
+        PstnCapacityPolicyService,
+        PstnCapacityRejectionService,
+        PSTN_CALL_ADMISSION,
+        PSTN_ADMISSION_CONFIG,
+        PSTN_CAPACITY_SCOPE_CATALOG,
+      ],
+    },
+    {
       provide: PstnAdmissionCoordinator,
       useFactory: (
         admission: PstnCallAdmission,
         config: PstnAdmissionConfig,
         observability: PstnCapacityObservability,
+        policyService: PstnCapacityPolicyService,
+        rejectionService: PstnCapacityRejectionService,
       ) =>
         new PstnAdmissionCoordinator(
           admission,
           config,
           observability,
+          policyService,
+          rejectionService,
         ),
       inject: [
         PSTN_CALL_ADMISSION,
         PSTN_ADMISSION_CONFIG,
         PstnCapacityObservability,
+        PstnCapacityPolicyService,
+        PstnCapacityRejectionService,
       ],
     },
     {
@@ -170,7 +306,13 @@ export class PstnAdmissionRedisLifecycle
     PSTN_ADMISSION_CONFIG,
     PSTN_ADMISSION_REDIS_CLIENT,
     PSTN_CALL_ADMISSION,
+    PSTN_CAPACITY_POLICY_REPOSITORY,
+    PSTN_CAPACITY_REJECTION_REPOSITORY,
+    PSTN_CAPACITY_SCOPE_CATALOG,
     PstnCapacityObservability,
+    PstnCapacityPolicyService,
+    PstnCapacityRejectionService,
+    PstnCapacityReadService,
     PstnAdmissionCoordinator,
     PstnAdmissionRedisLifecycle,
   ],

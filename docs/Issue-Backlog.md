@@ -5319,3 +5319,29 @@ Implementation progress:
 - Two-worker deployment is documented as separate Coolify applications with immutable identities, distinct endpoints, and serial drain-and-replace without overlapping same-ID processes.
 - API typecheck, 202 focused tests, 22 real-Postgres tests, 39 Redis tests, 25 PSTN evals, and the Coolify Compose contract pass.
 - Status remains In Progress until the exact candidate completes deployed Coolify routing, long-running WebSocket, serial replacement, abrupt-stop, live-provider, and alert-delivery validation.
+
+### ISSUE-232: Platform and tenant PSTN capacity controls
+
+- Priority: P1
+- Area: Runtime / Telephony / Platform Admin / Tenant Operations
+- Milestone: PSTN Live Call Runtime
+- Labels: backend, frontend, platform-admin, runtime, telephony, security, observability, testing, tdd-required
+- Status: Implemented
+- Certification evidence: ISSUE-229
+- Handover: [docs/Handovers/ISSUE-232-pstn-capacity-controls.md](../docs/Handovers/ISSUE-232-pstn-capacity-controls.md)
+- External: [Linear ZAR-234](https://linear.app/zara-voice/issue/ZAR-234/pstn-capacity-1112-add-platform-and-tenant-capacity-control-surfaces)
+
+Acceptance criteria:
+- Platform staff can inspect global, provider, tenant, runtime, and worker capacity posture, configured limits, active use, reservations, available slots, saturation, health, and rejection reasons.
+- Authorized platform admins can update hard caps, provider quotas, tenant allowances, runtime and worker limits, CPS limits, and expiring reductions with a reason, optimistic concurrency, and immutable before/after audit evidence.
+- Operational policy can only tighten infrastructure and provider safety ceilings; unhealthy dependencies and hard closures remain non-bypassable.
+- Staff can distinguish provisional from certified capacity and see evidence date, environment, headroom, and configuration above qualification.
+- Tenants can see only their effective allowance, active use, remaining capacity, and actionable tenant-safe rejection history.
+- Staff and tenant APIs enforce platform role, mutation assurance, organization membership, and cross-tenant isolation.
+- Staff and tenant UIs represent loading, stale, unavailable, saturated, and degraded posture without presenting missing telemetry as healthy zero values.
+- Operator documentation covers precedence, emergency reduction, expiry, audit review, and rollback.
+
+Implementation progress:
+- Durable versioned policy, immutable audit, rejection evidence, provider-account admission accounting, fail-closed health and backend handling, bounded telemetry, paged active-scope discovery, staff controls, and tenant posture are implemented.
+- The final touched-file regression pack passes 188 tests; repository typecheck, lint, migration drift check, and all workspace builds pass.
+- Capacity remains visibly provisional until ISSUE-229/ZAR-233 supplies approved dated environment evidence.

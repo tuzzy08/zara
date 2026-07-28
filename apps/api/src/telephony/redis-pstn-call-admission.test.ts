@@ -25,6 +25,7 @@ function createInput(
     limits: {
       global: 20,
       provider: 18,
+      providerAccount: 9,
       tenant: 5,
       runtime: 12,
       worker: 4,
@@ -71,6 +72,98 @@ class FakeRedisCommands implements PstnAdmissionRedisCommands {
 }
 
 describe("RedisPstnCallAdmission", () => {
+  it("reads authoritative dimension usage without exposing raw scope identifiers", async () => {
+    const redis = new FakeRedisCommands([[
+      "7", "5", "2",
+      "5", "4", "1",
+      "2", "1", "1",
+      "2", "1", "1",
+      "4", "3", "1",
+      "3", "2", "1",
+    ]]);
+    const admission = new RedisPstnCallAdmission(redis, {
+      keyPrefix: "zara:test",
+    });
+    const input = createInput();
+
+    await expect(admission.getUsage(input)).resolves.toEqual({
+      status: "available",
+      counts: {
+        global: { total: 7, active: 5, reservations: 2 },
+        provider: { total: 5, active: 4, reservations: 1 },
+        providerAccount: { total: 2, active: 1, reservations: 1 },
+        tenant: { total: 2, active: 1, reservations: 1 },
+        runtime: { total: 4, active: 3, reservations: 1 },
+        worker: { total: 3, active: 2, reservations: 1 },
+      },
+    });
+
+    const serializedCommand = JSON.stringify(redis.calls[0]);
+    expect(serializedCommand).not.toContain(input.tenantId);
+    expect(serializedCommand).not.toContain(input.providerAccountId);
+    expect(serializedCommand).not.toContain(input.workerId);
+  });
+
+  it("reads selected dimensions with one Redis command", async () => {
+    const redis = new FakeRedisCommands([[
+      "7", "5", "2",
+      "2", "1", "1",
+    ]]);
+    const admission = new RedisPstnCallAdmission(redis, {
+      keyPrefix: "zara:test",
+    });
+    const input = createInput();
+
+    await expect(
+      admission.getDimensionUsage([
+        { ...input, dimension: "global" },
+        { ...input, dimension: "tenant" },
+      ]),
+    ).resolves.toEqual({
+      status: "available",
+      counts: [
+        { total: 7, active: 5, reservations: 2 },
+        { total: 2, active: 1, reservations: 1 },
+      ],
+    });
+    expect(redis.calls).toHaveLength(1);
+    expect(redis.calls[0]?.keys).toHaveLength(2);
+  });
+
+  it("treats a dimension member-bound overflow as unavailable telemetry", async () => {
+    const redis = new FakeRedisCommands([["member_limit_exceeded"]]);
+    const admission = new RedisPstnCallAdmission(redis, {
+      keyPrefix: "zara:test",
+      usageMemberLimit: 1,
+    });
+    const input = createInput();
+
+    await expect(
+      admission.getDimensionUsage([{ ...input, dimension: "global" }]),
+    ).resolves.toEqual({ status: "unavailable" });
+    expect(redis.calls[0]?.arguments).toEqual([
+      expect.stringContaining(":reservation:"),
+      "1",
+    ]);
+  });
+
+  it("caps telemetry member scans independently of configured concurrency", async () => {
+    const redis = new FakeRedisCommands([["member_limit_exceeded"]]);
+    const admission = new RedisPstnCallAdmission(redis, {
+      keyPrefix: "zara:test",
+      usageMemberLimit: 1_000_000,
+    });
+    const input = createInput();
+
+    await expect(
+      admission.getDimensionUsage([{ ...input, dimension: "global" }]),
+    ).resolves.toEqual({ status: "unavailable" });
+    expect(redis.calls[0]?.arguments).toEqual([
+      expect.stringContaining(":reservation:"),
+      "1000",
+    ]);
+  });
+
   it("reserves atomically with one hash tag and no raw opaque identifiers", async () => {
     const redis = new FakeRedisCommands([
       [
@@ -96,7 +189,7 @@ describe("RedisPstnCallAdmission", () => {
 
     expect(redis.calls).toHaveLength(1);
     const call = redis.calls[0]!;
-    expect(call.keys).toHaveLength(11);
+    expect(call.keys).toHaveLength(12);
     expect(
       call.keys.every(
         (key) =>
@@ -119,6 +212,7 @@ describe("RedisPstnCallAdmission", () => {
   it.each<[PstnAdmissionReasonCode, string]>([
     ["global_concurrency_limit", "global_concurrency"],
     ["provider_concurrency_limit", "provider_concurrency"],
+    ["provider_account_concurrency_limit", "provider_account_concurrency"],
     ["tenant_concurrency_limit", "tenant_concurrency"],
     ["runtime_concurrency_limit", "runtime_concurrency"],
     ["worker_concurrency_limit", "worker_concurrency"],
@@ -185,7 +279,7 @@ describe("RedisPstnCallAdmission", () => {
       }),
     );
 
-    expect(redis.calls[0]?.keys[7]).not.toBe(redis.calls[1]?.keys[7]);
+    expect(redis.calls[0]?.keys[8]).not.toBe(redis.calls[1]?.keys[8]);
   });
 
   it("fails reserve closed on Redis errors and indeterminate replies", async () => {
@@ -263,7 +357,7 @@ describe("RedisPstnCallAdmission", () => {
     });
     expect(redis.calls).toHaveLength(5);
     expect(redis.calls.map((call) => call.keys.length)).toEqual([
-      9, 9, 5, 4, 4,
+      10, 10, 5, 4, 4,
     ]);
   });
 
@@ -281,12 +375,13 @@ describe("RedisPstnCallAdmission", () => {
       reasonCode: "global_concurrency_limit",
     });
 
-    expect(redis.calls[0]?.keys).toHaveLength(9);
+    expect(redis.calls[0]?.keys).toHaveLength(10);
     expect(redis.calls[0]?.arguments).toEqual([
       expect.any(String),
       String(input.activeTtlMs),
       String(input.limits.global),
       String(input.limits.provider),
+      String(input.limits.providerAccount),
       String(input.limits.tenant),
       String(input.limits.runtime),
       String(input.limits.worker),

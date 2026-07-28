@@ -16,6 +16,9 @@ import { PremiumRealtimeConversationPolicyService } from "../premium-realtime-po
 import type { UpdateRuntimeRoutePolicyInput } from "../runtime-route-policy/runtime-route-policy.models";
 import { RuntimeRoutePolicyService } from "../runtime-route-policy/runtime-route-policy.service";
 import { TelephonyService } from "../telephony/telephony.service";
+import type { UpdatePstnCapacityPolicyInput } from "../telephony/pstn-capacity-policy.models";
+import { PstnCapacityPolicyService } from "../telephony/pstn-capacity-policy.service";
+import { PstnCapacityReadService } from "../telephony/pstn-capacity-read.service";
 import type {
   PlatformAbuseComplianceReview,
   PlatformAdminAuditEntry,
@@ -52,7 +55,34 @@ export class PlatformAdminService {
     private readonly runtimeRoutePolicyService: RuntimeRoutePolicyService,
     private readonly telephonyService: TelephonyService,
     private readonly pstnCapacityObservability: PstnCapacityObservability,
+    private readonly pstnCapacityPolicyService: PstnCapacityPolicyService,
+    private readonly pstnCapacityReadService: PstnCapacityReadService,
   ) {}
+
+  async getPstnCapacityPosture(scopeOffset = 0) {
+    return this.pstnCapacityReadService.getStaffPosture(scopeOffset);
+  }
+
+  async updatePstnCapacityPolicy(
+    context: PlatformAdminRequestContext,
+    input: UpdatePstnCapacityPolicyInput,
+  ) {
+    const result = await this.pstnCapacityPolicyService.updatePolicy(input, {
+      actorUserId: context.actorUserId,
+    });
+    return {
+      ...result,
+      platformAudit: this.recordAudit(context, {
+        targetType: "pstn_capacity_policy",
+        targetId: "global",
+        action: "platform.pstn_capacity_policy.updated",
+        metadata: {
+          policyVersion: result.policy.version,
+          reason: input.reason,
+        },
+      }),
+    };
+  }
 
   getDashboard(): PlatformAdminDashboard {
     return {
