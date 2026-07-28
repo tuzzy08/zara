@@ -27,6 +27,8 @@ describe("PlatformAdminService PSTN capacity posture", () => {
       {} as never,
       {} as never,
       capacity as never,
+      {} as never,
+      {} as never,
     );
 
     expect(service.getRuntimeAiObservability().pstnCapacity).toEqual(capacity.getSnapshot());

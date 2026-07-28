@@ -5558,6 +5558,43 @@ button {
   letter-spacing: 0;
 }
 
+.telephony-capacity-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--zara-border-soft);
+  color: var(--zara-text-muted);
+  font-size: 13px;
+}
+
+.telephony-capacity-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-width: 0;
+}
+
+.telephony-capacity-summary svg {
+  color: #14b8a6;
+}
+
+.telephony-capacity-summary strong {
+  color: var(--zara-text-primary);
+}
+
+.telephony-capacity-strip p {
+  margin: 0;
+}
+
+.telephony-capacity-strip.is-saturated,
+.telephony-capacity-rejection {
+  color: #f59e0b;
+}
+
 .telephony-main {
   gap: 24px;
 }

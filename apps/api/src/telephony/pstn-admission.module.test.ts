@@ -9,6 +9,10 @@ import {
   PSTN_ADMISSION_REDIS_CLIENT,
 } from "./pstn-admission.module";
 import type { PstnCallAdmission } from "./pstn-call-admission";
+import {
+  InMemoryPstnCapacityPolicyRepository,
+  PSTN_CAPACITY_POLICY_REPOSITORY,
+} from "./pstn-capacity-policy.repository";
 
 const lifecycleConfig: PstnAdmissionConfig = {
   mode: "memory",
@@ -69,10 +73,14 @@ describe("PstnAdmissionModule", () => {
 
   it("fails production admission closed when Redis is not configured", async () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgres://zara:test@database/zara");
     vi.stubEnv("PSTN_ADMISSION_REDIS_URL", "");
     const module = await Test.createTestingModule({
       imports: [PstnAdmissionModule],
-    }).compile();
+    })
+      .overrideProvider(PSTN_CAPACITY_POLICY_REPOSITORY)
+      .useValue(new InMemoryPstnCapacityPolicyRepository())
+      .compile();
 
     const coordinator = module.get(PstnAdmissionCoordinator);
 
@@ -97,6 +105,20 @@ describe("PstnAdmissionModule", () => {
     await module.close();
   });
 
+  it("rejects production module wiring when durable Postgres is absent", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("PSTN_ADMISSION_REDIS_URL", "");
+
+    await expect(
+      Test.createTestingModule({
+        imports: [PstnAdmissionModule],
+      }).compile(),
+    ).rejects.toThrow(
+      "DATABASE_URL is required for production PSTN capacity state.",
+    );
+  });
+
   it.each([
     {
       label: "a malformed renewal interval",
@@ -113,6 +135,7 @@ describe("PstnAdmissionModule", () => {
     renewIntervalMs,
   }) => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgres://zara:test@database/zara");
     vi.stubEnv("PSTN_ADMISSION_REDIS_URL", "redis://redis:6379");
     vi.stubEnv("PSTN_ADMISSION_GLOBAL_CPS_RATE", "10");
     vi.stubEnv("PSTN_ADMISSION_GLOBAL_CPS_BURST", "10");

@@ -53,6 +53,44 @@ describe("TelephonyController", () => {
     vi.restoreAllMocks();
   });
 
+  it("returns only the authenticated tenant's capacity posture", async () => {
+    const unauthenticatedApp = await createTestingApp({
+      installTenantAuth: false,
+    });
+    const unauthenticated = await request(
+      unauthenticatedApp.getHttpServer(),
+    ).get("/organizations/tenant-west-africa/telephony/capacity");
+    expect(unauthenticated.status).toBe(401);
+    await unauthenticatedApp.close();
+
+    const app = await createTestingApp();
+    const ownPosture = await withTestTenantAuth(
+      request(app.getHttpServer()).get(
+        "/organizations/tenant-west-africa/telephony/capacity",
+      ),
+    );
+
+    expect(ownPosture.status).toBe(200);
+    expect(ownPosture.body.capacity).toMatchObject({
+      telemetryStatus: "fresh",
+      effectiveAllowance: 20,
+      activeUse: 0,
+      remainingCapacity: 20,
+    });
+    expect(JSON.stringify(ownPosture.body)).not.toMatch(
+      /workerId|providerAccount|redis/i,
+    );
+
+    const crossTenant = await withTestTenantAuth(
+      request(app.getHttpServer()).get(
+        "/organizations/tenant-west-africa/telephony/capacity",
+      ),
+      { organizationId: "tenant-other" },
+    );
+    expect(crossTenant.status).toBe(403);
+    await app.close();
+  }, 15_000);
+
   it("requires tenant membership for telephony control routes and derives the actor from tenant auth", async () => {
     const unauthenticatedApp = await createTestingApp({ installTenantAuth: false });
 

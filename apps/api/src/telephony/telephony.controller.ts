@@ -18,10 +18,24 @@ import {
   type TenantAuthContext,
 } from "../auth/tenant-auth";
 import { TelephonyService } from "./telephony.service";
+import { PstnCapacityReadService } from "./pstn-capacity-read.service";
 
 @Controller()
 export class TelephonyController {
-  constructor(private readonly telephonyService: TelephonyService) {}
+  constructor(
+    private readonly telephonyService: TelephonyService,
+    private readonly pstnCapacityReadService: PstnCapacityReadService,
+  ) {}
+
+  @Get("organizations/:organizationId/telephony/capacity")
+  @UseGuards(TenantOrganizationGuard)
+  async getCapacity(@Param("organizationId") organizationId: string) {
+    return {
+      capacity: await this.pstnCapacityReadService.getTenantPosture(
+        organizationId,
+      ),
+    };
+  }
 
   @Get("organizations/:organizationId/telephony/state")
   @UseGuards(TenantOrganizationGuard)

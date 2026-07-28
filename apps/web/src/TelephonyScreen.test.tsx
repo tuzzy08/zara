@@ -26,6 +26,7 @@ const telephonyApiMock = vi.hoisted(() => ({
   deleteTelephonyConnectionViaApi: vi.fn(),
   dispatchInboundTelephonyTestViaApi: vi.fn(),
   dispatchOutboundTelephonyCallViaApi: vi.fn(),
+  fetchTelephonyCapacity: vi.fn(),
   fetchTelephonyState: vi.fn(),
   importTwilioNumbersViaApi: vi.fn(),
   pauseTelephonyLiveRouteViaApi: vi.fn(),
@@ -45,6 +46,16 @@ describe("TelephonyScreen", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
+    telephonyApiMock.fetchTelephonyCapacity.mockResolvedValue({
+      capturedAt: "2026-07-28T10:00:00.000Z",
+      telemetryStatus: "fresh",
+      operationalState: "healthy",
+      effectiveAllowance: 20,
+      activeUse: 0,
+      remainingCapacity: 20,
+      saturated: false,
+      recentRejections: [],
+    });
   });
 
   afterEach(() => {
@@ -205,6 +216,62 @@ describe("TelephonyScreen", () => {
     );
     expect(screen.getByRole("button", { name: "Import phone numbers" }).className).toContain(
       "telephony-action-import",
+    );
+  });
+
+  it("shows unknown capacity instead of zero when tenant telemetry is stale", async () => {
+    const organizationId = "tenant-custom-voice";
+    telephonyApiMock.fetchTelephonyState.mockResolvedValue(createTelephonyState(organizationId, []));
+    telephonyApiMock.fetchTelephonyCapacity.mockResolvedValue({
+      capturedAt: "2026-07-28T09:55:00.000Z",
+      telemetryStatus: "stale",
+      operationalState: "degraded",
+      effectiveAllowance: 12,
+      activeUse: null,
+      remainingCapacity: null,
+      saturated: null,
+      recentRejections: [
+        {
+          occurredAt: "2026-07-28T09:54:00.000Z",
+          code: "capacity_reached",
+          message: "Your current call capacity is in use. Try again shortly or contact support.",
+        },
+      ],
+    });
+
+    renderTelephonyScreen({ organizationId });
+
+    const capacity = await screen.findByRole("region", { name: "Call capacity" });
+    expect(capacity.textContent).toContain("12 call allowance");
+    expect(capacity.textContent).toContain("In use unknown");
+    expect(capacity.textContent).toContain("Capacity data is temporarily stale");
+    expect(capacity.textContent).toContain("Your current call capacity is in use");
+    expect(capacity.textContent).not.toContain("In use 0");
+  });
+
+  it("shows a degraded tenant capacity posture", async () => {
+    const organizationId = "tenant-custom-voice";
+    telephonyApiMock.fetchTelephonyState.mockResolvedValue(
+      createTelephonyState(organizationId, []),
+    );
+    telephonyApiMock.fetchTelephonyCapacity.mockResolvedValue({
+      capturedAt: "2026-07-28T10:00:00.000Z",
+      telemetryStatus: "fresh",
+      operationalState: "degraded",
+      effectiveAllowance: 12,
+      activeUse: 4,
+      remainingCapacity: 8,
+      saturated: false,
+      recentRejections: [],
+    });
+
+    renderTelephonyScreen({ organizationId });
+
+    const capacity = await screen.findByRole("region", {
+      name: "Call capacity",
+    });
+    expect(capacity.textContent).toContain(
+      "Recent call attempts encountered capacity pressure",
     );
   });
 });

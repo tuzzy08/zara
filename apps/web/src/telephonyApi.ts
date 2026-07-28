@@ -78,6 +78,21 @@ export interface TelephonyStateResponse {
   callControlEvents: TelephonyCallControlEvent[];
 }
 
+export interface TelephonyCapacityPosture {
+  capturedAt: string;
+  telemetryStatus: "fresh" | "stale" | "unavailable";
+  operationalState: "healthy" | "degraded" | "saturated" | "unavailable";
+  effectiveAllowance: number;
+  activeUse: number | null;
+  remainingCapacity: number | null;
+  saturated: boolean | null;
+  recentRejections: Array<{
+    occurredAt: string;
+    code: "capacity_reached" | "provider_unavailable" | "retry_later";
+    message: string;
+  }>;
+}
+
 interface TelephonyStateEnvelope {
   state: TelephonyStateResponse;
 }
@@ -101,6 +116,13 @@ export async function validateTwilioCredentialsViaApi(input: {
 
 export async function fetchTelephonyState(organizationId: string) {
   return requestJson<TelephonyStateResponse>(`/organizations/${organizationId}/telephony/state`);
+}
+
+export async function fetchTelephonyCapacity(organizationId: string) {
+  const response = await requestJson<{ capacity: TelephonyCapacityPosture }>(
+    `/organizations/${organizationId}/telephony/capacity`,
+  );
+  return response.capacity;
 }
 
 export async function createTwilioConnectionViaApi(input: {

@@ -7,6 +7,7 @@ export const maxPstnAdmissionRefillPerSecond = 100_000;
 export const PSTN_ADMISSION_REASON_CODES = [
   "global_concurrency_limit",
   "provider_concurrency_limit",
+  "provider_account_concurrency_limit",
   "tenant_concurrency_limit",
   "runtime_concurrency_limit",
   "worker_concurrency_limit",
@@ -22,6 +23,7 @@ export type PstnAdmissionReasonCode =
 export type PstnAdmissionLimitingDimension =
   | "global_concurrency"
   | "provider_concurrency"
+  | "provider_account_concurrency"
   | "tenant_concurrency"
   | "runtime_concurrency"
   | "worker_concurrency"
@@ -32,6 +34,7 @@ export type PstnAdmissionLimitingDimension =
 export interface PstnCallAdmissionLimits {
   global: number;
   provider: number;
+  providerAccount?: number | undefined;
   tenant: number;
   runtime: number;
   worker: number;
@@ -58,6 +61,58 @@ export interface PstnCallAdmissionInput {
   claimTtlMs: number;
   activeTtlMs: number;
 }
+
+export interface PstnCallAdmissionUsageInput {
+  tenantId: string;
+  providerAccountId: string;
+  workerId: string;
+  provider: string;
+  runtime: string;
+}
+
+export interface PstnCallAdmissionDimensionUsage {
+  total: number;
+  active: number;
+  reservations: number;
+}
+
+export type PstnCallAdmissionUsageDimension =
+  | "global"
+  | "provider"
+  | "providerAccount"
+  | "tenant"
+  | "runtime"
+  | "worker";
+
+export interface PstnCallAdmissionDimensionUsageInput
+  extends PstnCallAdmissionUsageInput {
+  dimension: PstnCallAdmissionUsageDimension;
+}
+
+export type PstnCallAdmissionDimensionUsageResult =
+  | {
+      status: "available";
+      counts: PstnCallAdmissionDimensionUsage[];
+    }
+  | {
+      status: "unavailable";
+    };
+
+export type PstnCallAdmissionUsage =
+  | {
+      status: "available";
+      counts: {
+        global: PstnCallAdmissionDimensionUsage;
+        provider: PstnCallAdmissionDimensionUsage;
+        providerAccount: PstnCallAdmissionDimensionUsage;
+        tenant: PstnCallAdmissionDimensionUsage;
+        runtime: PstnCallAdmissionDimensionUsage;
+        worker: PstnCallAdmissionDimensionUsage;
+      };
+    }
+  | {
+      status: "unavailable";
+    };
 
 export interface PstnCallAdmissionLeaseInput {
   reservationId: string;
@@ -178,6 +233,12 @@ export interface PstnCallAdmission {
     input: PstnCallAdmissionReleaseInput,
   ): Promise<PstnCallAdmissionReleaseResult>;
   getHealth(): Promise<PstnCallAdmissionHealth>;
+  getUsage?(
+    input: PstnCallAdmissionUsageInput,
+  ): Promise<PstnCallAdmissionUsage>;
+  getDimensionUsage?(
+    inputs: readonly PstnCallAdmissionDimensionUsageInput[],
+  ): Promise<PstnCallAdmissionDimensionUsageResult>;
 }
 
 export function assertPstnCallAdmissionLeaseInput(

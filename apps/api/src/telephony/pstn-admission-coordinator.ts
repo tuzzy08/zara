@@ -4,6 +4,7 @@ import type {
   PstnAdmissionRuntimePath,
 } from "./pstn-admission-config";
 import type {
+  PstnAdmissionReasonCode,
   PstnCallAdmission,
   PstnCallAdmissionInput,
   PstnCallAdmissionReleaseResult,
@@ -51,6 +52,28 @@ type PstnAdmissionObservability = Pick<
   | "recordAdmissionPosture"
 >;
 
+interface PstnAdmissionPolicyResolver {
+  resolveAdmissionPolicy(
+    scope: Pick<
+      PstnAdmissionScope,
+      | "tenantId"
+      | "provider"
+      | "providerAccountId"
+      | "runtime"
+      | "workerId"
+      | "providerAvailable"
+    >,
+  ): Promise<Pick<PstnCallAdmissionInput, "limits" | "cps">>;
+}
+
+interface PstnCapacityRejectionRecorder {
+  record(input: {
+    tenantId: string;
+    callSessionId: string;
+    reasonCode: PstnAdmissionReasonCode;
+  }): Promise<void>;
+}
+
 export interface PstnAdmissionOwnershipLostEvent {
   tenantId: string;
   callSessionId: string;
@@ -77,6 +100,7 @@ export class PstnAdmissionCoordinator {
   private releaseRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
+  private inFlightRejectionRecords = 0;
   private readonly ownershipLostListeners = new Set<
     (event: PstnAdmissionOwnershipLostEvent) => void | Promise<void>
   >();
@@ -88,13 +112,34 @@ export class PstnAdmissionCoordinator {
     private readonly admission: PstnCallAdmission,
     private readonly config: PstnAdmissionConfig,
     private readonly observability?: PstnAdmissionObservability,
+    private readonly policyResolver?: PstnAdmissionPolicyResolver,
+    private readonly rejectionRecorder?: PstnCapacityRejectionRecorder,
   ) {}
 
   async reserve(
     scope: PstnAdmissionScope,
   ): Promise<PstnCallAdmissionReserveResult> {
-    const input = this.buildInput(scope);
     const startedAt = Date.now();
+    let input: PstnCallAdmissionInput;
+    try {
+      input = await this.buildInput(scope);
+    } catch {
+      const result = {
+        outcome: "denied" as const,
+        reasonCode: "backend_unavailable" as const,
+        limitingDimension: "backend" as const,
+      };
+      this.observability?.recordAdmission({
+        outcome: "denied",
+        reasonCode: result.reasonCode,
+        limitingDimension: result.limitingDimension,
+        runtimePath: scope.runtime,
+        provider: scope.provider,
+        latencyMs: Date.now() - startedAt,
+      });
+      void this.recordRejection(scope, result.reasonCode);
+      return result;
+    }
     if (this.unresolvedActiveLeases.size > 0) {
       const result = {
         outcome: "denied" as const,
@@ -107,6 +152,7 @@ export class PstnAdmissionCoordinator {
         provider: scope.provider,
         latencyMs: Date.now() - startedAt,
       });
+      void this.recordRejection(scope, result.reasonCode);
       return result;
     }
     const result = await this.admission.reserve(input);
@@ -138,6 +184,8 @@ export class PstnAdmissionCoordinator {
         });
         this.recordAdmissionPosture();
       }
+    } else {
+      void this.recordRejection(scope, result.reasonCode);
     }
     return result;
   }
@@ -154,7 +202,7 @@ export class PstnAdmissionCoordinator {
       if (!isCompleteRecoveryScope(recoveryScope)) {
         return { outcome: "not_found" as const };
       }
-      recoveryInput = this.buildRecoveryInput(
+      recoveryInput = await this.buildRecoveryInput(
         tenantId,
         callSessionId,
         recoveryScope,
@@ -164,7 +212,7 @@ export class PstnAdmissionCoordinator {
     const result = await this.admission.activate({
       reservationId: key,
       workerId: recoveryInput.workerId,
-      workerLimit: this.config.limits.worker,
+      workerLimit: recoveryInput.limits.worker,
       activeTtlMs: this.config.activeTtlMs,
     });
     this.recordLease(
@@ -285,16 +333,23 @@ export class PstnAdmissionCoordinator {
     this.recordAdmissionPosture();
   }
 
-  private buildInput(scope: PstnAdmissionScope): PstnCallAdmissionInput {
+  private async buildInput(
+    scope: PstnAdmissionScope,
+  ): Promise<PstnCallAdmissionInput> {
+    const workerId = scope.workerId ?? this.config.workerId;
+    const resolved = await this.policyResolver?.resolveAdmissionPolicy({
+      ...scope,
+      workerId,
+    });
     return {
       reservationId: this.trackingKey(scope.tenantId, scope.callSessionId),
       callSessionId: scope.callSessionId,
       tenantId: scope.tenantId,
       providerAccountId: scope.providerAccountId,
-      workerId: scope.workerId ?? this.config.workerId,
+      workerId,
       provider: scope.provider,
       runtime: scope.runtime,
-      limits: {
+      limits: resolved?.limits ?? {
         global: this.config.limits.global,
         provider:
           scope.providerAvailable === false
@@ -308,7 +363,7 @@ export class PstnAdmissionCoordinator {
         runtime: this.config.limits.runtime[scope.runtime],
         worker: this.config.limits.worker,
       },
-      cps: this.config.cps,
+      cps: resolved?.cps ?? this.config.cps,
       claimTtlMs: this.config.claimTtlMs,
       activeTtlMs: this.config.activeTtlMs,
     };
@@ -318,7 +373,7 @@ export class PstnAdmissionCoordinator {
     tenantId: string,
     callSessionId: string,
     recoveryScope: PstnAdmissionRecoveryScope,
-  ): PstnCallAdmissionInput {
+  ): Promise<PstnCallAdmissionInput> {
     return this.buildInput({
       tenantId,
       callSessionId,
@@ -690,6 +745,27 @@ export class PstnAdmissionCoordinator {
     });
   }
 
+  private async recordRejection(
+    scope: PstnAdmissionScope,
+    reasonCode: PstnAdmissionReasonCode,
+  ) {
+    if (this.inFlightRejectionRecords >= maxConcurrentRejectionRecords) {
+      return;
+    }
+    this.inFlightRejectionRecords += 1;
+    try {
+      await this.rejectionRecorder?.record({
+        tenantId: scope.tenantId,
+        callSessionId: scope.callSessionId,
+        reasonCode,
+      });
+    } catch {
+      // Rejection persistence is observability and must not alter admission.
+    } finally {
+      this.inFlightRejectionRecords -= 1;
+    }
+  }
+
   private trackingKey(tenantId: string, callSessionId: string) {
     return `${tenantId}\0${callSessionId}`;
   }
@@ -707,6 +783,8 @@ export class PstnAdmissionCoordinator {
     });
   }
 }
+
+const maxConcurrentRejectionRecords = 16;
 
 function isCompleteRecoveryScope(
   scope: PstnAdmissionRecoveryScope | undefined,

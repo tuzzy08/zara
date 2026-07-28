@@ -113,6 +113,13 @@
       "when": 1785091867581,
       "tag": "0015_telephony_premium_owner_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785245308079,
+      "tag": "0016_fancy_the_stranger",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,7 @@ function createInput(
     limits: {
       global: 20,
       provider: 20,
+      providerAccount: 20,
       tenant: 20,
       runtime: 20,
       worker: 20,
@@ -44,6 +45,58 @@ function createInput(
 }
 
 describe("InMemoryPstnCallAdmission", () => {
+  it("reports current usage for every admission dimension", async () => {
+    const admission = new InMemoryPstnCallAdmission(() => startTimeMs);
+    await admission.reserve(createInput());
+    await admission.reserve(
+      createInput({
+        reservationId: "reservation-b",
+        callSessionId: "call-b",
+        tenantId: "tenant-b",
+        workerId: "worker-b",
+      }),
+    );
+
+    await expect(
+      admission.getUsage(createInput()),
+    ).resolves.toEqual({
+      status: "available",
+      counts: {
+        global: { total: 2, active: 0, reservations: 2 },
+        provider: { total: 2, active: 0, reservations: 2 },
+        providerAccount: { total: 2, active: 0, reservations: 2 },
+        tenant: { total: 1, active: 0, reservations: 1 },
+        runtime: { total: 2, active: 0, reservations: 2 },
+        worker: { total: 1, active: 0, reservations: 1 },
+      },
+    });
+  });
+
+  it("reads selected dimensions in one bounded snapshot", async () => {
+    const admission = new InMemoryPstnCallAdmission(() => startTimeMs);
+    await admission.reserve(createInput());
+    await admission.reserve(
+      createInput({
+        reservationId: "reservation-b",
+        callSessionId: "call-b",
+        tenantId: "tenant-b",
+      }),
+    );
+
+    await expect(
+      admission.getDimensionUsage([
+        { ...createInput(), dimension: "global" },
+        { ...createInput(), dimension: "tenant" },
+      ]),
+    ).resolves.toEqual({
+      status: "available",
+      counts: [
+        { total: 2, active: 0, reservations: 2 },
+        { total: 1, active: 0, reservations: 1 },
+      ],
+    });
+  });
+
   it.each<
     [
       keyof PstnCallAdmissionInput["limits"],
@@ -67,6 +120,16 @@ describe("InMemoryPstnCallAdmission", () => {
       "provider",
       "provider_concurrency_limit",
       "provider_concurrency",
+      {
+        tenantId: "tenant-b",
+        runtime: "cost-optimized",
+        workerId: "worker-b",
+      },
+    ],
+    [
+      "providerAccount",
+      "provider_account_concurrency_limit",
+      "provider_account_concurrency",
       {
         tenantId: "tenant-b",
         runtime: "cost-optimized",
@@ -124,7 +187,6 @@ describe("InMemoryPstnCallAdmission", () => {
             ...secondScope,
             reservationId: "reservation-b",
             callSessionId: "call-b",
-            providerAccountId: "account-b",
             limits,
           }),
         ),
@@ -136,6 +198,44 @@ describe("InMemoryPstnCallAdmission", () => {
       });
     },
   );
+
+  it("isolates provider-account concurrency quotas within the same provider", async () => {
+    const admission = new InMemoryPstnCallAdmission(() => startTimeMs);
+    const limits = {
+      ...createInput().limits,
+      provider: 10,
+      providerAccount: 1,
+    };
+
+    await expect(admission.reserve(createInput({ limits }))).resolves.toMatchObject({
+      outcome: "admitted",
+    });
+    await expect(
+      admission.reserve(
+        createInput({
+          reservationId: "reservation-b",
+          callSessionId: "call-b",
+          limits,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      outcome: "denied",
+      reasonCode: "provider_account_concurrency_limit",
+      limitingDimension: "provider_account_concurrency",
+    });
+    await expect(
+      admission.reserve(
+        createInput({
+          reservationId: "reservation-c",
+          callSessionId: "call-c",
+          providerAccountId: "account-b",
+          limits,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      outcome: "admitted",
+    });
+  });
 
   it("closes new admission when an effective concurrency limit is zero", async () => {
     const admission = new InMemoryPstnCallAdmission(() => startTimeMs);

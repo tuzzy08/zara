@@ -31,6 +31,9 @@ import {
   telephonyProviderHeartbeats,
   telephonyWebhookEvents,
   memoryEmbeddings,
+  pstnCapacityPolicy,
+  pstnCapacityPolicyAudit,
+  pstnCapacityRejections,
   tenants,
 } from "./schema";
 
@@ -372,6 +375,40 @@ describe("database foundations", () => {
     expect(workflowFile).toContain("has_outbound_abuse_blocked");
     expect(workflowFile).toContain("compatibility_table");
     expect(workflowFile).toContain("compatibility_write_count");
+  });
+
+  it("defines durable PSTN capacity policy, audit, and tenant rejection tables", () => {
+    expect(getTableName(pstnCapacityPolicy)).toBe("pstn_capacity_policy");
+    expect(Object.keys(getTableColumns(pstnCapacityPolicy))).toEqual([
+      "id",
+      "version",
+      "policy",
+      "updatedBy",
+      "updatedAt",
+    ]);
+    expect(getTableName(pstnCapacityPolicyAudit)).toBe(
+      "pstn_capacity_policy_audit",
+    );
+    expect(getTableName(pstnCapacityRejections)).toBe(
+      "pstn_capacity_rejections",
+    );
+
+    const migrationFile = readFileSync(
+      resolve(
+        repositoryRoot,
+        "apps/api/src/database/migrations/0016_fancy_the_stranger.sql",
+      ),
+      "utf8",
+    );
+    expect(migrationFile).toContain(
+      'CHECK ("pstn_capacity_policy"."id" = \'global\')',
+    );
+    expect(migrationFile).toContain(
+      'FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade',
+    );
+    expect(migrationFile).toContain(
+      'CREATE INDEX "pstn_capacity_rejections_tenant_occurred_at_idx"',
+    );
   });
 
   it("ships a durable premium worker ownership lease deadline", () => {

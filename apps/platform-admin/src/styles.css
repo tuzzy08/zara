@@ -522,6 +522,142 @@ h1 {
   margin-bottom: 24px;
 }
 
+.capacity-posture-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 20px;
+}
+
+.capacity-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.capacity-status {
+  text-transform: capitalize;
+}
+
+.capacity-status--fresh {
+  color: #147d52;
+  box-shadow: inset 0 0 0 1px rgba(20, 125, 82, 0.35);
+}
+
+.capacity-status--healthy {
+  color: #147d52;
+  box-shadow: inset 0 0 0 1px rgba(20, 125, 82, 0.35);
+}
+
+.capacity-status--stale {
+  color: #9b5c00;
+  box-shadow: inset 0 0 0 1px rgba(214, 132, 22, 0.4);
+}
+
+.capacity-status--degraded,
+.capacity-status--saturated {
+  color: #9b5c00;
+  box-shadow: inset 0 0 0 1px rgba(214, 132, 22, 0.4);
+}
+
+.capacity-status--unavailable {
+  color: #b42318;
+  box-shadow: inset 0 0 0 1px rgba(180, 35, 24, 0.35);
+}
+
+.capacity-qualification-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.capacity-qualification-grid div {
+  min-width: 0;
+}
+
+.capacity-qualification-grid dt {
+  color: #666666;
+  font-size: 12px;
+}
+
+.capacity-qualification-grid dd {
+  margin: 4px 0 0;
+  color: #171717;
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.capacity-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  padding-top: 8px;
+}
+
+.capacity-evidence-grid h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.capacity-empty {
+  color: #666666;
+  font-size: 13px;
+}
+
+.capacity-policy-panel {
+  border-top: 2px solid #d68416;
+}
+
+.capacity-reduction-fields {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  box-shadow: inset 0 1px 0 var(--zara-border-soft);
+}
+
+.capacity-audit-list,
+.capacity-audit-list details,
+.capacity-audit-snapshots {
+  display: grid;
+  gap: 10px;
+}
+
+.capacity-audit-list details {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--zara-border-soft);
+}
+
+.capacity-audit-list summary {
+  cursor: pointer;
+  color: #171717;
+  font-weight: 700;
+}
+
+.capacity-audit-snapshots {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.capacity-audit-snapshots pre {
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px;
+  background: #f7f7f7;
+  color: #171717;
+  font-size: 11px;
+}
+
+@media (max-width: 860px) {
+  .capacity-evidence-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .capacity-audit-snapshots {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .admin-form-panel {
   display: grid;
   grid-template-columns: minmax(220px, 0.65fr) minmax(0, 1.35fr);

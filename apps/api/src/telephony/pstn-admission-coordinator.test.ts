@@ -157,6 +157,132 @@ describe("PstnAdmissionCoordinator", () => {
     expect(calls.reserve[0]?.limits.provider).toBe(2);
   });
 
+  it("uses the current operational policy for every new reservation", async () => {
+    const { admission, calls } = createAdmission();
+    const resolveAdmissionPolicy = vi.fn(async () => ({
+      policyVersion: 7,
+      limits: {
+        global: 11,
+        provider: 9,
+        tenant: 3,
+        runtime: 6,
+        worker: 4,
+      },
+      cps: {
+        global: { capacity: 4, refillPerSecond: 3 },
+        providerAccount: { capacity: 2, refillPerSecond: 1 },
+      },
+      activeReductionIds: ["incident-7"],
+    }));
+    const coordinator = new PstnAdmissionCoordinator(
+      admission,
+      config,
+      undefined,
+      { resolveAdmissionPolicy },
+    );
+
+    await coordinator.reserve(scope);
+
+    expect(resolveAdmissionPolicy).toHaveBeenCalledWith({
+      ...scope,
+      workerId: "worker-a",
+    });
+    expect(calls.reserve[0]).toMatchObject({
+      limits: {
+        global: 11,
+        provider: 9,
+        tenant: 3,
+        runtime: 6,
+        worker: 4,
+      },
+      cps: {
+        global: { capacity: 4, refillPerSecond: 3 },
+        providerAccount: { capacity: 2, refillPerSecond: 1 },
+      },
+    });
+  });
+
+  it("fails closed when operational policy cannot be loaded", async () => {
+    const { admission, calls } = createAdmission();
+    const rejectionRecorder = { record: vi.fn(async () => undefined) };
+    const coordinator = new PstnAdmissionCoordinator(
+      admission,
+      config,
+      undefined,
+      {
+        resolveAdmissionPolicy: vi.fn(async () => {
+          throw new Error("policy store unavailable");
+        }),
+      },
+      rejectionRecorder,
+    );
+
+    await expect(coordinator.reserve(scope)).resolves.toEqual({
+      outcome: "denied",
+      reasonCode: "backend_unavailable",
+      limitingDimension: "backend",
+    });
+    expect(calls.reserve).toHaveLength(0);
+    expect(rejectionRecorder.record).toHaveBeenCalledWith({
+      tenantId: scope.tenantId,
+      callSessionId: scope.callSessionId,
+      reasonCode: "backend_unavailable",
+    });
+  });
+
+  it("records denied reservations for tenant-safe rejection history", async () => {
+    const { admission } = createAdmission();
+    admission.reserve = vi.fn(async () => ({
+      outcome: "denied" as const,
+      reasonCode: "tenant_concurrency_limit" as const,
+      limitingDimension: "tenant_concurrency" as const,
+      remainingCapacity: 0,
+    }));
+    const rejectionRecorder = { record: vi.fn(async () => undefined) };
+    const coordinator = new PstnAdmissionCoordinator(
+      admission,
+      config,
+      undefined,
+      undefined,
+      rejectionRecorder,
+    );
+
+    await coordinator.reserve(scope);
+
+    expect(rejectionRecorder.record).toHaveBeenCalledWith({
+      tenantId: "tenant-a",
+      callSessionId: "CA123:telephony",
+      reasonCode: "tenant_concurrency_limit",
+    });
+  });
+
+  it("does not delay admission responses while rejection evidence persists", async () => {
+    const { admission } = createAdmission();
+    admission.reserve = vi.fn(async () => ({
+      outcome: "denied" as const,
+      reasonCode: "tenant_concurrency_limit" as const,
+    }));
+    const coordinator = new PstnAdmissionCoordinator(
+      admission,
+      config,
+      undefined,
+      undefined,
+      { record: vi.fn(() => new Promise<void>(() => undefined)) },
+    );
+
+    const result = await Promise.race([
+      coordinator.reserve(scope),
+      new Promise<"timed_out">((resolve) =>
+        setTimeout(() => resolve("timed_out"), 20)
+      ),
+    ]);
+
+    expect(result).toEqual({
+      outcome: "denied",
+      reasonCode: "tenant_concurrency_limit",
+    });
+  });
+
   it("activates a tracked claim and renews active calls on one shared timer", async () => {
     vi.useFakeTimers();
     const { admission, calls } = createAdmission();

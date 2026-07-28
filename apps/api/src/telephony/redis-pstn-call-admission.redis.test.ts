@@ -113,6 +113,50 @@ describeWithRedis("RedisPstnCallAdmission with real Redis", () => {
     ).toHaveLength(20);
   });
 
+  it("reads selected dimensions with one real Redis script", async () => {
+    const usageAdmission = new RedisPstnCallAdmission(firstClient, {
+      keyPrefix: createKeyPrefix("dimension-usage"),
+    });
+    const first = createInput(900, { tenantId: "tenant-usage-a" });
+    const second = createInput(901, { tenantId: "tenant-usage-b" });
+    await usageAdmission.reserve(first);
+    await usageAdmission.reserve(second);
+
+    await expect(
+      usageAdmission.getDimensionUsage([
+        { ...first, dimension: "global" },
+        { ...first, dimension: "tenant" },
+      ]),
+    ).resolves.toEqual({
+      status: "available",
+      counts: [
+        { total: 2, active: 0, reservations: 2 },
+        { total: 1, active: 0, reservations: 1 },
+      ],
+    });
+  });
+
+  it("bounds real Redis member inspection for usage telemetry", async () => {
+    const usagePrefix = createKeyPrefix("bounded-dimension-usage");
+    const writer = new RedisPstnCallAdmission(firstClient, {
+      keyPrefix: usagePrefix,
+    });
+    const boundedReader = new RedisPstnCallAdmission(firstClient, {
+      keyPrefix: usagePrefix,
+      usageMemberLimit: 1,
+    });
+    const first = createInput(902);
+    const second = createInput(903);
+    await writer.reserve(first);
+    await writer.reserve(second);
+
+    await expect(
+      boundedReader.getDimensionUsage([
+        { ...first, dimension: "global" },
+      ]),
+    ).resolves.toEqual({ status: "unavailable" });
+  });
+
   it.each(concurrencyCases)(
     "enforces the $dimension concurrency limit atomically while isolating scopes",
     async ({ dimension, limit, reasonCode, isolatedScope }) => {
@@ -213,6 +257,36 @@ describeWithRedis("RedisPstnCallAdmission with real Redis", () => {
       outcome: "admitted",
       disposition: "created",
     });
+  });
+
+  it("enforces provider-account concurrency without consuming another account's quota", async () => {
+    const admission = new RedisPstnCallAdmission(firstClient, {
+      keyPrefix: createKeyPrefix("account-concurrency"),
+    });
+    const limits = {
+      ...createInput(1_400).limits,
+      provider: 10,
+      providerAccount: 1,
+    };
+
+    await expect(
+      admission.reserve(createInput(1_400, { limits })),
+    ).resolves.toMatchObject({ outcome: "admitted" });
+    await expect(
+      admission.reserve(createInput(1_401, { limits })),
+    ).resolves.toMatchObject({
+      outcome: "denied",
+      reasonCode: "provider_account_concurrency_limit",
+      limitingDimension: "provider_account_concurrency",
+    });
+    await expect(
+      admission.reserve(
+        createInput(1_402, {
+          providerAccountId: "account-b",
+          limits,
+        }),
+      ),
+    ).resolves.toMatchObject({ outcome: "admitted" });
   });
 
   it("reuses a duplicate reservation without consuming CPS twice", async () => {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -41,6 +42,9 @@ import type {
   PlatformBillingControls,
   PlatformOrganizationStatus,
 } from "./platform-admin.models";
+import type {
+  UpdatePstnCapacityPolicyInput,
+} from "../telephony/pstn-capacity-policy.models";
 
 @Controller("platform-admin")
 @UseGuards(PlatformAdminGuard)
@@ -167,6 +171,34 @@ export class PlatformAdminController {
     return {
       aiObservability: this.platformAdminService.getRuntimeAiObservability(),
     };
+  }
+
+  @Get("telephony/capacity")
+  async getPstnCapacityPosture(
+    @Query("scopeOffset") scopeOffsetValue?: string,
+  ) {
+    const scopeOffset =
+      scopeOffsetValue === undefined ? 0 : Number(scopeOffsetValue);
+    if (!Number.isInteger(scopeOffset) || scopeOffset < 0) {
+      throw new BadRequestException(
+        "Capacity scope offset must be a non-negative integer.",
+      );
+    }
+    return {
+      capacity: await this.platformAdminService.getPstnCapacityPosture(
+        scopeOffset,
+      ),
+    };
+  }
+
+  @Patch("telephony/capacity-policy")
+  async updatePstnCapacityPolicy(
+    @Req() request: Record<string | symbol, unknown>,
+    @Body() body: UpdatePstnCapacityPolicyInput,
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context);
+    return this.platformAdminService.updatePstnCapacityPolicy(context, body);
   }
 
   @Get("runtime/prompt-policy")

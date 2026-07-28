@@ -6,8 +6,10 @@ import {
   PlatformAdminApp,
   buildPlatformAgentClassCreatePayload,
   buildPremiumRealtimeConversationPolicyUpdatePayload,
+  buildPstnCapacityPolicyUpdatePayload,
   buildRuntimePromptPolicyUpdatePayload,
   buildRuntimeRoutePolicyUpdatePayload,
+  markPstnCapacityPostureUnavailable,
   normalizeRuntimePromptPolicyPreview,
 } from "./index";
 
@@ -70,6 +72,9 @@ describe("platform admin auth gate", () => {
       renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />),
     ).toContain("Provider health");
     expect(
+      renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/capacity" />),
+    ).toContain("PSTN capacity");
+    expect(
       renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/billing" />),
     ).toContain("Usage and billing controls");
     expect(
@@ -81,6 +86,118 @@ describe("platform admin auth gate", () => {
     expect(
       renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/abuse" />),
     ).toContain("Abuse and compliance review");
+  });
+
+  it("renders and builds versioned PSTN capacity controls", () => {
+    const capacity = renderToStaticMarkup(
+      <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/capacity" />,
+    );
+    expect(capacity).toContain("PSTN capacity");
+    expect(capacity).toContain("Loading current admission posture");
+    expect(capacity).not.toContain("Apply capacity policy");
+
+    const form = new FormData();
+    form.set("expectedVersion", "4");
+    form.set("reason", "Protect calls during provider recovery.");
+    form.set("limits.global", "18");
+    form.set("limits.provider", "14");
+    form.set("limits.tenantDefault", "8");
+    form.set("limits.worker", "6");
+    form.set("limits.runtime.pstn-sandwich", "12");
+    form.set("limits.runtime.pstn-premium-realtime", "10");
+    form.set("cps.global.capacity", "8");
+    form.set("cps.global.refillPerSecond", "6");
+    form.set("cps.providerAccount.capacity", "4");
+    form.set("cps.providerAccount.refillPerSecond", "3");
+    form.set("providerQuotas", "twilio=12");
+    form.set("providerAccountQuotas", "twilio:AC123=8");
+    form.set("tenantAllowances", "tenant-a=5");
+    form.set("workerLimits", "worker-a=4");
+    form.set("temporaryReduction.id", "incident-1");
+    form.set("temporaryReduction.scope", "tenant");
+    form.set("temporaryReduction.key", "tenant-a");
+    form.set("temporaryReduction.maxConcurrentCalls", "2");
+    form.set("temporaryReduction.startsAt", "2026-07-28T10:00");
+    form.set("temporaryReduction.expiresAt", "2026-07-28T11:00");
+    form.set("temporaryReduction.reason", "Temporary tenant reduction.");
+
+    expect(buildPstnCapacityPolicyUpdatePayload(form)).toMatchObject({
+      expectedVersion: 4,
+      reason: "Protect calls during provider recovery.",
+      limits: {
+        global: 18,
+        provider: 14,
+        tenantDefault: 8,
+        worker: 6,
+        runtime: {
+          "pstn-sandwich": 12,
+          "pstn-premium-realtime": 10,
+        },
+      },
+      providerQuotas: { twilio: 12 },
+      providerAccountQuotas: { "twilio:AC123": 8 },
+      tenantAllowances: { "tenant-a": 5 },
+      workerLimits: { "worker-a": 4 },
+      temporaryReductions: [
+        {
+          id: "incident-1",
+          scope: "tenant",
+          key: "tenant-a",
+          maxConcurrentCalls: 2,
+        },
+      ],
+    });
+
+    form.delete("temporaryReduction.id");
+    form.delete("temporaryReduction.scope");
+    form.delete("temporaryReduction.key");
+    form.delete("temporaryReduction.maxConcurrentCalls");
+    form.delete("temporaryReduction.startsAt");
+    form.delete("temporaryReduction.expiresAt");
+    form.delete("temporaryReduction.reason");
+    form.set("removeReductionId", "incident-1");
+    expect(
+      buildPstnCapacityPolicyUpdatePayload(form, [
+        {
+          id: "incident-1",
+          scope: "tenant",
+          key: "tenant-a",
+          maxConcurrentCalls: 2,
+          startsAt: "2026-07-28T10:00:00.000Z",
+          expiresAt: "2026-07-28T11:00:00.000Z",
+          reason: "Temporary tenant reduction.",
+        },
+      ]),
+    ).toMatchObject({
+      temporaryReductions: [],
+    });
+  });
+
+  it("clears stale capacity telemetry when post-mutation refresh fails", () => {
+    const current = {
+      telemetryStatus: "fresh",
+      operationalState: "healthy",
+      policy: { version: 4 },
+      dimensions: [{ scope: "global", key: "global", used: 8 }],
+      recentRejections: [{ code: "capacity_reached" }],
+    } as unknown as Parameters<typeof markPstnCapacityPostureUnavailable>[0];
+    const updatedPolicy = {
+      version: 5,
+    } as Parameters<typeof markPstnCapacityPostureUnavailable>[1];
+
+    expect(
+      markPstnCapacityPostureUnavailable(current, updatedPolicy),
+    ).toMatchObject({
+      telemetryStatus: "unavailable",
+      operationalState: "unavailable",
+      policy: { version: 5 },
+      admissionHealth: {
+        status: "unavailable",
+        reasonCode: "post_mutation_refresh_failed",
+      },
+      dimensions: [],
+      recentRejections: [],
+    });
   });
 
   it("composes staff surfaces with shared Zara UI primitives", () => {

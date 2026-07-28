@@ -10,6 +10,7 @@ import {
   type PstnCallAdmission,
   type PstnCallAdmissionActivationInput,
   type PstnCallAdmissionActivateResult,
+  type PstnCallAdmissionDimensionUsageInput,
   type PstnCallAdmissionHealth,
   type PstnCallAdmissionInput,
   type PstnCallAdmissionLeaseInput,
@@ -17,6 +18,7 @@ import {
   type PstnCallAdmissionReleaseResult,
   type PstnCallAdmissionRenewResult,
   type PstnCallAdmissionReserveResult,
+  type PstnCallAdmissionUsageInput,
 } from "./pstn-call-admission";
 import { PstnAdmissionIndeterminateError } from "./pstn-admission-redis-client";
 
@@ -30,6 +32,7 @@ export interface PstnAdmissionRedisCommands {
 
 export interface RedisPstnCallAdmissionOptions {
   keyPrefix?: string;
+  usageMemberLimit?: number;
 }
 
 const denialDimensions: Readonly<
@@ -37,6 +40,7 @@ const denialDimensions: Readonly<
 > = {
   global_concurrency_limit: "global_concurrency",
   provider_concurrency_limit: "provider_concurrency",
+  provider_account_concurrency_limit: "provider_account_concurrency",
   tenant_concurrency_limit: "tenant_concurrency",
   runtime_concurrency_limit: "runtime_concurrency",
   worker_concurrency_limit: "worker_concurrency",
@@ -52,15 +56,15 @@ local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local member = ARGV[1]
 local fingerprint = ARGV[2]
 
-for index = 2, 6 do
+for index = 2, 7 do
   redis.call("ZREMRANGEBYSCORE", KEYS[index], "-inf", now)
 end
-local expiredHoldMembers = redis.call("ZRANGEBYSCORE", KEYS[10], "-inf", now)
+local expiredHoldMembers = redis.call("ZRANGEBYSCORE", KEYS[11], "-inf", now)
 for _, expiredMember in ipairs(expiredHoldMembers) do
-  redis.call("ZREM", KEYS[9], expiredMember)
-  redis.call("HDEL", KEYS[11], expiredMember)
+  redis.call("ZREM", KEYS[10], expiredMember)
+  redis.call("HDEL", KEYS[12], expiredMember)
 end
-redis.call("ZREMRANGEBYSCORE", KEYS[10], "-inf", now)
+redis.call("ZREMRANGEBYSCORE", KEYS[11], "-inf", now)
 
 if redis.call("EXISTS", KEYS[1]) == 1 then
   local expiresAt = tonumber(redis.call("HGET", KEYS[1], "expiresAt"))
@@ -77,18 +81,19 @@ if redis.call("EXISTS", KEYS[1]) == 1 then
     return {"denied", "indeterminate_result"}
   end
   redis.call("DEL", KEYS[1])
-  for index = 2, 6 do
+  for index = 2, 7 do
     redis.call("ZREM", KEYS[index], member)
   end
 end
 
-if redis.call("ZCOUNT", KEYS[9], "-inf", now) > 0 then
+if redis.call("ZCOUNT", KEYS[10], "-inf", now) > 0 then
   return {"denied", "indeterminate_result"}
 end
 
 local concurrencyReasons = {
   "global_concurrency_limit",
   "provider_concurrency_limit",
+  "provider_account_concurrency_limit",
   "tenant_concurrency_limit",
   "runtime_concurrency_limit",
   "worker_concurrency_limit"
@@ -96,13 +101,14 @@ local concurrencyReasons = {
 local concurrencyDimensions = {
   "global_concurrency",
   "provider_concurrency",
+  "provider_account_concurrency",
   "tenant_concurrency",
   "runtime_concurrency",
   "worker_concurrency"
 }
 local limitingDimension = concurrencyDimensions[1]
 local lowestRemaining = math.huge
-for index = 2, 6 do
+for index = 2, 7 do
   local remaining = tonumber(ARGV[index + 1]) - redis.call("ZCARD", KEYS[index])
   if remaining < lowestRemaining then
     lowestRemaining = remaining
@@ -123,12 +129,12 @@ local function readBucket(key, capacity, refillPerSecond)
   return math.min(capacity, tokens + elapsedSeconds * refillPerSecond)
 end
 
-local globalCapacity = tonumber(ARGV[8])
-local globalRefill = tonumber(ARGV[9])
-local accountCapacity = tonumber(ARGV[10])
-local accountRefill = tonumber(ARGV[11])
-local globalTokens = readBucket(KEYS[7], globalCapacity, globalRefill)
-local accountTokens = readBucket(KEYS[8], accountCapacity, accountRefill)
+local globalCapacity = tonumber(ARGV[9])
+local globalRefill = tonumber(ARGV[10])
+local accountCapacity = tonumber(ARGV[11])
+local accountRefill = tonumber(ARGV[12])
+local globalTokens = readBucket(KEYS[8], globalCapacity, globalRefill)
+local accountTokens = readBucket(KEYS[9], accountCapacity, accountRefill)
 
 if globalTokens < 1 then
   return {"denied", "global_cps_limit"}
@@ -137,14 +143,14 @@ if accountTokens < 1 then
   return {"denied", "provider_account_cps_limit"}
 end
 
-redis.call("HSET", KEYS[7], "tokens", globalTokens - 1, "updatedAt", now)
-redis.call("HSET", KEYS[8], "tokens", accountTokens - 1, "updatedAt", now)
-local globalBucketTtl = math.max(tonumber(ARGV[12]), math.ceil(globalCapacity / globalRefill * 2000))
-local accountBucketTtl = math.max(tonumber(ARGV[12]), math.ceil(accountCapacity / accountRefill * 2000))
-redis.call("PEXPIRE", KEYS[7], globalBucketTtl)
-redis.call("PEXPIRE", KEYS[8], accountBucketTtl)
+redis.call("HSET", KEYS[8], "tokens", globalTokens - 1, "updatedAt", now)
+redis.call("HSET", KEYS[9], "tokens", accountTokens - 1, "updatedAt", now)
+local globalBucketTtl = math.max(tonumber(ARGV[13]), math.ceil(globalCapacity / globalRefill * 2000))
+local accountBucketTtl = math.max(tonumber(ARGV[13]), math.ceil(accountCapacity / accountRefill * 2000))
+redis.call("PEXPIRE", KEYS[8], globalBucketTtl)
+redis.call("PEXPIRE", KEYS[9], accountBucketTtl)
 
-local expiresAt = now + tonumber(ARGV[12])
+local expiresAt = now + tonumber(ARGV[13])
 redis.call(
   "HSET",
   KEYS[1],
@@ -155,12 +161,13 @@ redis.call(
   "remainingCapacity", lowestRemaining - 1,
   "globalKey", KEYS[2],
   "providerKey", KEYS[3],
-  "tenantKey", KEYS[4],
-  "runtimeKey", KEYS[5],
-  "workerKey", KEYS[6]
+  "providerAccountKey", KEYS[4],
+  "tenantKey", KEYS[5],
+  "runtimeKey", KEYS[6],
+  "workerKey", KEYS[7]
 )
 redis.call("PEXPIREAT", KEYS[1], expiresAt)
-for index = 2, 6 do
+for index = 2, 7 do
   redis.call("ZADD", KEYS[index], expiresAt, member)
   redis.call("PEXPIREAT", KEYS[index], expiresAt, "NX")
   redis.call("PEXPIREAT", KEYS[index], expiresAt, "GT")
@@ -178,11 +185,11 @@ const activateScript = `
 local clock = redis.call("TIME")
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local member = ARGV[1]
-local fullInput = #KEYS == 9
-local destinationWorkerKey = fullInput and KEYS[6] or KEYS[2]
-local holdStartsKey = fullInput and KEYS[7] or KEYS[3]
-local holdExpiresKey = fullInput and KEYS[8] or KEYS[4]
-local holdOwnersKey = fullInput and KEYS[9] or KEYS[5]
+local fullInput = #KEYS == 10
+local destinationWorkerKey = fullInput and KEYS[7] or KEYS[2]
+local holdStartsKey = fullInput and KEYS[8] or KEYS[3]
+local holdExpiresKey = fullInput and KEYS[9] or KEYS[4]
+local holdOwnersKey = fullInput and KEYS[10] or KEYS[5]
 local dimensionKeys = nil
 
 local function clearRecoveryHold()
@@ -225,11 +232,12 @@ if redis.call("EXISTS", KEYS[1]) == 1 then
   dimensionKeys = {
     redis.call("HGET", KEYS[1], "globalKey"),
     redis.call("HGET", KEYS[1], "providerKey"),
+    redis.call("HGET", KEYS[1], "providerAccountKey"),
     redis.call("HGET", KEYS[1], "tenantKey"),
     redis.call("HGET", KEYS[1], "runtimeKey"),
     redis.call("HGET", KEYS[1], "workerKey")
   }
-  for index = 1, 5 do
+  for index = 1, 6 do
     if dimensionKeys[index] == false then
       if fullInput then
         local previousEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch")) or 0
@@ -242,7 +250,7 @@ if redis.call("EXISTS", KEYS[1]) == 1 then
   local currentExpiresAt = tonumber(redis.call("HGET", KEYS[1], "expiresAt"))
   if currentExpiresAt == nil or currentExpiresAt <= now then
     redis.call("DEL", KEYS[1])
-    for index = 1, 5 do
+    for index = 1, 6 do
       redis.call("ZREM", dimensionKeys[index], member)
     end
     dimensionKeys = nil
@@ -263,6 +271,7 @@ if dimensionKeys == nil then
   local concurrencyReasons = {
     "global_concurrency_limit",
     "provider_concurrency_limit",
+    "provider_account_concurrency_limit",
     "tenant_concurrency_limit",
     "runtime_concurrency_limit",
     "worker_concurrency_limit"
@@ -270,13 +279,14 @@ if dimensionKeys == nil then
   local concurrencyDimensions = {
     "global_concurrency",
     "provider_concurrency",
+    "provider_account_concurrency",
     "tenant_concurrency",
     "runtime_concurrency",
     "worker_concurrency"
   }
   local limitingDimension = concurrencyDimensions[1]
   local lowestRemaining = math.huge
-  for index = 2, 6 do
+  for index = 2, 7 do
     redis.call("ZREMRANGEBYSCORE", KEYS[index], "-inf", now)
     local remaining = tonumber(ARGV[index + 1]) - redis.call("ZCARD", KEYS[index])
     if remaining < lowestRemaining then
@@ -288,13 +298,13 @@ if dimensionKeys == nil then
       return {"denied", concurrencyReasons[index - 1]}
     end
   end
-  dimensionKeys = {KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[6]}
+  dimensionKeys = {KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[6], KEYS[7]}
   local expiresAt = now + tonumber(ARGV[2])
   local ownershipEpoch = recoveryEpoch + 1
   redis.call(
     "HSET",
     KEYS[1],
-    "fingerprint", ARGV[8],
+    "fingerprint", ARGV[9],
     "state", "active",
     "expiresAt", expiresAt,
     "limitingDimension", limitingDimension,
@@ -302,12 +312,13 @@ if dimensionKeys == nil then
     "ownershipEpoch", ownershipEpoch,
     "globalKey", KEYS[2],
     "providerKey", KEYS[3],
-    "tenantKey", KEYS[4],
-    "runtimeKey", KEYS[5],
-    "workerKey", KEYS[6]
+    "providerAccountKey", KEYS[4],
+    "tenantKey", KEYS[5],
+    "runtimeKey", KEYS[6],
+    "workerKey", KEYS[7]
   )
   redis.call("PEXPIREAT", KEYS[1], expiresAt)
-  for index = 1, 5 do
+  for index = 1, 6 do
     redis.call("ZADD", dimensionKeys[index], expiresAt, member)
     redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "NX")
     redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "GT")
@@ -318,18 +329,18 @@ end
 
 local state = redis.call("HGET", KEYS[1], "state")
 local ownershipEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch"))
-if state == "active" and destinationWorkerKey ~= dimensionKeys[5] then
+if state == "active" and destinationWorkerKey ~= dimensionKeys[6] then
   return {"not_owner"}
 end
 
-if state ~= "active" and destinationWorkerKey ~= dimensionKeys[5] then
+if state ~= "active" and destinationWorkerKey ~= dimensionKeys[6] then
   redis.call("ZREMRANGEBYSCORE", destinationWorkerKey, "-inf", now)
   local workerLimit = fullInput and tonumber(ARGV[7]) or tonumber(ARGV[3])
   if redis.call("ZCARD", destinationWorkerKey) >= workerLimit then
     return {"denied", "worker_concurrency_limit"}
   end
-  redis.call("ZREM", dimensionKeys[5], member)
-  dimensionKeys[5] = destinationWorkerKey
+  redis.call("ZREM", dimensionKeys[6], member)
+  dimensionKeys[6] = destinationWorkerKey
   redis.call("HSET", KEYS[1], "workerKey", destinationWorkerKey)
 end
 
@@ -338,9 +349,9 @@ if state == "active" then
   if ownershipEpoch == nil then
     return {"not_owner"}
   end
-  redis.call("ZADD", dimensionKeys[5], expiresAt, member)
-  redis.call("PEXPIREAT", dimensionKeys[5], expiresAt, "NX")
-  redis.call("PEXPIREAT", dimensionKeys[5], expiresAt, "GT")
+  redis.call("ZADD", dimensionKeys[6], expiresAt, member)
+  redis.call("PEXPIREAT", dimensionKeys[6], expiresAt, "NX")
+  redis.call("PEXPIREAT", dimensionKeys[6], expiresAt, "GT")
   writeRecoveryHold(expiresAt, destinationWorkerKey, ownershipEpoch)
   return {"existing", tostring(expiresAt), tostring(ownershipEpoch)}
 end
@@ -354,7 +365,7 @@ redis.call(
   "ownershipEpoch", ownershipEpoch
 )
 redis.call("PEXPIREAT", KEYS[1], expiresAt)
-for index = 1, 5 do
+for index = 1, 6 do
   redis.call("ZADD", dimensionKeys[index], expiresAt, member)
   redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "NX")
   redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "GT")
@@ -378,11 +389,12 @@ end
 local dimensionKeys = {
   redis.call("HGET", KEYS[1], "globalKey"),
   redis.call("HGET", KEYS[1], "providerKey"),
+  redis.call("HGET", KEYS[1], "providerAccountKey"),
   redis.call("HGET", KEYS[1], "tenantKey"),
   redis.call("HGET", KEYS[1], "runtimeKey"),
   redis.call("HGET", KEYS[1], "workerKey")
 }
-for index = 1, 5 do
+for index = 1, 6 do
   if dimensionKeys[index] == false then
     return {"not_found"}
   end
@@ -391,7 +403,7 @@ end
 local expiresAt = tonumber(redis.call("HGET", KEYS[1], "expiresAt"))
 if expiresAt == nil or expiresAt <= now then
   redis.call("DEL", KEYS[1])
-  for index = 1, 5 do
+  for index = 1, 6 do
     redis.call("ZREM", dimensionKeys[index], member)
   end
   if #ARGV == 1 then
@@ -404,7 +416,7 @@ end
 if redis.call("HGET", KEYS[1], "state") ~= "active" then
   return {"not_found"}
 end
-if dimensionKeys[5] ~= KEYS[2] then
+if dimensionKeys[6] ~= KEYS[2] then
   return {"not_owner"}
 end
 local ownershipEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch"))
@@ -414,7 +426,7 @@ end
 expiresAt = now + tonumber(ARGV[2])
 redis.call("HSET", KEYS[1], "expiresAt", expiresAt)
 redis.call("PEXPIREAT", KEYS[1], expiresAt)
-for index = 1, 5 do
+for index = 1, 6 do
   redis.call("ZADD", dimensionKeys[index], expiresAt, member)
   redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "NX")
   redis.call("PEXPIREAT", dimensionKeys[index], expiresAt, "GT")
@@ -445,11 +457,12 @@ end
 local dimensionKeys = {
   redis.call("HGET", KEYS[1], "globalKey"),
   redis.call("HGET", KEYS[1], "providerKey"),
+  redis.call("HGET", KEYS[1], "providerAccountKey"),
   redis.call("HGET", KEYS[1], "tenantKey"),
   redis.call("HGET", KEYS[1], "runtimeKey"),
   redis.call("HGET", KEYS[1], "workerKey")
 }
-for index = 1, 5 do
+for index = 1, 6 do
   if dimensionKeys[index] == false then
     return {"not_found"}
   end
@@ -458,7 +471,7 @@ end
 local expiresAt = tonumber(redis.call("HGET", KEYS[1], "expiresAt"))
 if expiresAt == nil or expiresAt <= now then
   redis.call("DEL", KEYS[1])
-  for index = 1, 5 do
+  for index = 1, 6 do
     redis.call("ZREM", dimensionKeys[index], member)
   end
   if #ARGV == 1 then
@@ -471,7 +484,7 @@ end
 if #ARGV == 3 then
   local ownershipEpoch = tonumber(redis.call("HGET", KEYS[1], "ownershipEpoch"))
   if redis.call("HGET", KEYS[1], "state") ~= "active"
-    or dimensionKeys[5] ~= ARGV[2]
+    or dimensionKeys[6] ~= ARGV[2]
     or ownershipEpoch == nil
     or ownershipEpoch ~= tonumber(ARGV[3])
   then
@@ -482,22 +495,54 @@ redis.call("ZREM", KEYS[2], member)
 redis.call("ZREM", KEYS[3], member)
 redis.call("HDEL", KEYS[4], member)
 redis.call("DEL", KEYS[1])
-for index = 1, 5 do
+for index = 1, 6 do
   redis.call("ZREM", dimensionKeys[index], member)
 end
 return {"released"}
 `;
 
 const healthScript = `return "PONG"`;
+const usageScript = `
+local clock = redis.call("TIME")
+local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+local memberLimit = tonumber(ARGV[2])
+local counts = {}
+for index = 1, #KEYS do
+  redis.call("ZREMRANGEBYSCORE", KEYS[index], "-inf", now)
+  local memberCount = redis.call("ZCARD", KEYS[index])
+  if memberCount > memberLimit then
+    return {"member_limit_exceeded"}
+  end
+  local members = redis.call("ZRANGE", KEYS[index], 0, -1)
+  local active = 0
+  local reservations = 0
+  for _, member in ipairs(members) do
+    local state = redis.call("HGET", ARGV[1] .. member, "state")
+    if state == "active" then
+      active = active + 1
+    elseif state == "claim" then
+      reservations = reservations + 1
+    end
+  end
+  table.insert(counts, tostring(#members))
+  table.insert(counts, tostring(active))
+  table.insert(counts, tostring(reservations))
+end
+return counts
+`;
 
 export class RedisPstnCallAdmission implements PstnCallAdmission {
   private readonly keyPrefix: string;
+  private readonly usageMemberLimit: number;
 
   constructor(
     private readonly redis: PstnAdmissionRedisCommands,
     options: RedisPstnCallAdmissionOptions = {},
   ) {
     this.keyPrefix = normalizeKeyPrefix(options.keyPrefix);
+    this.usageMemberLimit = normalizeUsageMemberLimit(
+      options.usageMemberLimit,
+    );
   }
 
   async reserve(
@@ -519,6 +564,7 @@ export class RedisPstnCallAdmission implements PstnCallAdmission {
           createScopeFingerprint(input),
           String(input.limits.global),
           String(input.limits.provider),
+          String(input.limits.providerAccount ?? input.limits.provider),
           String(input.limits.tenant),
           String(input.limits.runtime),
           String(input.limits.worker),
@@ -560,6 +606,7 @@ export class RedisPstnCallAdmission implements PstnCallAdmission {
               this.reservationKey(input.reservationId),
               this.globalConcurrencyKey(),
               this.providerConcurrencyKey(input),
+              this.providerAccountConcurrencyKey(input),
               this.tenantConcurrencyKey(input),
               this.runtimeConcurrencyKey(input),
               this.workerConcurrencyKey(input),
@@ -580,6 +627,7 @@ export class RedisPstnCallAdmission implements PstnCallAdmission {
               String(input.activeTtlMs),
               String(input.limits.global),
               String(input.limits.provider),
+              String(input.limits.providerAccount ?? input.limits.provider),
               String(input.limits.tenant),
               String(input.limits.runtime),
               String(input.limits.worker),
@@ -679,11 +727,88 @@ export class RedisPstnCallAdmission implements PstnCallAdmission {
     }
   }
 
+  async getUsage(input: PstnCallAdmissionUsageInput) {
+    try {
+      const response = await this.redis.eval(
+        usageScript,
+        [
+          this.globalConcurrencyKey(),
+          this.providerConcurrencyKey(input),
+          this.providerAccountConcurrencyKey(input),
+          this.tenantConcurrencyKey(input),
+          this.runtimeConcurrencyKey(input),
+          this.workerConcurrencyKey(input),
+        ],
+        [
+          `${this.keyRoot()}:reservation:`,
+          String(this.usageMemberLimit),
+        ],
+      );
+      if (
+        !Array.isArray(response) ||
+        response.length !== 18 ||
+        response.some((value) => !Number.isInteger(Number(value)))
+      ) {
+        return { status: "unavailable" as const };
+      }
+      return {
+        status: "available" as const,
+        counts: {
+          global: parseDimensionUsage(response, 0),
+          provider: parseDimensionUsage(response, 3),
+          providerAccount: parseDimensionUsage(response, 6),
+          tenant: parseDimensionUsage(response, 9),
+          runtime: parseDimensionUsage(response, 12),
+          worker: parseDimensionUsage(response, 15),
+        },
+      };
+    } catch {
+      return { status: "unavailable" as const };
+    }
+  }
+
+  async getDimensionUsage(
+    inputs: readonly PstnCallAdmissionDimensionUsageInput[],
+  ) {
+    if (inputs.length === 0) {
+      return { status: "available" as const, counts: [] };
+    }
+    if (inputs.length > 512) {
+      return { status: "unavailable" as const };
+    }
+    try {
+      const response = await this.redis.eval(
+        usageScript,
+        inputs.map((input) => this.dimensionConcurrencyKey(input)),
+        [
+          `${this.keyRoot()}:reservation:`,
+          String(this.usageMemberLimit),
+        ],
+      );
+      if (
+        !Array.isArray(response) ||
+        response.length !== inputs.length * 3 ||
+        response.some((value) => !Number.isInteger(Number(value)))
+      ) {
+        return { status: "unavailable" as const };
+      }
+      return {
+        status: "available" as const,
+        counts: inputs.map((_input, index) =>
+          parseDimensionUsage(response, index * 3)
+        ),
+      };
+    } catch {
+      return { status: "unavailable" as const };
+    }
+  }
+
   private reserveKeys(input: PstnCallAdmissionInput) {
     return [
       this.reservationKey(input),
       this.globalConcurrencyKey(),
       this.providerConcurrencyKey(input),
+      this.providerAccountConcurrencyKey(input),
       this.tenantConcurrencyKey(input),
       this.runtimeConcurrencyKey(input),
       this.workerConcurrencyKey(input),
@@ -705,19 +830,48 @@ export class RedisPstnCallAdmission implements PstnCallAdmission {
     return `${this.keyRoot()}:concurrency:global`;
   }
 
-  private providerConcurrencyKey(input: PstnCallAdmissionInput) {
+  private providerConcurrencyKey(input: Pick<PstnCallAdmissionInput, "provider">) {
     return `${this.keyRoot()}:concurrency:provider:${hashOpaque(input.provider)}`;
   }
 
-  private tenantConcurrencyKey(input: PstnCallAdmissionInput) {
+  private dimensionConcurrencyKey(
+    input: PstnCallAdmissionDimensionUsageInput,
+  ) {
+    if (input.dimension === "global") return this.globalConcurrencyKey();
+    if (input.dimension === "provider") {
+      return this.providerConcurrencyKey(input);
+    }
+    if (input.dimension === "providerAccount") {
+      return this.providerAccountConcurrencyKey(input);
+    }
+    if (input.dimension === "tenant") {
+      return this.tenantConcurrencyKey(input);
+    }
+    if (input.dimension === "runtime") {
+      return this.runtimeConcurrencyKey(input);
+    }
+    return this.workerConcurrencyKey(input);
+  }
+
+  private providerAccountConcurrencyKey(
+    input: Pick<PstnCallAdmissionInput, "provider" | "providerAccountId">,
+  ) {
+    return `${this.keyRoot()}:concurrency:provider-account:${hashOpaque(
+      JSON.stringify([input.provider, input.providerAccountId]),
+    )}`;
+  }
+
+  private tenantConcurrencyKey(input: Pick<PstnCallAdmissionInput, "tenantId">) {
     return `${this.keyRoot()}:concurrency:tenant:${hashOpaque(input.tenantId)}`;
   }
 
-  private runtimeConcurrencyKey(input: PstnCallAdmissionInput) {
+  private runtimeConcurrencyKey(input: Pick<PstnCallAdmissionInput, "runtime">) {
     return `${this.keyRoot()}:concurrency:runtime:${hashOpaque(input.runtime)}`;
   }
 
-  private workerConcurrencyKey(input: PstnCallAdmissionInput | string) {
+  private workerConcurrencyKey(
+    input: Pick<PstnCallAdmissionInput, "workerId"> | string,
+  ) {
     const workerId = typeof input === "string" ? input : input.workerId;
     return `${this.keyRoot()}:concurrency:worker:${hashOpaque(workerId)}`;
   }
@@ -866,6 +1020,14 @@ function parseReleaseResponse(
   };
 }
 
+function parseDimensionUsage(response: unknown[], offset: number) {
+  return {
+    total: Number(response[offset]),
+    active: Number(response[offset + 1]),
+    reservations: Number(response[offset + 2]),
+  };
+}
+
 function readStringArray(value: unknown) {
   return Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
@@ -960,6 +1122,14 @@ function normalizeKeyPrefix(value: string | undefined) {
     ? normalized
     : "zara";
 }
+
+function normalizeUsageMemberLimit(value: number | undefined) {
+  return Number.isInteger(value) && value !== undefined && value >= 0
+    ? Math.min(value, maxUsageMembersPerDimension)
+    : maxUsageMembersPerDimension;
+}
+
+const maxUsageMembersPerDimension = 1_000;
 
 function isValidInput(input: PstnCallAdmissionInput) {
   try {

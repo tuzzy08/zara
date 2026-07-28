@@ -171,6 +171,155 @@ interface PlatformAgentClassCreatePayload {
   };
 }
 
+interface PstnCapacityTemporaryReduction {
+  id: string;
+  scope: "global" | "provider" | "provider_account" | "tenant" | "runtime" | "worker";
+  key?: string;
+  maxConcurrentCalls: number;
+  startsAt: string;
+  expiresAt: string;
+  reason: string;
+}
+
+interface PstnCapacityPolicyPreview {
+  version: number;
+  limits: {
+    global: number;
+    provider: number;
+    tenantDefault: number;
+    worker: number;
+    runtime: {
+      "pstn-sandwich": number;
+      "pstn-premium-realtime": number;
+    };
+  };
+  cps: {
+    global: { capacity: number; refillPerSecond: number };
+    providerAccount: { capacity: number; refillPerSecond: number };
+  };
+  providerQuotas: Record<string, number>;
+  providerAccountQuotas: Record<string, number>;
+  tenantAllowances: Record<string, number>;
+  workerLimits: Record<string, number>;
+  temporaryReductions: PstnCapacityTemporaryReduction[];
+}
+
+interface PstnCapacityPosturePreview {
+  telemetryStatus: "fresh" | "stale" | "unavailable";
+  operationalState: "healthy" | "degraded" | "saturated" | "unavailable";
+  admissionHealth?: {
+    status: "healthy" | "unavailable";
+    reasonCode?: string;
+    unavailableReason?: string;
+  };
+  policy: PstnCapacityPolicyPreview;
+  hardCeilings: {
+    limits: {
+      global: number;
+      provider: number;
+      tenant: number;
+      worker: number;
+      runtime: {
+        "pstn-sandwich": number;
+        "pstn-premium-realtime": number;
+      };
+    };
+  };
+  qualification: {
+    status: "provisional" | "certified";
+    evidenceDate: string | null;
+    environment: string | null;
+    highestPassingConcurrentCalls: number | null;
+    safetyHeadroomPercent: number | null;
+    deployedConfigurationExceedsQualification: boolean | null;
+  };
+  scopePage: {
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+  };
+  dimensions: Array<{
+    scope: string;
+    key: string;
+    limit: number;
+    activeCalls: number | null;
+    reservations: number | null;
+    availableSlots: number | null;
+    saturation: "healthy" | "warning" | "critical" | "saturated" | null;
+    telemetryAvailable: boolean;
+    activeReductionIds: string[];
+    health: "healthy" | "degraded" | "unavailable" | null;
+  }>;
+  recentRejections: Array<{
+    tenantId: string;
+    occurredAt: string;
+    reasonCode: string;
+  }>;
+  audit: Array<{
+    policyVersion: number;
+    actorUserId: string;
+    reason: string;
+    occurredAt: string;
+    before: PstnCapacityPolicyPreview;
+    after: PstnCapacityPolicyPreview;
+  }>;
+}
+
+const defaultPstnCapacityPosture: PstnCapacityPosturePreview = {
+  telemetryStatus: "unavailable",
+  operationalState: "unavailable",
+  policy: {
+    version: 1,
+    limits: {
+      global: 20,
+      provider: 20,
+      tenantDefault: 20,
+      worker: 20,
+      runtime: {
+        "pstn-sandwich": 20,
+        "pstn-premium-realtime": 20,
+      },
+    },
+    cps: {
+      global: { capacity: 10, refillPerSecond: 10 },
+      providerAccount: { capacity: 5, refillPerSecond: 5 },
+    },
+    providerQuotas: {},
+    providerAccountQuotas: {},
+    tenantAllowances: {},
+    workerLimits: {},
+    temporaryReductions: [],
+  },
+  hardCeilings: {
+    limits: {
+      global: 20,
+      provider: 20,
+      tenant: 20,
+      worker: 20,
+      runtime: {
+        "pstn-sandwich": 20,
+        "pstn-premium-realtime": 20,
+      },
+    },
+  },
+  qualification: {
+    status: "provisional",
+    evidenceDate: null,
+    environment: null,
+    highestPassingConcurrentCalls: null,
+    safetyHeadroomPercent: null,
+    deployedConfigurationExceedsQualification: null,
+  },
+  scopePage: {
+    offset: 0,
+    limit: 512,
+    hasMore: false,
+  },
+  dimensions: [],
+  recentRejections: [],
+  audit: [],
+};
+
 const navigation = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/organizations", label: "Tenants" },
@@ -179,6 +328,7 @@ const navigation = [
   { href: "/integrations", label: "Integrations" },
   { href: "/agents", label: "Agents" },
   { href: "/runtime", label: "Runtime" },
+  { href: "/capacity", label: "Capacity" },
   { href: "/billing", label: "Billing" },
   { href: "/audit", label: "Audit" },
   { href: "/impersonation", label: "Impersonation" },
@@ -472,6 +622,12 @@ const views: Record<string, PlatformAdminView> = {
       { kind: "prompt", provider: "Billing class template", region: "all", state: "Configured" },
     ],
   },
+  "/capacity": {
+    title: "PSTN capacity",
+    eyebrow: "Admission controls",
+    metrics: [],
+    rows: [],
+  },
   "/billing": {
     title: "Usage and billing controls",
     eyebrow: "Controls",
@@ -669,18 +825,22 @@ export function PlatformAdminApp({
             MFA or passkey required
           </output>
         )}
-        <section className="metric-grid" aria-label={`${activeView.title} metrics`}>
-          {activeView.metrics.map((metric) => (
-            <Card className="metric-card" key={metric.label}>
-              <p>{metric.label}</p>
-              <strong>{metric.value}</strong>
-              <span>{metric.detail}</span>
-            </Card>
-          ))}
-        </section>
-        <section className="data-panel" aria-label={`${activeView.title} records`}>
-          <DataTable rows={activeView.rows} rowKeyPrefix={activeRoute} />
-        </section>
+        {activeRoute === "/capacity" ? null : (
+          <>
+            <section className="metric-grid" aria-label={`${activeView.title} metrics`}>
+              {activeView.metrics.map((metric) => (
+                <Card className="metric-card" key={metric.label}>
+                  <p>{metric.label}</p>
+                  <strong>{metric.value}</strong>
+                  <span>{metric.detail}</span>
+                </Card>
+              ))}
+            </section>
+            <section className="data-panel" aria-label={`${activeView.title} records`}>
+              <DataTable rows={activeView.rows} rowKeyPrefix={activeRoute} />
+            </section>
+          </>
+        )}
         {activeRoute === "/telephony" ? (
           <PlatformTelephonyProvisioningPanel canMutate={platformAuth.mutationAllowed} />
         ) : null}
@@ -691,6 +851,9 @@ export function PlatformAdminApp({
             <PremiumRealtimeConversationPolicyPanel canMutate={platformAuth.mutationAllowed} />
             <RuntimePromptPolicyPanel canMutate={platformAuth.mutationAllowed} />
           </>
+        ) : null}
+        {activeRoute === "/capacity" ? (
+          <PstnCapacityControlsPanel canMutate={platformAuth.mutationAllowed} />
         ) : null}
         {activeRoute === "/agents" ? (
           <PlatformAgentClassesPanel canMutate={platformAuth.mutationAllowed} />
@@ -1416,6 +1579,34 @@ function readFormString(form: FormData, name: string) {
   return String(form.get(name) ?? "").trim();
 }
 
+function parseCapacityMap(value: string) {
+  if (value.length === 0) return {};
+  return Object.fromEntries(
+    value.split(/\r?\n/).map((line) => {
+      const separator = line.lastIndexOf("=");
+      const key = line.slice(0, separator).trim();
+      const limit = Number(line.slice(separator + 1).trim());
+      if (
+        separator <= 0 ||
+        key.length === 0 ||
+        !Number.isFinite(limit) ||
+        limit < 0
+      ) {
+        throw new Error(`Invalid capacity entry '${line}'. Use key=limit.`);
+      }
+      return [key, limit];
+    }),
+  );
+}
+
+function localDateTimeToIso(value: string) {
+  const date = new Date(value);
+  if (value.length === 0 || !Number.isFinite(date.getTime())) {
+    throw new Error("Temporary reductions require valid start and expiry times.");
+  }
+  return date.toISOString();
+}
+
 function slugifyAgentClassKey(value: string) {
   return value
     .trim()
@@ -1844,6 +2035,523 @@ function PlatformTelephonyProvisioningPanel({ canMutate }: { canMutate: boolean 
       </form>
     </Card>
   );
+}
+
+export function buildPstnCapacityPolicyUpdatePayload(
+  form: FormData,
+  currentReductions: PstnCapacityTemporaryReduction[] = [],
+) {
+  const reductionId = readFormString(form, "temporaryReduction.id");
+  const removeReductionId = readFormString(form, "removeReductionId");
+  const reductionMutationRequested =
+    reductionId.length > 0 || removeReductionId.length > 0;
+  const temporaryReductions = reductionMutationRequested
+    ? currentReductions.filter(
+        (reduction) =>
+          reduction.id !== removeReductionId && reduction.id !== reductionId,
+      )
+    : undefined;
+  if (reductionId.length > 0) {
+    temporaryReductions?.push({
+          id: reductionId,
+          scope: readFormString(
+            form,
+            "temporaryReduction.scope",
+          ) as PstnCapacityTemporaryReduction["scope"],
+          ...(readFormString(form, "temporaryReduction.key").length === 0
+            ? {}
+            : { key: readFormString(form, "temporaryReduction.key") }),
+          maxConcurrentCalls: Number(
+            form.get("temporaryReduction.maxConcurrentCalls"),
+          ),
+          startsAt: localDateTimeToIso(
+            readFormString(form, "temporaryReduction.startsAt"),
+          ),
+          expiresAt: localDateTimeToIso(
+            readFormString(form, "temporaryReduction.expiresAt"),
+          ),
+          reason: readFormString(form, "temporaryReduction.reason"),
+    });
+  }
+  return {
+    expectedVersion: Number(form.get("expectedVersion")),
+    reason: readFormString(form, "reason"),
+    limits: {
+      global: Number(form.get("limits.global")),
+      provider: Number(form.get("limits.provider")),
+      tenantDefault: Number(form.get("limits.tenantDefault")),
+      worker: Number(form.get("limits.worker")),
+      runtime: {
+        "pstn-sandwich": Number(
+          form.get("limits.runtime.pstn-sandwich"),
+        ),
+        "pstn-premium-realtime": Number(
+          form.get("limits.runtime.pstn-premium-realtime"),
+        ),
+      },
+    },
+    cps: {
+      global: {
+        capacity: Number(form.get("cps.global.capacity")),
+        refillPerSecond: Number(form.get("cps.global.refillPerSecond")),
+      },
+      providerAccount: {
+        capacity: Number(form.get("cps.providerAccount.capacity")),
+        refillPerSecond: Number(
+          form.get("cps.providerAccount.refillPerSecond"),
+        ),
+      },
+    },
+    providerQuotas: parseCapacityMap(
+      readFormString(form, "providerQuotas"),
+    ),
+    providerAccountQuotas: parseCapacityMap(
+      readFormString(form, "providerAccountQuotas"),
+    ),
+    tenantAllowances: parseCapacityMap(
+      readFormString(form, "tenantAllowances"),
+    ),
+    workerLimits: parseCapacityMap(readFormString(form, "workerLimits")),
+    ...(temporaryReductions === undefined ? {} : { temporaryReductions }),
+  };
+}
+
+async function fetchPstnCapacityPosture(scopeOffset = 0) {
+  const response = await fetch(
+    resolvePlatformAdminApiUrl(
+      `/platform-admin/telephony/capacity?scopeOffset=${scopeOffset}`,
+    ),
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    throw new Error("Capacity posture could not be loaded.");
+  }
+  const result = await response.json() as {
+    capacity: PstnCapacityPosturePreview;
+  };
+  return result.capacity;
+}
+
+export function markPstnCapacityPostureUnavailable(
+  current: PstnCapacityPosturePreview,
+  policy: PstnCapacityPolicyPreview,
+): PstnCapacityPosturePreview {
+  return {
+    ...current,
+    telemetryStatus: "unavailable",
+    operationalState: "unavailable",
+    admissionHealth: {
+      status: "unavailable",
+      reasonCode: "post_mutation_refresh_failed",
+      unavailableReason:
+        "Capacity posture could not be refreshed after the policy update",
+    },
+    policy,
+    dimensions: [],
+    recentRejections: [],
+  };
+}
+
+function PstnCapacityControlsPanel({ canMutate }: { canMutate: boolean }) {
+  const [posture, setPosture] = useState(defaultPstnCapacityPosture);
+  const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
+  const [saveState, setSaveState] = useState("idle");
+  const [scopeOffset, setScopeOffset] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadState("loading");
+    void fetchPstnCapacityPosture(scopeOffset)
+      .then((capacity) => {
+        if (!cancelled) {
+          setPosture(capacity);
+          setLoadState("loaded");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoadState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeOffset]);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaveState("saving");
+    try {
+      const payload = buildPstnCapacityPolicyUpdatePayload(
+        new FormData(event.currentTarget),
+        posture.policy.temporaryReductions,
+      );
+      const response = await fetch(
+        resolvePlatformAdminApiUrl("/platform-admin/telephony/capacity-policy"),
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      const result = await response.json().catch(() => ({})) as {
+        message?: string;
+        policy?: PstnCapacityPolicyPreview;
+      };
+      if (!response.ok || result.policy === undefined) {
+        throw new Error(
+          result.message ?? "Capacity policy could not be updated.",
+        );
+      }
+      const updatedPolicy = result.policy;
+      setPosture((current) =>
+        markPstnCapacityPostureUnavailable(current, updatedPolicy)
+      );
+      setLoadState("loading");
+      setSaveState("saved");
+      try {
+        setPosture(await fetchPstnCapacityPosture(scopeOffset));
+        setLoadState("loaded");
+      } catch {
+        setLoadState("error");
+      }
+    } catch (error) {
+      setSaveState(
+        error instanceof Error
+          ? error.message
+          : "Capacity policy could not be updated.",
+      );
+    }
+  };
+
+  if (loadState !== "loaded") {
+    return (
+      <section
+        className="data-panel capacity-posture-panel"
+        aria-label="PSTN capacity posture"
+      >
+        <div className="admin-form-panel-copy">
+          <p className="eyebrow">Live posture</p>
+          <h2>PSTN capacity</h2>
+          <p>
+            {loadState === "loading"
+              ? "Loading current admission posture."
+              : "Current admission posture is unavailable. Policy changes are disabled until it can be loaded."}
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const policy = posture.policy;
+  return (
+    <>
+      <section className="data-panel capacity-posture-panel" aria-label="PSTN capacity posture">
+        <div className="admin-form-panel-copy">
+          <p className="eyebrow">Live posture</p>
+          <h2>PSTN capacity</h2>
+          <p>
+            {posture.telemetryStatus === "fresh"
+              ? "Admission telemetry is current."
+              : "Admission telemetry is unavailable; usage is unknown."}
+          </p>
+        </div>
+        <div className="capacity-status-row">
+          <span>Operational state</span>
+          <Badge className={`capacity-status capacity-status--${posture.operationalState}`}>
+            {posture.operationalState}
+          </Badge>
+          <Badge className={`capacity-status capacity-status--${posture.telemetryStatus}`}>
+            {posture.telemetryStatus}
+          </Badge>
+          <Badge className="capacity-status">
+            {posture.qualification.status === "certified"
+              ? `Certified ${posture.qualification.evidenceDate ?? ""}`
+              : "Provisional, not yet certified"}
+          </Badge>
+        </div>
+        {posture.admissionHealth?.status === "unavailable" ? (
+          <p className="capacity-empty">
+            Admission backend unavailable
+            {posture.admissionHealth.unavailableReason === undefined
+              ? "."
+              : `: ${posture.admissionHealth.unavailableReason}.`}
+          </p>
+        ) : null}
+        <dl className="capacity-qualification-grid">
+          <div>
+            <dt>Evidence date</dt>
+            <dd>{posture.qualification.evidenceDate ?? "Unknown"}</dd>
+          </div>
+          <div>
+            <dt>Environment</dt>
+            <dd>{posture.qualification.environment ?? "Unknown"}</dd>
+          </div>
+          <div>
+            <dt>Highest passing calls</dt>
+            <dd>{formatCapacityValue(posture.qualification.highestPassingConcurrentCalls)}</dd>
+          </div>
+          <div>
+            <dt>Safety headroom</dt>
+            <dd>
+              {posture.qualification.safetyHeadroomPercent === null
+                ? "Unknown"
+                : `${posture.qualification.safetyHeadroomPercent}%`}
+            </dd>
+          </div>
+          <div>
+            <dt>Above qualification</dt>
+            <dd>
+              {posture.qualification.deployedConfigurationExceedsQualification === null
+                ? "Unknown"
+                : posture.qualification.deployedConfigurationExceedsQualification
+                  ? "Yes"
+                  : "No"}
+            </dd>
+          </div>
+          <div>
+            <dt>Deployed global ceiling</dt>
+            <dd>{posture.hardCeilings.limits.global}</dd>
+          </div>
+        </dl>
+        {posture.dimensions.length === 0 ? (
+          <p className="capacity-empty">
+            Capacity dimensions are unavailable.
+          </p>
+        ) : (
+          <DataTable
+            rowKeyPrefix="pstn-capacity"
+            rows={posture.dimensions.map((dimension) => ({
+              scope: dimension.scope,
+              target: dimension.key,
+              limit: String(dimension.limit),
+              active: formatCapacityValue(dimension.activeCalls),
+              reserved: formatCapacityValue(dimension.reservations),
+              available: formatCapacityValue(dimension.availableSlots),
+              state: dimension.saturation ?? "Unknown",
+              health: dimension.health ?? "Not applicable",
+            }))}
+          />
+        )}
+        <div className="admin-form-actions">
+          <Button
+            disabled={posture.scopePage.offset === 0}
+            onClick={() =>
+              setScopeOffset((current) =>
+                Math.max(0, current - posture.scopePage.limit)
+              )}
+            type="button"
+            variant="ghost"
+          >
+            Previous scopes
+          </Button>
+          <span>
+            Scope inventory page{" "}
+            {Math.floor(
+              posture.scopePage.offset / posture.scopePage.limit,
+            ) + 1}
+          </span>
+          <Button
+            disabled={!posture.scopePage.hasMore}
+            onClick={() =>
+              setScopeOffset(
+                posture.scopePage.offset + posture.scopePage.limit,
+              )}
+            type="button"
+            variant="ghost"
+          >
+            Next scopes
+          </Button>
+        </div>
+        <div className="capacity-evidence-grid">
+          <div>
+            <h3>Recent rejections</h3>
+            {posture.recentRejections.length === 0 ? (
+              <p className="capacity-empty">No recent capacity rejections.</p>
+            ) : (
+              <DataTable
+                rowKeyPrefix="pstn-capacity-rejection"
+                rows={posture.recentRejections.map((rejection) => ({
+                  tenant: rejection.tenantId,
+                  reason: rejection.reasonCode,
+                  occurred: rejection.occurredAt,
+                }))}
+              />
+            )}
+          </div>
+          <div>
+            <h3>Policy audit</h3>
+            <p className="capacity-empty">
+              Before / after snapshots preserve the exact applied policy.
+            </p>
+            {posture.audit.length === 0 ? (
+              <p className="capacity-empty">No capacity policy changes recorded.</p>
+            ) : (
+              <div className="capacity-audit-list">
+                {posture.audit.map((entry) => (
+                  <details key={`${entry.policyVersion}-${entry.occurredAt}`}>
+                    <summary>
+                      Version {entry.policyVersion}, {entry.actorUserId}: {entry.reason}
+                    </summary>
+                    <p>{entry.occurredAt}</p>
+                    <div className="capacity-audit-snapshots">
+                      <div>
+                        <strong>Before</strong>
+                        <pre>{JSON.stringify(entry.before, null, 2)}</pre>
+                      </div>
+                      <div>
+                        <strong>After</strong>
+                        <pre>{JSON.stringify(entry.after, null, 2)}</pre>
+                      </div>
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="admin-form-panel capacity-policy-panel" aria-label="Capacity policy">
+        <div className="admin-form-panel-copy">
+          <p className="eyebrow">Version {policy.version}</p>
+          <h2>Capacity policy</h2>
+          <p>Operational limits may reduce deployed ceilings but cannot widen them.</p>
+        </div>
+        <form key={capacityPolicyFormKey(policy)} onSubmit={submit}>
+          <input name="expectedVersion" type="hidden" value={policy.version} readOnly />
+          <FieldGroup>
+            <CapacityNumberField label="Global calls" name="limits.global" value={policy.limits.global} />
+            <CapacityNumberField label="Provider calls" name="limits.provider" value={policy.limits.provider} />
+            <CapacityNumberField label="Default tenant calls" name="limits.tenantDefault" value={policy.limits.tenantDefault} />
+            <CapacityNumberField label="Worker slots" name="limits.worker" value={policy.limits.worker} />
+            <CapacityNumberField label="Sandwich runtime" name="limits.runtime.pstn-sandwich" value={policy.limits.runtime["pstn-sandwich"]} />
+            <CapacityNumberField label="Premium runtime" name="limits.runtime.pstn-premium-realtime" value={policy.limits.runtime["pstn-premium-realtime"]} />
+            <CapacityNumberField label="Global CPS burst" name="cps.global.capacity" value={policy.cps.global.capacity} />
+            <CapacityNumberField allowDecimal label="Global CPS rate" name="cps.global.refillPerSecond" value={policy.cps.global.refillPerSecond} />
+            <CapacityNumberField label="Account CPS burst" name="cps.providerAccount.capacity" value={policy.cps.providerAccount.capacity} />
+            <CapacityNumberField allowDecimal label="Account CPS rate" name="cps.providerAccount.refillPerSecond" value={policy.cps.providerAccount.refillPerSecond} />
+            <CapacityMapField label="Provider quotas" name="providerQuotas" value={policy.providerQuotas} />
+            <CapacityMapField label="Provider account quotas" name="providerAccountQuotas" value={policy.providerAccountQuotas} />
+            <CapacityMapField label="Tenant allowances" name="tenantAllowances" value={policy.tenantAllowances} />
+            <CapacityMapField label="Worker limits" name="workerLimits" value={policy.workerLimits} />
+          </FieldGroup>
+
+          <div className="capacity-reduction-fields">
+            <p className="eyebrow">Existing temporary reductions</p>
+            {policy.temporaryReductions.length === 0 ? (
+              <p className="capacity-empty">No temporary reductions configured.</p>
+            ) : (
+              <DataTable
+                rowKeyPrefix="pstn-capacity-reduction"
+                rows={policy.temporaryReductions.map((reduction) => ({
+                  id: reduction.id,
+                  scope: reduction.scope,
+                  target: reduction.key ?? "global",
+                  maximum: String(reduction.maxConcurrentCalls),
+                  starts: reduction.startsAt,
+                  expires: reduction.expiresAt,
+                  reason: reduction.reason,
+                }))}
+              />
+            )}
+            <Field>
+              <FieldLabel>Remove a reduction</FieldLabel>
+              <Select name="removeReductionId" defaultValue="">
+                <option value="">Keep all reductions</option>
+                {policy.temporaryReductions.map((reduction) => (
+                  <option key={reduction.id} value={reduction.id}>
+                    {reduction.id}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <p className="eyebrow">Optional temporary reduction</p>
+            <FieldGroup>
+              <Field><FieldLabel>Reduction ID</FieldLabel><Input name="temporaryReduction.id" placeholder="incident-2026-07-28" /></Field>
+              <Field><FieldLabel>Scope</FieldLabel><Select name="temporaryReduction.scope" defaultValue="global"><option value="global">Global</option><option value="provider">Provider</option><option value="provider_account">Provider account</option><option value="tenant">Tenant</option><option value="runtime">Runtime</option><option value="worker">Worker</option></Select></Field>
+              <Field><FieldLabel>Scope key</FieldLabel><Input name="temporaryReduction.key" placeholder="Required except for global" /></Field>
+              <CapacityNumberField label="Maximum calls" name="temporaryReduction.maxConcurrentCalls" value={0} />
+              <Field><FieldLabel>Starts at</FieldLabel><Input name="temporaryReduction.startsAt" type="datetime-local" /></Field>
+              <Field><FieldLabel>Expires at</FieldLabel><Input name="temporaryReduction.expiresAt" type="datetime-local" /></Field>
+              <Field><FieldLabel>Reduction reason</FieldLabel><Input name="temporaryReduction.reason" /></Field>
+            </FieldGroup>
+          </div>
+
+          <Field>
+            <FieldLabel>Change reason</FieldLabel>
+            <Textarea name="reason" required />
+          </Field>
+          <div className="admin-form-actions">
+            <Button disabled={!canMutate || saveState === "saving"} type="submit">
+              {saveState === "saving" ? "Applying" : "Apply capacity policy"}
+            </Button>
+            {saveState !== "idle" && saveState !== "saving" ? (
+              <output>
+                {saveState === "saved" ? "Capacity policy updated." : saveState}
+              </output>
+            ) : null}
+          </div>
+        </form>
+      </section>
+    </>
+  );
+}
+
+function CapacityNumberField({
+  allowDecimal = false,
+  label,
+  name,
+  value,
+}: {
+  allowDecimal?: boolean;
+  label: string;
+  name: string;
+  value: number;
+}) {
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <Input
+        defaultValue={value}
+        min={allowDecimal ? "0.001" : "0"}
+        name={name}
+        step={allowDecimal ? "any" : "1"}
+        type="number"
+        required
+      />
+    </Field>
+  );
+}
+
+function capacityPolicyFormKey(policy: PstnCapacityPolicyPreview) {
+  return JSON.stringify(policy);
+}
+
+function CapacityMapField({
+  label,
+  name,
+  value,
+}: {
+  label: string;
+  name: string;
+  value: Record<string, number>;
+}) {
+  return (
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <Textarea
+        defaultValue={Object.entries(value)
+          .map(([key, limit]) => `${key}=${limit}`)
+          .join("\n")}
+        name={name}
+        placeholder="key=limit"
+      />
+    </Field>
+  );
+}
+
+function formatCapacityValue(value: number | null) {
+  return value === null ? "Unknown" : String(value);
 }
 
 function metricsToRow(metrics: MetricCard[]) {

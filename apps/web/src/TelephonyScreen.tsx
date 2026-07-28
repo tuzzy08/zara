@@ -58,6 +58,7 @@ import {
   deleteTelephonyConnectionViaApi,
   deleteTelephonyPhoneNumberViaApi,
   dispatchInboundTelephonyTestViaApi,
+  fetchTelephonyCapacity,
   fetchTelephonyState,
   importTwilioNumbersViaApi,
   pauseTelephonyLiveRouteViaApi,
@@ -70,6 +71,7 @@ import {
   validateTelephonyConnectionViaApi,
   validateTwilioCredentialsViaApi,
   type TelephonyCallControlEvent,
+  type TelephonyCapacityPosture,
   type TelephonyDispatchRecord,
   type TelephonyStateResponse,
 } from "./telephonyApi";
@@ -269,6 +271,15 @@ function useTelephonyScreenModel({
   showToast,
 }: TelephonyScreenProps) {
   const telephonyRequestKey = `${organizationId}:${activeWorkspaceId}`;
+  const [capacityResource, setCapacityResource] = useState<{
+    key: string;
+    loading: boolean;
+    posture: TelephonyCapacityPosture | null;
+  }>({
+    key: organizationId,
+    loading: true,
+    posture: null,
+  });
   const [screenState, dispatch] = useReducer(
     telephonyScreenReducer,
     telephonyRequestKey,
@@ -416,6 +427,39 @@ function useTelephonyScreenModel({
       cancelled = true;
     };
   }, [organizationId, showToast, telephonyRequestKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCapacityResource({
+      key: organizationId,
+      loading: true,
+      posture: null,
+    });
+
+    void fetchTelephonyCapacity(organizationId)
+      .then((posture) => {
+        if (!cancelled) {
+          setCapacityResource({
+            key: organizationId,
+            loading: false,
+            posture,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCapacityResource({
+            key: organizationId,
+            loading: false,
+            posture: null,
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
 
   const contentState = state ?? createEmptyTelephonyState(organizationId);
   const executionSessions = contentState.executionSessions ?? [];
@@ -879,6 +923,10 @@ function useTelephonyScreenModel({
     activationGuidanceByNumberId,
     callControlSessionOptions,
     callablePhoneNumberOptions,
+    capacityLoading:
+      capacityResource.key !== organizationId || capacityResource.loading,
+    capacityPosture:
+      capacityResource.key === organizationId ? capacityResource.posture : null,
     contentState,
     createSipConnection,
     createTwilioConnection,
@@ -925,6 +973,10 @@ function TelephonyScreenView({ model }: { model: TelephonyScreenModel }) {
     <div className="telephony-page">
       <h1 className="sr-only">Telephony operations</h1>
       <TelephonyHero metrics={model.metrics} />
+      <TelephonyCapacityStrip
+        loading={model.capacityLoading}
+        posture={model.capacityPosture}
+      />
       <TelephonyMainColumn model={model} />
       <div className="telephony-operations-grid">
         <TelephonyInboundTestPanel model={model} />
@@ -933,6 +985,50 @@ function TelephonyScreenView({ model }: { model: TelephonyScreenModel }) {
         <TelephonyProviderEventsPanel contentState={model.contentState} />
       </div>
     </div>
+  );
+}
+
+export function TelephonyCapacityStrip({
+  loading,
+  posture,
+}: {
+  loading: boolean;
+  posture: TelephonyCapacityPosture | null;
+}) {
+  const telemetryUnavailable =
+    !loading &&
+    (posture === null || posture.telemetryStatus !== "fresh");
+  const latestRejection = posture?.recentRejections[0];
+
+  return (
+    <section
+      className={`telephony-capacity-strip${posture?.saturated === true ? " is-saturated" : ""}`}
+      aria-label="Call capacity"
+    >
+      <div className="telephony-capacity-summary">
+        <Waves aria-hidden="true" size={18} />
+        <strong>Call capacity</strong>
+        {loading ? (
+          <span>Capacity is loading</span>
+        ) : (
+          <>
+            <span>{posture?.effectiveAllowance ?? "Unknown"} call allowance</span>
+            <span>In use {posture?.activeUse ?? "unknown"}</span>
+            <span>Available {posture?.remainingCapacity ?? "unknown"}</span>
+          </>
+        )}
+      </div>
+      {posture?.saturated === true ? (
+        <p>Capacity is currently in use. New calls may need to retry shortly.</p>
+      ) : telemetryUnavailable ? (
+        <p>Capacity data is temporarily {posture?.telemetryStatus === "stale" ? "stale" : "unavailable"}.</p>
+      ) : posture?.operationalState === "degraded" ? (
+        <p>Recent call attempts encountered capacity pressure. New calls remain available.</p>
+      ) : null}
+      {latestRejection === undefined ? null : (
+        <p className="telephony-capacity-rejection">{latestRejection.message}</p>
+      )}
+    </section>
   );
 }
 

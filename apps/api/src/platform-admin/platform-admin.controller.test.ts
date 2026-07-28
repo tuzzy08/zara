@@ -8,6 +8,87 @@ import { PlatformAdminModule } from "./platform-admin.module";
 import { TELEPHONY_STATE_REPOSITORY } from "../telephony/telephony-state.repository";
 
 describe("PlatformAdminController", () => {
+  it("separates staff capacity reads from assured admin mutations", async () => {
+    const { app, close } = await createPlatformAdminApp();
+    const server = app.getHttpServer();
+    const unauthenticated = await request(server)
+      .get("/platform-admin/telephony/capacity");
+    expect(unauthenticated.status).toBe(403);
+
+    const tenantActor = await request(server)
+      .get("/platform-admin/telephony/capacity")
+      .set("x-zara-test-actor-user-id", "user-tenant-admin")
+      .set("x-zara-tenant-role", "admin");
+    expect(tenantActor.status).toBe(403);
+
+    const readonly = await request(server)
+      .get("/platform-admin/telephony/capacity")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
+
+    expect(readonly.status).toBe(200);
+    expect(readonly.body.capacity.policy.version).toBe(1);
+    expect(readonly.body.capacity.qualification.status).toBe("provisional");
+    expect(readonly.body.capacity.scopePage).toEqual({
+      offset: 0,
+      limit: 512,
+      hasMore: false,
+    });
+
+    const invalidPage = await request(server)
+      .get("/platform-admin/telephony/capacity?scopeOffset=-1")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
+    expect(invalidPage.status).toBe(400);
+
+    const forbidden = await request(server)
+      .patch("/platform-admin/telephony/capacity-policy")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Emergency reduction.",
+        limits: { global: 10 },
+      });
+
+    expect(forbidden.status).toBe(403);
+
+    const updated = await request(server)
+      .patch("/platform-admin/telephony/capacity-policy")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Emergency reduction.",
+        limits: { global: 10 },
+      });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.policy).toMatchObject({
+      version: 2,
+      limits: { global: 10 },
+    });
+    expect(updated.body.audit).toMatchObject({
+      actorUserId: "user-platform-admin",
+      reason: "Emergency reduction.",
+    });
+    expect(updated.body.audit.before.limits.global).toBe(20);
+    expect(updated.body.audit.after.limits.global).toBe(10);
+    await close();
+  }, 15_000);
+
   it("rejects tenant admins and allows platform staff to load the dashboard", async () => {
     const { app, close } = await createPlatformAdminApp();
 
