@@ -5319,3 +5319,164 @@ Implementation progress:
 - Two-worker deployment is documented as separate Coolify applications with immutable identities, distinct endpoints, and serial drain-and-replace without overlapping same-ID processes.
 - API typecheck, 202 focused tests, 22 real-Postgres tests, 39 Redis tests, 25 PSTN evals, and the Coolify Compose contract pass.
 - Status remains In Progress until the exact candidate completes deployed Coolify routing, long-running WebSocket, serial replacement, abrupt-stop, live-provider, and alert-delivery validation.
+
+### ISSUE-232: Test suite rationalization and UI smoke-test boundary
+
+- Priority: P1
+- Area: Testing / Quality Gates / Frontend / API
+- Milestone: Test Suite Rationalization
+- Labels: testing, quality, frontend, backend, refactor, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-232-test-suite-rationalization.md](../docs/Handovers/ISSUE-232-test-suite-rationalization.md)
+- External: [Linear ZAR-236](https://linear.app/zara-voice/issue/ZAR-236/spec-test-suite-rationalization-and-ui-smoke-test-boundary)
+
+Acceptance criteria:
+- Ordinary unit, API/integration, and UI-smoke layers are independently runnable while runtime and PSTN eval gates remain separate.
+- Frontend and platform-admin DOM coverage is reduced to a documented allowlist of 15-25 critical smoke tests while client-owned logic tests remain protected.
+- Redundant presentation, styling, mock-backend, and source-text assertions are removed or migrated to authoritative behavioral or CI validation seams.
+- Oversized backend suites are split by public capability without weakening API, runtime, telephony, security, tenant-isolation, or connector coverage.
+- Risk-based test conventions and guardrails prevent complex UI suites from regrowing.
+- Before-and-after suite counts, execution time, commands, and full qualification evidence are recorded.
+
+### ISSUE-233: Establish layered test commands and baseline metrics
+
+- Priority: P1
+- Area: Testing / Quality Gates
+- Milestone: Test Suite Rationalization
+- Labels: testing, quality, infrastructure, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-233-layered-test-commands-baseline.md](../docs/Handovers/ISSUE-233-layered-test-commands-baseline.md)
+- External: [Linear ZAR-237](https://linear.app/zara-voice/issue/ZAR-237/establish-layered-test-commands-and-baseline-metrics)
+
+Acceptance criteria:
+- Unit, API/integration, and UI-smoke layers are independently runnable with appropriate Node and jsdom environments.
+- Runtime and PSTN evals remain separate release gates.
+- Per-layer file, test, line, timing, and pass/fail baselines are recorded without masking failures.
+- Test-layer selection conventions are documented and focused configuration tests pass.
+
+Implementation summary:
+- Added disjoint unit, API/integration, and UI-smoke Vitest commands plus a tracked-suite inventory command that rejects unclassified or multiply classified files.
+- Added an executable configuration contract that verifies each layer's environment and exact tracked-file selection against the inventory.
+- Recorded the 189-file pre-contraction baseline and its existing unit, UI, and API pass/fail/timing evidence without hiding unrelated failures.
+
+### ISSUE-234: Contract the tenant application shell suite
+
+- Priority: P1
+- Area: Testing / Frontend / Auth
+- Milestone: Test Suite Rationalization
+- Labels: testing, frontend, auth, refactor, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-233
+- Handover: [docs/Handovers/ISSUE-234-tenant-app-shell-tests.md](../docs/Handovers/ISSUE-234-tenant-app-shell-tests.md)
+- External: [Linear ZAR-238](https://linear.app/zara-voice/issue/ZAR-238/contract-the-tenant-application-shell-suite)
+
+Acceptance criteria:
+- Tenant DOM coverage retains only approved authentication, organization-selection, tenant-entry, and essential application-shell smoke journeys.
+- The UI test mock-backend reimplementation and redundant policy, persistence, provider-state, authorization, and isolation assertions are removed.
+- Authoritative lower-seam coverage is confirmed before behavioral UI assertions are removed.
+- Retained, migrated, and removed test counts and focused timing are recorded.
+
+### ISSUE-235: Contract workflow builder and sandbox UI coverage
+
+- Priority: P1
+- Area: Testing / Frontend / Workflow / Sandbox
+- Milestone: Test Suite Rationalization
+- Labels: testing, frontend, workflow, sandbox, refactor, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-233
+- Handover: [docs/Handovers/ISSUE-235-builder-sandbox-ui-tests.md](../docs/Handovers/ISSUE-235-builder-sandbox-ui-tests.md)
+- External: [Linear ZAR-239](https://linear.app/zara-voice/issue/ZAR-239/contract-workflow-builder-and-sandbox-ui-coverage)
+
+Acceptance criteria:
+- Builder and sandbox DOM coverage retains only complete critical journeys for graph interaction, validation, publishing, workflow selection, and voice-session startup.
+- Routing, connection, manifest, publish-target, tool-catalog, and workbench decisions remain protected at pure seams.
+- Decorative, layout, placeholder-copy, and panel-state assertions are removed.
+- Focused builder, sandbox, workflow, and manifest suites pass with count and timing evidence.
+
+### ISSUE-236: Contract operational and platform-admin UI coverage
+
+- Priority: P1
+- Area: Testing / Frontend / Platform Admin / Telephony
+- Milestone: Test Suite Rationalization
+- Labels: testing, frontend, platform-admin, telephony, refactor, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-233
+- Handover: [docs/Handovers/ISSUE-236-operational-admin-ui-tests.md](../docs/Handovers/ISSUE-236-operational-admin-ui-tests.md)
+- External: [Linear ZAR-240](https://linear.app/zara-voice/issue/ZAR-240/contract-operational-and-platform-admin-ui-coverage)
+
+Acceptance criteria:
+- Critical reusable-agent, telephony/phone-test, platform staff access, dashboard, observability, and eval-status smoke flows remain covered.
+- Payload construction, form hydration, normalization, and request construction are tested through pure seams.
+- Backend-owned provider operations, authorization, policy, and persistence assertions are removed from DOM suites.
+- Focused frontend and authoritative backend suites pass with count and timing evidence.
+
+### ISSUE-237: Replace presentation and source-text tests with executable validation
+
+- Priority: P1
+- Area: Testing / CI / Deployment
+- Milestone: Test Suite Rationalization
+- Labels: testing, ci, deployment, refactor, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-233
+- Handover: [docs/Handovers/ISSUE-237-executable-test-validation.md](../docs/Handovers/ISSUE-237-executable-test-validation.md)
+- External: [Linear ZAR-241](https://linear.app/zara-voice/issue/ZAR-241/replace-presentation-and-source-text-tests-with-executable-validation)
+
+Acceptance criteria:
+- Styling, decorative class/color, marketing-copy, and incidental presentation assertions are removed.
+- Important configuration, deployment, documentation, and security guarantees use executable parser, schema, build, container, link, or integration validation.
+- Provider branding coverage retains accessible behavior without class-string coupling where valuable.
+- Replacement validation commands pass and their execution lanes are documented.
+
+### ISSUE-238: Modularize oversized API, memory, and integration suites
+
+- Priority: P1
+- Area: Testing / API / Memory / Integrations
+- Milestone: Test Suite Rationalization
+- Labels: testing, backend, api, memory, integrations, refactor, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-233
+- Handover: [docs/Handovers/ISSUE-238-modularize-control-plane-tests.md](../docs/Handovers/ISSUE-238-modularize-control-plane-tests.md)
+- External: [Linear ZAR-242](https://linear.app/zara-voice/issue/ZAR-242/modularize-oversized-api-memory-and-integration-suites)
+
+Acceptance criteria:
+- Oversized control-plane suites are split by public endpoint family or capability.
+- Typed fixtures and table-driven cases reduce repetition without obscuring behavior.
+- Controller, connector, persistence, security, and tenant-isolation coverage remains explicit and authoritative.
+- Before-and-after inventory evidence and the complete API/integration layer pass are recorded.
+
+### ISSUE-239: Modularize oversized runtime and telephony suites
+
+- Priority: P1
+- Area: Testing / Runtime / Telephony
+- Milestone: Test Suite Rationalization
+- Labels: testing, backend, runtime, telephony, refactor, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-233
+- Handover: [docs/Handovers/ISSUE-239-modularize-runtime-telephony-tests.md](../docs/Handovers/ISSUE-239-modularize-runtime-telephony-tests.md)
+- External: [Linear ZAR-243](https://linear.app/zara-voice/issue/ZAR-243/modularize-oversized-runtime-and-telephony-suites)
+
+Acceptance criteria:
+- Oversized session, WebSocket, provider, and telephony suites are split by public contract.
+- Lifecycle, idempotency, fallback, interruption, tool, handoff, media, replay, terminal-state, security, isolation, and redaction coverage is preserved.
+- Runtime and PSTN eval lanes remain separate.
+- Before-and-after inventory evidence, focused suites, ordinary API/integration tests, and applicable evals pass.
+
+### ISSUE-240: Enforce the UI-smoke boundary and qualify the complete suite
+
+- Priority: P1
+- Area: Testing / Quality Gates / CI
+- Milestone: Test Suite Rationalization
+- Labels: testing, quality, ci, frontend, backend, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-234, ISSUE-235, ISSUE-236, ISSUE-237, ISSUE-238, ISSUE-239
+- Handover: [docs/Handovers/ISSUE-240-test-suite-final-qualification.md](../docs/Handovers/ISSUE-240-test-suite-final-qualification.md)
+- External: [Linear ZAR-244](https://linear.app/zara-voice/issue/ZAR-244/enforce-the-ui-smoke-boundary-and-qualify-the-complete-suite)
+
+Acceptance criteria:
+- Testing conventions, layer-selection rules, prohibited presentation patterns, and the approved UI-smoke allowlist are documented.
+- A maintainable guardrail detects unapproved DOM-suite growth.
+- Frontend/admin and DOM test totals meet the approved ranges or a safer variance is explicitly justified.
+- Complete ordinary layers, affected typecheck/lint/build gates, and applicable runtime/PSTN evals pass.
+- Final counts, lines, timing, pass/fail evidence, statuses, handovers, and roadmap summary are reconciled.
