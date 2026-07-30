@@ -57,3 +57,24 @@ Command: `npm run test:api -- --reporter=default`
 - Runtime evals, PSTN evals, and PSTN capacity load tests are separate and were not run for this configuration-only issue.
 
 This is baseline evidence, not a claim that the pre-existing suite is green. Later rationalization issues must compare their final inventory and execution results against this document without hiding existing failures.
+
+## ISSUE-234 tenant application-shell contraction
+
+The tenant application-shell pass removed presentation assertions and the embedded API/WebSocket reimplementation from `apps/web/src/app.test.tsx`.
+
+| Measure | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| `app.test.tsx` executed tests | 73 | 4 | -69 |
+| `app.test.tsx` lines | 6,609 | 332 | -6,277 |
+| UI-smoke static declared tests | 149 | 66 | -83 |
+| UI-smoke lines | 10,567 | 4,290 | -6,277 |
+
+The static declared-test delta is larger than the executed-test delta because the inventory intentionally uses approximate source-pattern counting. Runtime-expanded Vitest totals remain authoritative.
+
+The four retained shell tests cover signed-out authentication entry, protected-route authentication and sign-out, multi-organization selection, and tenant entry from server-owned auth context. Workflow builder, sandbox, telephony, agents, and live-session hook coverage remains in focused component suites. Backend policy, persistence, provider state, authorization, tenant isolation, and runtime behavior remains owned by the API/integration layer.
+
+Command: `npm run test:ui-smoke -- --reporter=default`
+
+- Result: 9 files and 64 runtime-expanded tests passed.
+- Duration: 47.57 seconds.
+- The previous incidental landing-copy failure was removed with the presentation assertions rather than accommodated in product code.
