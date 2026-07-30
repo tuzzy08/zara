@@ -97,3 +97,18 @@ Focused builder, sandbox, core workflow, workbench, publishing, tool-catalog, re
 The first default-timeout UI-smoke run passed 36 of 39 tests; three unrelated tests exceeded the five-second per-test ceiling under parallel load. The same 9-file, 39-test lane passed in 44.89 seconds with an explicit 15-second ceiling, confirming resource contention rather than behavioral failures.
 
 Post-review cleanup removed the remaining copy assertions, deduplicated the sandbox fixture, collapsed the builder fetch mock to the fixed contracts used by retained journeys, and extended the published builder journey through the rendered call control into `startSession`.
+
+## ISSUE-236 operational and platform-admin contraction
+
+Operational rendered coverage now retains only reusable-agent creation and tool assignment, imported-number workflow routing, platform-admin access/session gates, staff shell routing, and runtime observability/eval status. Payload construction and form hydration remain covered in a separate pure unit suite.
+
+| Measure | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Operational rendered tests | 22 | 7 | -15 |
+| Operational rendered-test lines | 1,194 | 723 | -471 |
+| Platform-admin pure payload tests | 0 | 6 | +6 |
+| Telephony pure request tests | 0 | 2 | +2 |
+| UI-smoke static declared tests | 39 | 24 | -15 |
+| UI-smoke lines | 2,850 | 2,379 | -471 |
+
+The API controller suites remain authoritative for reusable-agent tenant membership, telephony provider operations and protected routes, live activation policy, platform-staff authorization, secret redaction, and audited support mutations.

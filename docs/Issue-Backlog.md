@@ -5401,7 +5401,7 @@ Acceptance criteria:
 - Area: Testing / Frontend / Platform Admin / Telephony
 - Milestone: Test Suite Rationalization
 - Labels: testing, frontend, platform-admin, telephony, refactor, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-233
 - Handover: [docs/Handovers/ISSUE-236-operational-admin-ui-tests.md](../docs/Handovers/ISSUE-236-operational-admin-ui-tests.md)
 - External: [Linear ZAR-240](https://linear.app/zara-voice/issue/ZAR-240/contract-operational-and-platform-admin-ui-coverage)

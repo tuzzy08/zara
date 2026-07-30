@@ -88,45 +88,6 @@ describe("TenantAgentsScreen", () => {
     );
   });
 
-  it("reloads the reusable-agent list when the active workspace changes", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const agents = url.endsWith("workspaceId=workspace-default")
-        ? [createAgentFixture({ name: "Default workspace agent" })]
-        : [createAgentFixture({
-            workspaceId: "workspace-enterprise",
-            name: "Enterprise workspace agent",
-            agentClass: "sales",
-            runtimeProfile: "premium-realtime",
-          })];
-
-      return new Response(JSON.stringify({ agents }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }) as unknown as typeof fetch);
-
-    const { rerender } = render(
-      <TenantAgentsScreen
-        organizationId="tenant-west-africa"
-        activeWorkspaceId="workspace-default"
-        showToast={vi.fn()}
-      />,
-    );
-
-    expect(await screen.findByText("Default workspace agent")).toBeTruthy();
-
-    rerender(
-      <TenantAgentsScreen
-        organizationId="tenant-west-africa"
-        activeWorkspaceId="workspace-enterprise"
-        showToast={vi.fn()}
-      />,
-    );
-
-    await waitFor(() => expect(screen.queryByText("Default workspace agent")).toBeNull());
-    expect(await screen.findByText("Enterprise workspace agent")).toBeTruthy();
-  });
 
   it("lets builders assign a connected catalog tool to a reusable agent toolbelt", async () => {
     const showToast = vi.fn();
