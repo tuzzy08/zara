@@ -16,6 +16,18 @@
 
 Each issue must include tests appropriate to its layer. If tests are deferred, the handover must explain why and record the risk.
 
+## Ordinary Test Commands
+
+- `npm run test:unit`: domain/package tests plus non-component tenant and platform-admin client logic.
+- `npm run test:api`: Nest API and PSTN protocol simulator tests, including integration, contract, runtime, telephony, security, and tenant-isolation coverage.
+- `npm run test:ui-smoke`: tenant and platform-admin React component smoke tests.
+- `npm run test:run`: aggregate compatibility command for every ordinary test.
+- `npm run test:inventory`: tracked ordinary test file, declared-test, and line counts by layer.
+
+Choose the highest stable public seam that owns the behavior. Domain and client decisions belong in unit tests; server authority and public transport behavior belong in API/integration or contract tests; React rendering belongs only in the UI-smoke layer when a critical user journey cannot be protected more precisely below the DOM. Per-file Vitest environment directives may opt a browser-specific unit helper into jsdom without turning it into a UI smoke test.
+
+Runtime evals, PSTN evals, and PSTN capacity load tests remain separate from all ordinary commands.
+
 ## Architecture Deepening Tests
 
 When an architecture-deepening pass extracts a module, the first regression target is the new module interface. Keep the feature-level contract tests as confirmation that the public behavior stayed stable.

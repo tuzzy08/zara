@@ -87,6 +87,15 @@ npm run typecheck
 npm run test:run
 ```
 
+Run an ordinary layer or inspect its tracked inventory independently:
+
+```bash
+npm run test:unit
+npm run test:api
+npm run test:ui-smoke
+npm run test:inventory
+```
+
 Run runtime and PSTN eval suites:
 
 ```bash

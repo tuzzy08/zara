@@ -160,3 +160,17 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specifications are tracked in the Zara Linear workspace. External pull requests are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` Linear labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Zara uses a multi-context documentation layout routed through `docs/CONTEXT-MAP.md`. See `docs/agents/domain.md`.
