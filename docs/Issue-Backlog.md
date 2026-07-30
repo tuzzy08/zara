@@ -5384,7 +5384,7 @@ Acceptance criteria:
 - Area: Testing / Frontend / Workflow / Sandbox
 - Milestone: Test Suite Rationalization
 - Labels: testing, frontend, workflow, sandbox, refactor, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-233
 - Handover: [docs/Handovers/ISSUE-235-builder-sandbox-ui-tests.md](../docs/Handovers/ISSUE-235-builder-sandbox-ui-tests.md)
 - External: [Linear ZAR-239](https://linear.app/zara-voice/issue/ZAR-239/contract-workflow-builder-and-sandbox-ui-coverage)

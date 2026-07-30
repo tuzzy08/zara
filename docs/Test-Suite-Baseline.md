@@ -78,3 +78,22 @@ Command: `npm run test:ui-smoke -- --reporter=default`
 - Result: 9 files and 64 runtime-expanded tests passed.
 - Duration: 47.57 seconds.
 - The previous incidental landing-copy failure was removed with the presentation assertions rather than accommodated in product code.
+
+## ISSUE-235 workflow-builder and sandbox contraction
+
+The workflow-builder and sandbox pass retained complete operator journeys while relying on existing pure workflow, workbench, publishing, tool-catalog, registry, manifest, and runtime-hook seams for detailed decisions.
+
+| Measure | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Builder and sandbox rendered tests | 30 | 5 | -25 |
+| Builder and sandbox rendered-test lines | 2,164 | 724 | -1,440 |
+| UI-smoke static declared tests | 66 | 39 | -27 |
+| UI-smoke lines | 4,290 | 2,850 | -1,440 |
+
+The three retained builder tests cover saved-workflow loading, node creation plus a valid connection and validation recovery, and publish-before-sandbox execution. The two retained sandbox tests cover organization-scoped published-workflow listing and published-version deep-link selection. Voice-session startup and interruption/readiness behavior remains in the six-test `useLiveSandboxSession` client-logic suite.
+
+Focused builder, sandbox, core workflow, workbench, publishing, tool-catalog, registry, manifest, and runtime-hook execution passed: 11 files and 74 tests in 25.43 seconds.
+
+The first default-timeout UI-smoke run passed 36 of 39 tests; three unrelated tests exceeded the five-second per-test ceiling under parallel load. The same 9-file, 39-test lane passed in 44.89 seconds with an explicit 15-second ceiling, confirming resource contention rather than behavioral failures.
+
+Post-review cleanup removed the remaining copy assertions, deduplicated the sandbox fixture, collapsed the builder fetch mock to the fixed contracts used by retained journeys, and extended the published builder journey through the rendered call control into `startSession`.
