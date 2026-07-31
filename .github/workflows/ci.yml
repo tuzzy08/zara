@@ -43,6 +43,17 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Executable repository contracts
+        run: npm run validate:contracts
+
+      - name: Build production container targets
+        run: |
+          docker build --check .
+          docker build --target api -t zara-api:ci .
+          docker build --target realtime-worker -t zara-realtime-worker:ci .
+          docker build --target web -t zara-web:ci .
+          docker build --target platform-admin -t zara-platform-admin:ci .
+
       - name: Test
         run: npm run test:run
 

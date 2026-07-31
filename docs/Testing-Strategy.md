@@ -28,6 +28,16 @@ Choose the highest stable public seam that owns the behavior. Domain and client 
 
 Runtime evals, PSTN evals, and PSTN capacity load tests remain separate from all ordinary commands.
 
+## Executable Repository Contracts
+
+Configuration, deployment, documentation, and architectural boundaries must be validated by executable commands rather than tests that search source files for expected phrases.
+
+- `npm run validate:contracts` parses platform-admin environment and Vercel security-header configuration, checks tracked local Markdown links, enforces the live-call persistence boundary through the TypeScript AST, validates the resolved Coolify Compose service model, and builds every production workspace.
+- CI additionally runs `docker build --check .` and constructs the `api`, `realtime-worker`, `web`, and `platform-admin` targets so Dockerfile semantics and every production image are validated by the container toolchain.
+- Ordinary tests must not assert CSS selectors, decorative classes, literal colors, marketing copy, documentation prose, workflow YAML text, Dockerfile text, or Compose text.
+- Accessible names and critical interactions may remain UI-smoke contracts when they are the public user interface.
+- Provider branding tests may verify accessible labels and catalog tokens, but not CSS class strings.
+
 ## Architecture Deepening Tests
 
 When an architecture-deepening pass extracts a module, the first regression target is the new module interface. Keep the feature-level contract tests as confirmation that the public behavior stayed stable.

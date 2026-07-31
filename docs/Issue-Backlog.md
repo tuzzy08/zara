@@ -5418,7 +5418,7 @@ Acceptance criteria:
 - Area: Testing / CI / Deployment
 - Milestone: Test Suite Rationalization
 - Labels: testing, ci, deployment, refactor, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-233
 - Handover: [docs/Handovers/ISSUE-237-executable-test-validation.md](../docs/Handovers/ISSUE-237-executable-test-validation.md)
 - External: [Linear ZAR-241](https://linear.app/zara-voice/issue/ZAR-241/replace-presentation-and-source-text-tests-with-executable-validation)

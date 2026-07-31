@@ -112,3 +112,18 @@ Operational rendered coverage now retains only reusable-agent creation and tool 
 | UI-smoke lines | 2,850 | 2,379 | -471 |
 
 The API controller suites remain authoritative for reusable-agent tenant membership, telephony provider operations and protected routes, live activation policy, platform-staff authorization, secret redaction, and audited support mutations.
+
+## ISSUE-237 executable validation
+
+Presentation and source-text cleanup removed CSS, marketing-copy, deployment-prose, CI-text, Dockerfile-text, and architectural substring contracts. Important guarantees now run through native parsers, AST inspection, Compose validation, production builds, Markdown-link validation, and a CI Dockerfile check.
+
+| Measure | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Ordinary test files | 192 | 184 | -8 |
+| Ordinary static test declarations | 1,406 | 1,367 | -39 |
+| Ordinary test lines | 89,674 | 88,772 | -902 |
+| UI-smoke files | 9 | 8 | -1 |
+| UI-smoke static tests | 24 | 23 | -1 |
+| UI-smoke lines | 2,379 | 2,343 | -36 |
+
+`integrationProviderBranding.test.ts` remains as parameterized accessible-label coverage. Its CSS class assertions were removed.

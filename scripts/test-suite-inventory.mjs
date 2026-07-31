@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const ordinaryTestPattern = /\.test\.(?:ts|tsx)$/;
 const testDeclarationPattern = /\b(?:it|test)(?:\.each)?\s*\(/g;
@@ -11,6 +11,7 @@ const trackedFiles = execFileSync(
 )
   .split(/\r?\n/)
   .filter((file) => ordinaryTestPattern.test(file))
+  .filter((file) => existsSync(file))
   .sort();
 
 const layerMatchers = {

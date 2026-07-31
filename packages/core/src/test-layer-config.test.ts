@@ -1,13 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { globSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
-
-import apiConfig from "../../../vitest.api.config";
-import uiSmokeConfig from "../../../vitest.ui-smoke.config";
-import unitConfig from "../../../vitest.unit.config";
 
 const thisDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(thisDirectory, "../../../");
@@ -35,7 +31,7 @@ function selectTrackedFiles(
 }
 
 describe("ordinary test layers", () => {
-  it("exposes disjoint unit, API/integration, and UI-smoke commands with inventory evidence", () => {
+  it("exposes disjoint unit, API/integration, and UI-smoke commands with inventory evidence", async () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
     ) as {
@@ -79,10 +75,18 @@ describe("ordinary test layers", () => {
     expect(inventory.unclassified).toEqual([]);
     expect(inventory.duplicates).toEqual([]);
     const trackedFiles = new Set(inventory.ordinaryFiles);
+    const loadConfig = async (file: string) =>
+      (await import(pathToFileURL(resolve(repositoryRoot, file)).href))
+        .default as TestConfig;
+    const [unitConfig, apiConfig, uiSmokeConfig] = await Promise.all([
+      loadConfig("vitest.unit.config.ts"),
+      loadConfig("vitest.api.config.ts"),
+      loadConfig("vitest.ui-smoke.config.ts"),
+    ]);
     const configs = {
-      unit: unitConfig as TestConfig,
-      api: apiConfig as TestConfig,
-      "ui-smoke": uiSmokeConfig as TestConfig,
+      unit: unitConfig,
+      api: apiConfig,
+      "ui-smoke": uiSmokeConfig,
     };
 
     expect(configs.unit.test?.environment).toBe("node");
