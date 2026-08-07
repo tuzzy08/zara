@@ -127,3 +127,17 @@ Presentation and source-text cleanup removed CSS, marketing-copy, deployment-pro
 | UI-smoke lines | 2,379 | 2,343 | -36 |
 
 `integrationProviderBranding.test.ts` remains as parameterized accessible-label coverage. Its CSS class assertions were removed.
+
+## ISSUE-238 control-plane suite modularization
+
+The memory, connector-contract, and integrations-controller suites were reorganized by public endpoint family or provider capability without removing behavioral assertions.
+
+| Measure | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Candidate test files | 3 | 19 | +16 |
+| Shared typed support files | 0 | 3 | +3 |
+| Candidate runtime tests | 88 | 88 | 0 |
+| Candidate/support lines | 9,624 | 9,714 | +90 |
+| Largest affected file | 3,781 | 899 | -2,882 |
+
+The modest line increase is repeated per-file imports and capability naming; application setup, repository builders, provider connections, mock responses, and schema lookup remain centralized in typed support modules. The focused memory/integrations run passed 119 tests across 25 files, including all 88 candidates. The complete API/integration lane currently has 11 unrelated failures documented in the ISSUE-238 handover, so completion remains pending.
