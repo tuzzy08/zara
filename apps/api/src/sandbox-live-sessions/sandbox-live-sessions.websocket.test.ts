@@ -22,6 +22,7 @@ import {
 } from "@zara/core";
 import WebSocket, { type RawData } from "ws";
 
+import { IntegrationsModule } from "../integrations/integrations.module";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { runtimeObservabilityRecorderToken } from "../runtime-observability/runtime-observability";
@@ -94,7 +95,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("streams session events to a valid transport token", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider()).compile();
@@ -155,7 +156,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("rejects websocket connections with an invalid transport token", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider()).compile();
@@ -190,7 +191,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("rejects retired typed websocket input", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider("fr"))
@@ -244,7 +245,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("runs a voice turn through routing, model, and audio events", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -341,7 +342,7 @@ describe("Sandbox live session websocket stream", () => {
   it("records runtime observability without failing the turn when LangSmith export fails", async () => {
     let observedTurn: Record<string, unknown> | undefined;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -470,7 +471,7 @@ describe("Sandbox live session websocket stream", () => {
   it("routes billing turns through condition routes before responding with the target agent", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider("fr"))
@@ -580,7 +581,7 @@ describe("Sandbox live session websocket stream", () => {
       releaseSecondAudioChunk = resolve;
     });
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -657,7 +658,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("turns committed voice audio into transcript and response events", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -730,7 +731,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("runs a voice turn automatically when streaming STT detects the end of a caller turn", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -798,7 +799,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("blocks live voice sessions when the platform default text model provider is not configured", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -840,7 +841,7 @@ describe("Sandbox live session websocket stream", () => {
   it("keeps one streaming STT session open across follow-up caller turns after endpointing", async () => {
     const sttProvider = createStreamingFakeSttProvider();
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -936,7 +937,7 @@ describe("Sandbox live session websocket stream", () => {
     const sttProvider = createDuplicateFinalStreamingSttProvider();
     let modelCallCount = 0;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1033,7 +1034,7 @@ describe("Sandbox live session websocket stream", () => {
     ]);
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1130,7 +1131,7 @@ describe("Sandbox live session websocket stream", () => {
     const sttProvider = createCartesiaLifecycleStreamingSttProvider();
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1245,7 +1246,7 @@ describe("Sandbox live session websocket stream", () => {
   it("emits STT lifecycle milestones before the first voice response", async () => {
     const sttProvider = createStreamingFakeSttProvider();
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1344,7 +1345,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("persists streaming STT provider failures into the session event log", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1451,7 +1452,7 @@ describe("Sandbox live session websocket stream", () => {
   it("does not execute assigned live tools unless the agent requests them", async () => {
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1598,7 +1599,7 @@ describe("Sandbox live session websocket stream", () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1695,7 +1696,7 @@ describe("Sandbox live session websocket stream", () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -1848,7 +1849,7 @@ describe("Sandbox live session websocket stream", () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryInput: Record<string, unknown> | undefined;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2034,7 +2035,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("answers closing turns naturally when action-mode output is empty structured JSON", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2147,7 +2148,7 @@ describe("Sandbox live session websocket stream", () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2256,7 +2257,7 @@ describe("Sandbox live session websocket stream", () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2388,7 +2389,7 @@ describe("Sandbox live session websocket stream", () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2530,7 +2531,7 @@ describe("Sandbox live session websocket stream", () => {
   it("returns a recoverable timeout failure when an agent-requested tool times out", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2665,7 +2666,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("publishes runtime failures after a streaming transcript instead of stalling silently", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2774,7 +2775,7 @@ describe("Sandbox live session websocket stream", () => {
   it("configures AssemblyAI streaming prompts and carries agent reply context into the next turn", async () => {
     const sttProvider = createStreamingFakeSttProvider();
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2855,7 +2856,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("reports Cartesia Ink 2 in provider stack metadata when selected", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2892,7 +2893,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("blocks non-English workflows when Cartesia Ink 2 STT is selected", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -2934,7 +2935,7 @@ describe("Sandbox live session websocket stream", () => {
   it("marks post-send side-effect timeouts as unknown and blocks blind retry", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -3101,7 +3102,7 @@ describe("Sandbox live session websocket stream", () => {
   it("returns a recoverable rate-limit failure when an agent-requested tool is rate limited", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -3237,7 +3238,7 @@ describe("Sandbox live session websocket stream", () => {
   it("returns partial tool results with safe output to the same agent", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -3393,7 +3394,7 @@ describe("Sandbox live session websocket stream", () => {
   it("does not check grants for assigned tools until the agent requests a tool", async () => {
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -3479,7 +3480,7 @@ describe("Sandbox live session websocket stream", () => {
   it("does not request human approval for high-risk tools until the agent requests a tool", async () => {
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
@@ -3580,7 +3581,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("rejects replayed websocket transport tokens and audits the attempt", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider()).compile();
@@ -3634,7 +3635,7 @@ describe("Sandbox live session websocket stream", () => {
 
   it("rejects expired or cross-workspace websocket tokens and audits both attempts", async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
+      imports: [IntegrationsModule, SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider()).compile();

@@ -140,4 +140,4 @@ The memory, connector-contract, and integrations-controller suites were reorgani
 | Candidate/support lines | 9,624 | 9,714 | +90 |
 | Largest affected file | 3,781 | 899 | -2,882 |
 
-The modest line increase is repeated per-file imports and capability naming; application setup, repository builders, provider connections, mock responses, and schema lookup remain centralized in typed support modules. The focused memory/integrations run passed 119 tests across 25 files, including all 88 candidates. The complete API/integration lane currently has 11 unrelated failures documented in the ISSUE-238 handover, so completion remains pending.
+The modest line increase is repeated per-file imports and capability naming; application setup, repository builders, provider connections, mock responses, and schema lookup remain centralized in typed support modules. The focused memory/integrations run passed 119 tests across 25 files, including all 88 candidates. After correcting adjacent test-module persistence and controller seams, the complete API/integration lane passed serially in 257.34 seconds.

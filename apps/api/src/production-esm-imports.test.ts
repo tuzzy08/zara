@@ -26,7 +26,7 @@ describe("production ESM output", () => {
     }
 
     expect(unresolvedSpecifiers).toEqual([]);
-  }, 20_000);
+  }, 60_000);
 });
 
 async function listJavaScriptFiles(root: string): Promise<string[]> {

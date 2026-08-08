@@ -9,6 +9,8 @@ import request from "supertest";
 import { MemoryModule } from "../memory/memory.module";
 import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import { TelephonyModule } from "../telephony/telephony.module";
+import { TELEPHONY_INCREMENTAL_REPOSITORY } from "../telephony/telephony-incremental.repository";
+import { InMemoryTelephonyIncrementalRepository } from "../telephony/telephony-incremental.repository.test-helper";
 import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
@@ -300,6 +302,8 @@ async function createTestingApp(): Promise<INestApplication> {
   })
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
     .useValue(new FileTelephonyStateRepository(join(stateRoot, "telephony")))
+    .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
+    .useValue(new InMemoryTelephonyIncrementalRepository())
     .compile();
 
   const app = moduleRef.createNestApplication();

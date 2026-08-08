@@ -5435,7 +5435,7 @@ Acceptance criteria:
 - Area: Testing / API / Memory / Integrations
 - Milestone: Test Suite Rationalization
 - Labels: testing, backend, api, memory, integrations, refactor, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: ISSUE-233
 - Handover: [docs/Handovers/ISSUE-238-modularize-control-plane-tests.md](../docs/Handovers/ISSUE-238-modularize-control-plane-tests.md)
 - External: [Linear ZAR-242](https://linear.app/zara-voice/issue/ZAR-242/modularize-oversized-api-memory-and-integration-suites)

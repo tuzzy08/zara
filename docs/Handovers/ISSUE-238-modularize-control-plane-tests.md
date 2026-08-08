@@ -2,7 +2,7 @@
 
 External: [Linear ZAR-242](https://linear.app/zara-voice/issue/ZAR-242/modularize-oversized-api-memory-and-integration-suites)
 
-Status: In Progress
+Status: Implemented
 
 ## Work completed
 
@@ -11,6 +11,7 @@ Status: In Progress
 - Split the 2,096-line integrations controller suite into catalog, lifecycle, execution, and explicit tenant-isolation suites.
 - Extracted three typed test-support modules for application setup, provider connection, repository, response, and schema helpers rather than duplicating those arrangements.
 - Preserved all 88 candidate tests and reduced the largest affected suite from 3,781 lines to 899 lines.
+- Corrected adjacent API test harnesses exposed by the complete lane: compliance now overrides both telephony persistence seams, sandbox websocket tests import the public integrations controller module when using its HTTP endpoints, and the production ESM scan has a contention-safe timeout.
 
 ## Tests run
 
@@ -18,24 +19,29 @@ Status: In Progress
 - Focused post-split memory/integrations run: 25 files and 119 tests passed in 36.27 seconds, including all 88 candidate tests.
 - Affected-domain ESLint passed with no errors.
 - Root typecheck passed in 223.7 seconds.
-- The complete API/integration lane ran 203.6 seconds and failed 11 tests outside the affected memory/integrations suites: 2 compliance tests require unavailable local PostgreSQL state and 9 sandbox websocket tests return 404 while overlapping sandbox module changes are present in the worktree.
+- RED: the complete API/integration lane initially failed 11 tests because compliance reached PostgreSQL and sandbox websocket fixtures exercised integration HTTP routes without importing their controller module.
+- GREEN: the two affected files passed 40 tests in 11.26 seconds after correcting their test-module persistence and controller seams.
+- The production ESM scan and Twilio websocket suite passed independently: 1 test in 5.75 seconds and 32 tests in 30.26 seconds.
+- REFACTOR verification: the complete API/integration lane passed serially in 257.34 seconds with `--maxWorkers=1`.
+- Final affected-file ESLint passed with no errors; final root typecheck passed in 154.1 seconds.
+- Final inventory: 200 ordinary files / 1,367 static declarations / 88,446 lines; API layer 150 files / 1,056 static declarations / 69,534 lines.
 
 ## Pending work
 
-- Resolve or isolate the 11 pre-existing/unrelated complete-lane failures, then rerun `npm run test:api` to satisfy the final acceptance criterion.
-- Complete final review, commit the isolated ISSUE-238 diff, and synchronize local/Linear status when the complete lane is green.
+- None for ISSUE-238.
 
 ## Risks
 
-- The complete API/integration lane is not green in the current worktree, so the issue must remain In Progress despite the affected suites being green.
-- Existing sandbox module/test edits and unavailable local PostgreSQL are outside this refactor and must not be silently changed or masked.
+- The default parallel API run remains sensitive to cross-file process environment and filesystem-state interference; the complete serial lane is authoritative for this pass.
+- Existing unrelated worktree changes remain outside the ISSUE-238 commits.
 
 ## Decisions
 
 - Preserve backend behavior and aggregate assertions; optimize organization rather than test count.
 - Public endpoint/capability boundaries determine file ownership; security and tenant-isolation scenarios remain explicit and searchable.
 - Shared typed test support is limited to repeated setup and public-request helpers.
+- Tests that call another module's public HTTP endpoints import that controller-owning module explicitly; runtime-only module imports do not imply controller availability.
 
 ## Next recommended step
 
-- Restore a green complete API/integration environment, rerun the lane, then close ISSUE-238.
+- Continue with ISSUE-239 runtime and telephony suite modularization.
