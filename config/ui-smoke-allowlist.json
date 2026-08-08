@@ -1,0 +1,14 @@
+{
+  "files": [
+    "apps/platform-admin/src/index.test.tsx",
+    "apps/web/src/AppAgentsRoute.test.tsx",
+    "apps/web/src/SandboxScreen.test.tsx",
+    "apps/web/src/TelephonyScreen.test.tsx",
+    "apps/web/src/TenantAgentsScreen.test.tsx",
+    "apps/web/src/WorkflowBuilder.test.tsx",
+    "apps/web/src/app.test.tsx",
+    "apps/web/src/useLiveSandboxSession.test.tsx"
+  ],
+  "minimumDeclaredTests": 15,
+  "maximumDeclaredTests": 25
+}

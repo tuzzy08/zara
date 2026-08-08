@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    maxWorkers: 1,
     include: ["apps/**/*.test.ts", "apps/**/*.test.tsx", "packages/**/*.test.ts", "packages/**/*.test.tsx"],
   },
 });

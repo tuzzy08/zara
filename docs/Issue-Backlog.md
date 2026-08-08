@@ -5452,7 +5452,7 @@ Acceptance criteria:
 - Area: Testing / Runtime / Telephony
 - Milestone: Test Suite Rationalization
 - Labels: testing, backend, runtime, telephony, refactor, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-233
 - Handover: [docs/Handovers/ISSUE-239-modularize-runtime-telephony-tests.md](../docs/Handovers/ISSUE-239-modularize-runtime-telephony-tests.md)
 - External: [Linear ZAR-243](https://linear.app/zara-voice/issue/ZAR-243/modularize-oversized-runtime-and-telephony-suites)
@@ -5469,7 +5469,7 @@ Acceptance criteria:
 - Area: Testing / Quality Gates / CI
 - Milestone: Test Suite Rationalization
 - Labels: testing, quality, ci, frontend, backend, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-234, ISSUE-235, ISSUE-236, ISSUE-237, ISSUE-238, ISSUE-239
 - Handover: [docs/Handovers/ISSUE-240-test-suite-final-qualification.md](../docs/Handovers/ISSUE-240-test-suite-final-qualification.md)
 - External: [Linear ZAR-244](https://linear.app/zara-voice/issue/ZAR-244/enforce-the-ui-smoke-boundary-and-qualify-the-complete-suite)

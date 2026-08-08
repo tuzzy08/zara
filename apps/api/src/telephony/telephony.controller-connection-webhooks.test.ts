@@ -1,52 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Test } from "@nestjs/testing";
-import { Logger, type INestApplication } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { Logger } from "@nestjs/common";
 import request from "supertest";
-import { computeTwilioWebhookSignature, type AvailableTwilioPhoneNumber } from "@zara/core";
-import {
-  BILLING_POLAR_CLIENT,
-  type BillingPolarClient,
-} from "../billing/polar-billing.client";
-import {
-  BILLING_STATE_REPOSITORY,
-  FileBillingStateRepository,
-} from "../billing/billing-state.repository";
-import { ComplianceModule } from "../compliance/compliance.module";
-import {
-  AUDIT_LOG_REPOSITORY,
-  FileAuditLogRepository,
-} from "../compliance/audit-log.repository";
-import { configureCors } from "../config/cors";
-import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
-import {
-  FileTelephonyStateRepository,
-  TELEPHONY_STATE_REPOSITORY,
-} from "./telephony-state.repository";
-import { TELEPHONY_INCREMENTAL_REPOSITORY } from "./telephony-incremental.repository";
-import { InMemoryTelephonyIncrementalRepository } from "./telephony-incremental.repository.test-helper";
-import { PremiumPstnDispatchSnapshotResolver } from "./premium-pstn-dispatch-snapshot-resolver";
-import {
-  PSTN_PREMIUM_WORKER_AVAILABILITY,
-  type PstnPremiumWorkerAvailability,
-} from "../realtime-worker/pstn-premium-worker-availability";
-import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
-import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
-import {
-  TWILIO_NUMBER_INVENTORY_PROVIDER,
-  type TwilioNumberInventoryProvider,
-} from "./twilio-number-inventory.provider";
-import {
-  TWILIO_NUMBER_ROUTING_PROVIDER,
-  type TwilioCallDiagnosticDetail,
-  type TwilioIncomingNumberRouteConfiguration,
-  type TwilioMonitorAlertDiagnostic,
-  type TwilioNumberRoutingProvider,
-  type TwilioRecentCallDiagnostic,
-} from "./twilio-number-routing.provider";
-import { createTestingApp, createPremiumSnapshotResolution, createGeneratedTwilioInventoryProvider, createCapturingTwilioRoutingProvider, createPolarClient, activateRouteWithOverride, resolveActivationBlocks } from "./telephony.controller.test-support";
+import { computeTwilioWebhookSignature } from "@zara/core";
+import { withTestTenantAuth } from "../testing/tenant-auth-request";
+import { createTestingApp, createCapturingTwilioRoutingProvider, activateRouteWithOverride } from "./telephony.controller.test-support";
 
 describe("TelephonyController connection-webhooks", () => {
   afterEach(() => {

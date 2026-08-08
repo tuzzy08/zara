@@ -46,6 +46,9 @@ jobs:
       - name: Executable repository contracts
         run: npm run validate:contracts
 
+      - name: Test-suite boundaries
+        run: npm run test:boundaries
+
       - name: Build production container targets
         run: |
           docker build --check .

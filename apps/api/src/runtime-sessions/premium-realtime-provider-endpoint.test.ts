@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import { resolvePremiumRealtimeProviderEndpoint } from "./premium-realtime-provider-transport";
 
 describe("resolvePremiumRealtimeProviderEndpoint", () => {

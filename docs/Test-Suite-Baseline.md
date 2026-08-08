@@ -141,3 +141,35 @@ The memory, connector-contract, and integrations-controller suites were reorgani
 | Largest affected file | 3,781 | 899 | -2,882 |
 
 The modest line increase is repeated per-file imports and capability naming; application setup, repository builders, provider connections, mock responses, and schema lookup remain centralized in typed support modules. The focused memory/integrations run passed 119 tests across 25 files, including all 88 candidates. After correcting adjacent test-module persistence and controller seams, the complete API/integration lane passed serially in 257.34 seconds.
+
+## ISSUE-239 runtime and telephony modularization
+
+The six selected live-session, runtime-session, provider-transport, telephony-controller, and premium-PSTN suites retained all 179 behavioral assertions while moving fixtures into typed support modules.
+
+| Measure | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Candidate behavioral tests | 179 | 179 | 0 |
+| Largest affected capability file | 4,917 | 1,412 | -3,505 |
+| Candidate test/support lines | 17,031 | 17,286 | +255 |
+
+The line increase is repeated capability imports and explicit fixture boundaries. Focused suites, API typecheck/build, the complete API layer, five runtime evals, and 25 PSTN evals passed.
+
+## ISSUE-240 final qualification
+
+| Layer | Baseline files | Final files | Baseline declared tests | Final declared tests | Baseline lines | Final lines |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Unit | 44 | 42 | 302 | 288 | 16,659 | 16,569 |
+| API/integration | 136 | 166 | 1,071 | 1,056 | 70,173 | 66,646 |
+| UI smoke | 9 | 8 | 149 | 23 | 10,567 | 2,343 |
+| Total ordinary | 189 | 216 | 1,522 | 1,367 | 97,399 | 85,558 |
+
+The higher file count is intentional capability modularization; the suite removed 155 static declarations and 11,841 lines while retaining backend, integration, runtime, telephony, security, connector, and tenant-isolation coverage. Frontend/platform-admin coverage totals 30 files, 114 static tests, and 5,624 lines: 23 DOM smoke tests plus 91 cheaper client-logic tests. The four-test variance above the approximate 95-110 frontend target is safer than deleting lower-seam behavioral coverage.
+
+Final execution evidence:
+
+- Unit: 42 files and 300 runtime-expanded tests passed in 37.57 seconds.
+- UI smoke: 8 files and 23 tests passed in 27.80 seconds, down from the 132.35-second failing baseline.
+- API/integration: complete layer passed in 161.2 seconds, down from the 272.21-second failing baseline.
+- Aggregate ordinary suite: passed in 404.4 seconds in deterministic single-worker mode.
+- Runtime eval: 5/5 passed; PSTN eval: 25/25 passed.
+- Repository contracts, all production workspace builds, and root typecheck passed.

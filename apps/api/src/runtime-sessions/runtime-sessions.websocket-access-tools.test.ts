@@ -1,21 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
-import type { Server } from "node:http";
-import WebSocket, { type RawData } from "ws";
-import type {
-  CompiledRuntimeManifest,
-  PremiumRealtimeSession,
-  TurnRuntimePacket,
-} from "@zara/core";
-import {
-  premiumRealtimeProviderTransportToken,
-  type PremiumRealtimeProviderConnection,
-  type PremiumRealtimeProviderTransport,
-} from "./premium-realtime-provider-transport";
+import WebSocket from "ws";
+import type { TurnRuntimePacket } from "@zara/core";
+import { premiumRealtimeProviderTransportToken } from "./premium-realtime-provider-transport";
 import { RuntimeSessionsWebSocketBridge } from "./runtime-sessions.websocket-bridge";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
-import { createRuntimeSessionsService, createRegisteredSession, websocketTestProviderConfig, packetWithToolLifecycleEvents, FakePremiumRealtimeProviderTransport, FakePremiumRealtimeProviderConnection, getListeningPort, nextOpen, nextMessage, nextClose, nextCloseWithReason, waitFor, withTimeout, encodePcm16, decodePcm16SampleCount } from "./runtime-sessions.websocket.test-support";
+import { createRuntimeSessionsService, createRegisteredSession, packetWithToolLifecycleEvents, FakePremiumRealtimeProviderTransport, getListeningPort, nextOpen, nextMessage, nextClose, nextCloseWithReason, waitFor, withTimeout } from "./runtime-sessions.websocket.test-support";
 
 describe("RuntimeSessionsWebSocketBridge access-tools", () => {
   it("requires a single-use transport token before premium provider attachment", async () => {

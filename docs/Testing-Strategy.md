@@ -21,12 +21,22 @@ Each issue must include tests appropriate to its layer. If tests are deferred, t
 - `npm run test:unit`: domain/package tests plus non-component tenant and platform-admin client logic.
 - `npm run test:api`: Nest API and PSTN protocol simulator tests, including integration, contract, runtime, telephony, security, and tenant-isolation coverage.
 - `npm run test:ui-smoke`: tenant and platform-admin React component smoke tests.
+- `npm run test:boundaries`: enforce the approved DOM smoke-file allowlist and 15-25 declared-test range.
 - `npm run test:run`: aggregate compatibility command for every ordinary test.
 - `npm run test:inventory`: tracked ordinary test file, declared-test, and line counts by layer.
 
 Choose the highest stable public seam that owns the behavior. Domain and client decisions belong in unit tests; server authority and public transport behavior belong in API/integration or contract tests; React rendering belongs only in the UI-smoke layer when a critical user journey cannot be protected more precisely below the DOM. Per-file Vitest environment directives may opt a browser-specific unit helper into jsdom without turning it into a UI smoke test.
 
 Runtime evals, PSTN evals, and PSTN capacity load tests remain separate from all ordinary commands.
+
+## Public Seams And UI-Smoke Boundary
+
+- Test domain and client decisions through exported functions and public state transitions in the unit layer.
+- Test server authority, persistence, integration, security, tenancy, runtime, and telephony behavior through public service, controller, HTTP, WebSocket, or provider protocol seams in the API layer.
+- Use DOM smoke tests only for critical journeys whose accessible behavior cannot be protected below React rendering. Assert roles, accessible names, user input, navigation, and durable state transitions.
+- Do not assert decorative classes, CSS selectors, literal colors, layout geometry, marketing copy, documentation prose, source text, Dockerfile text, Compose text, or private collaborator calls.
+- `config/ui-smoke-allowlist.json` is the reviewed list of permitted tenant and platform-admin DOM suites. Adding a `.test.tsx` file requires an intentional allowlist change and must keep the declared DOM total within 15-25 tests.
+- The guardrail intentionally does not impose blanket presentation-code coverage. UI behavior should move to pure client logic, API/integration, contract, security, or tenant-isolation seams whenever those seams own the decision.
 
 ## Executable Repository Contracts
 

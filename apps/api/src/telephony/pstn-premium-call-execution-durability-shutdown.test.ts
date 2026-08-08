@@ -1,17 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
 import { Logger } from "@nestjs/common";
-import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
-import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
-import { PstnPremiumCallActor } from "./pstn-premium-call-actor";
-import {
-  computeTelephonyPremiumDispatchSnapshotChecksum,
-} from "./telephony-incremental.repository";
-import {
-  PstnPremiumCallExecution,
-  type PstnPremiumCallOutput,
-} from "./pstn-premium-call-execution";
-import { createPremiumDispatchSnapshot, createPremiumManifest, createPremiumCallRuntimeContext, createMinimalExecutionHarness, createTestControlMessage, createHandoffExecutionHarness, createHandoffRegisteredSession, createFakeProviderConnection, createOpenAiReplacementResult, premiumInboundFrame, openAiPstnProviderConfig, geminiPstnProviderConfig, waitFor, deferred } from "./pstn-premium-call-execution.test-support";
+import { createPremiumCallRuntimeContext, createMinimalExecutionHarness, premiumInboundFrame, waitFor, deferred } from "./pstn-premium-call-execution.test-support";
 
 describe("PstnPremiumCallExecution durability-shutdown", () => {
   it("carries the immutable worker ownership fence through every lifecycle mutation", async () => {

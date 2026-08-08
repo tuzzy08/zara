@@ -1,16 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
 import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
-import { Logger } from "@nestjs/common";
 import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability.js";
 import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models.js";
-import { PstnPremiumCallActor } from "./pstn-premium-call-actor.js";
-import {
-  computeTelephonyPremiumDispatchSnapshotChecksum,
-} from "./telephony-incremental.repository.js";
-import {
-  PstnPremiumCallExecution,
-  type PstnPremiumCallOutput,
-} from "./pstn-premium-call-execution.js";
+import { computeTelephonyPremiumDispatchSnapshotChecksum } from "./telephony-incremental.repository.js";
+import { PstnPremiumCallExecution } from "./pstn-premium-call-execution.js";
 
 export function createPremiumDispatchSnapshot(
   manifest: CompiledRuntimeManifest,

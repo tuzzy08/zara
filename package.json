@@ -26,6 +26,7 @@
     "start:api": "npm run start --workspace @zara/api",
     "test": "vitest",
     "test:api": "vitest run --config vitest.api.config.ts",
+    "test:boundaries": "node scripts/validate-test-suite-boundaries.mjs",
     "test:inventory": "node scripts/test-suite-inventory.mjs",
     "test:run": "vitest run",
     "test:ui-smoke": "vitest run --config vitest.ui-smoke.config.ts",
