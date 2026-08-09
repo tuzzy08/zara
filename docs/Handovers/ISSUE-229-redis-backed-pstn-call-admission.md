@@ -14,7 +14,7 @@
 - Reserved capacity before durable call setup and Twilio Connect Stream TwiML, then activated the lease when the authorized media stream started.
 - Made reservation identity independent of worker identity so a webhook worker and media worker can safely share one call reservation across replicas.
 - Added bounded Redis expiry for reservation hashes, concurrency sorted sets, and inactive CPS buckets.
-- Preserved active media when Redis becomes unavailable while failing new calls closed and surfacing backend readiness through `/health/ready`.
+- Preserved active media through its last Redis-confirmed lease deadline when Redis becomes unavailable, while failing new calls closed and surfacing backend readiness through `/health/ready`; media fails closed when fenced authority expires without renewal.
 - Added provider-health input that respects the connection's `blockRoutingOnHealthFailure` policy and closes new-call admission without terminating active calls when that policy requires it.
 - Added a platform-owned Twilio concurrent-call quota input through `PSTN_ADMISSION_TWILIO_QUOTA_MAX_CONCURRENT_CALLS`; admission clamps the configured provider limit to this allowance without inferring quota from balance, heartbeat, or unrelated provider signals.
 - Released admission through the centralized durable lifecycle path for WebSocket, provider, policy, application-shutdown, phone-test expiry, and manual phone-test termination outcomes.
@@ -38,6 +38,7 @@
 - Prevented terminal Twilio webhook replays from consuming CPS or reserving admission again by consulting the durable call lifecycle before Redis; unreadable lifecycle state fails closed, while active duplicates continue to reuse the existing reservation.
 - Failed-setup and concurrent webhook replays re-enter deterministic call setup, reuse the existing Redis reservation and CPS debit, and converge on the same durable Connect response and one-time stream token.
 - Made malformed production lease renewal settings and unsafe TTL relationships fail readiness closed as `admission_config_invalid` without crashing Nest module construction; readiness preserves the specific unavailable configuration reason.
+- Applied ownership-loss termination consistently to sandwich and premium media, including durable sandwich lifecycle failure before local cleanup.
 
 ## Tests Run
 
@@ -70,6 +71,7 @@
 - `npm.cmd run db:migrate` applied the fresh migration chain through `0013`.
 - `npm.cmd run db:generate` reported no schema changes.
 - `git diff --check` passed.
+- Final fencing consistency RED/GREEN: a sandwich ownership-loss event initially left media open; the focused premium/sandwich regression now closes both paths with `4409` and persists the terminal failure.
 - Final integrated review-remediation qualification:
   - the 20-file changed surface passed 278 tests against real Redis 7 and PostgreSQL 16 with pgvector;
   - all 15 real-Redis admission tests passed together, including expired-active reconstruction without a second CPS debit;
@@ -96,7 +98,7 @@
 
 ## Risks
 
-- Admission must fail new calls closed when Redis is unavailable without interrupting existing media sessions.
+- Admission must fail new calls closed when Redis is unavailable. Existing media continues only through its last Redis-confirmed lease deadline and fails closed if fenced authority cannot be renewed before expiry.
 - Claim expiry must reclaim abandoned webhooks without releasing active calls; active renewal must not run in the per-frame media path.
 - Every active call maintains a bounded proactive Redis recovery hold. The hold remains nonblocking while the primary lease is valid, fails all replicas closed immediately when that lease expires, and clears on owner reconstruction, release, or bounded owner-death expiry.
 - Duplicate Twilio webhook delivery must reuse one reservation and one CPS debit.

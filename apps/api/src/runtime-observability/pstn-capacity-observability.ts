@@ -161,6 +161,10 @@ export interface PstnCapacitySnapshot {
     current: Array<TrackedCall & { count: number }>;
     terminal: { completed: number; failed: number };
   };
+  admission: {
+    trackedReservations: number;
+    pendingReleases: number;
+  };
   process: PstnProcessSample | null;
   sockets: {
     open: Array<Omit<TrackedSocket, "bufferedBytes"> & { count: number }>;
@@ -208,6 +212,10 @@ export class PstnCapacityRecorder {
     outbound: { messages: 0, bytes: 0 },
   };
   private database: DatabaseSnapshot;
+  private admission = {
+    trackedReservations: 0,
+    pendingReleases: 0,
+  };
   private readonly config: PstnCapacityConfig;
   private readonly now: () => string;
   private readonly clockMs: () => number;
@@ -371,6 +379,16 @@ export class PstnCapacityRecorder {
         provider: normalizeProvider(input.provider),
       },
     );
+  }
+
+  recordAdmissionPosture(input: {
+    trackedReservations: number;
+    pendingReleases: number;
+  }) {
+    this.admission = {
+      trackedReservations: nonNegative(input.trackedReservations),
+      pendingReleases: nonNegative(input.pendingReleases),
+    };
   }
 
   recordDuplicateClaim(input: {
@@ -707,6 +725,7 @@ export class PstnCapacityRecorder {
         current: aggregateCalls(this.calls.values()),
         terminal: { ...this.terminal },
       },
+      admission: { ...this.admission },
       process: processSample,
       sockets: {
         open: aggregateSockets(this.sockets.values()),

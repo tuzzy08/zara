@@ -266,6 +266,7 @@ describe("PstnAdmissionCoordinator", () => {
         recordAdmissionBackendHealth: vi.fn(),
         recordAdmissionOwnershipLost: vi.fn(),
         recordPendingRelease: vi.fn(),
+        recordAdmissionPosture: vi.fn(),
       };
       const coordinator = new PstnAdmissionCoordinator(
         admission,
@@ -612,6 +613,7 @@ describe("PstnAdmissionCoordinator", () => {
         recordAdmissionOwnershipLost: vi.fn(),
         recordAdmissionBackendHealth: vi.fn(),
         recordPendingRelease: vi.fn(),
+        recordAdmissionPosture: vi.fn(),
       };
       const coordinator = new PstnAdmissionCoordinator(
         admission,
@@ -891,6 +893,7 @@ describe("PstnAdmissionCoordinator", () => {
       recordAdmissionOwnershipLost: vi.fn(),
       recordAdmissionBackendHealth: vi.fn(),
       recordPendingRelease: vi.fn(),
+      recordAdmissionPosture: vi.fn(),
     };
     const mediaWorker = new PstnAdmissionCoordinator(
       admission,
@@ -926,6 +929,7 @@ describe("PstnAdmissionCoordinator", () => {
       recordAdmissionOwnershipLost: vi.fn(),
       recordAdmissionBackendHealth: vi.fn(),
       recordPendingRelease: vi.fn(),
+      recordAdmissionPosture: vi.fn(),
     };
     const coordinator = new PstnAdmissionCoordinator(
       admission,
@@ -957,6 +961,12 @@ describe("PstnAdmissionCoordinator", () => {
     expect(observability.recordAdmissionBackendHealth).toHaveBeenCalledWith({
       status: "healthy",
     });
+    expect(observability.recordAdmissionPosture.mock.calls).toEqual([
+      [{ trackedReservations: 1, pendingReleases: 0 }],
+      [{ trackedReservations: 1, pendingReleases: 0 }],
+      [{ trackedReservations: 0, pendingReleases: 1 }],
+      [{ trackedReservations: 0, pendingReleases: 0 }],
+    ]);
     expect(JSON.stringify(observability.recordAdmission.mock.calls)).not.toContain(
       scope.tenantId,
     );

@@ -38,7 +38,12 @@ function readPosture(payload: unknown) {
 
 function isCapacityTelemetrySample(value: unknown): value is CapacityTelemetrySample {
   if (!isRecord(value) || !isRecord(value.envelope) || !isRecord(value.resources)) return false;
-  if (!isRecord(value.calls) || !isRecord(value.sockets) || !isRecord(value.telemetry)) return false;
+  if (
+    !isRecord(value.calls)
+    || !isRecord(value.admission)
+    || !isRecord(value.sockets)
+    || !isRecord(value.telemetry)
+  ) return false;
   const resources = value.resources;
   const resourceNames = ["calls", "cpu", "eventLoop", "memory", "database", "fileDescriptors", "queues"];
   return typeof value.capturedAt === "string"
@@ -47,6 +52,8 @@ function isCapacityTelemetrySample(value: unknown): value is CapacityTelemetrySa
     && resourceNames.every((name) => isResourcePosture(resources[name]))
     && capacityEnvelopeIsValid(value.envelope)
     && isFiniteField(value.calls, "active")
+    && isFiniteField(value.admission, "trackedReservations")
+    && isFiniteField(value.admission, "pendingReleases")
     && typeof value.sockets.bufferedBytes === "number"
     && Number.isFinite(value.sockets.bufferedBytes)
     && Array.isArray(value.sockets.open)

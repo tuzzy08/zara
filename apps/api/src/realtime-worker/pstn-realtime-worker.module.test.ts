@@ -121,7 +121,7 @@ function moduleMetadata<T>(key: "imports" | "controllers" | "providers") {
 
 function workerEnvironment() {
   return {
-    NODE_ENV: "test",
+    NODE_ENV: "production",
     ZARA_PROCESS_ROLE: "pstn-realtime-worker",
     PSTN_WORKER_ID: "worker-eu-1",
     PSTN_WORKER_RELEASE_ID: "release-abc123",
@@ -139,7 +139,12 @@ function workerEnvironment() {
     PSTN_WORKER_MAX_OPEN_FILE_DESCRIPTORS: "4096",
     PSTN_WORKER_MAX_WEBSOCKETS: "200",
     PSTN_ADMISSION_REDIS_URL: "redis://127.0.0.1:6379",
+    PSTN_ADMISSION_GLOBAL_CPS_RATE: "10",
+    PSTN_ADMISSION_GLOBAL_CPS_BURST: "10",
+    PSTN_ADMISSION_PROVIDER_CPS_RATE: "5",
+    PSTN_ADMISSION_PROVIDER_CPS_BURST: "5",
     DATABASE_URL: "postgresql://zara:test@127.0.0.1:5432/zara",
+    BETTER_AUTH_SECRET: "test-secret-with-at-least-thirty-two-characters",
     OPENAI_API_KEY: "openai-key",
   };
 }

@@ -1277,16 +1277,13 @@ implements OnApplicationBootstrap {
   private async handleAdmissionOwnershipLost(
     input: PstnAdmissionOwnershipLostEvent,
   ) {
-    if (input.runtime !== "pstn-premium-realtime") {
-      return;
-    }
     const attachment = this.attachments.get(input.callSessionId);
     const authorization = attachment?.authorization;
     if (
       attachment === undefined
       || authorization === undefined
       || authorization.organizationId !== input.tenantId
-      || authorization.runtimePath !== "pstn-premium-realtime"
+      || authorization.runtimePath !== input.runtime
     ) {
       return;
     }
@@ -1304,7 +1301,9 @@ implements OnApplicationBootstrap {
     this.closeAttachment(
       attachment,
       4409,
-      "premium_call_ownership_lost",
+      input.runtime === "pstn-premium-realtime"
+        ? "premium_call_ownership_lost"
+        : "pstn_call_ownership_lost",
     );
     const cleanupResults = await Promise.allSettled([
       this.terminalizeAttachment({
@@ -1318,7 +1317,11 @@ implements OnApplicationBootstrap {
         this.logger.error(
           `[twilio-pstn] media_ownership_loss_cleanup_failed ${JSON.stringify({
             callSessionId: input.callSessionId,
-            operation: index === 0 ? "premium_execution" : "unknown",
+            operation: index === 0
+              ? input.runtime === "pstn-premium-realtime"
+                ? "premium_execution"
+                : "sandwich_terminalization"
+              : "unknown",
             error: result.reason instanceof Error
               ? result.reason.message
               : "unknown_error",

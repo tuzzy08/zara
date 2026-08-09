@@ -296,14 +296,30 @@ async function createTestingApp(): Promise<INestApplication> {
   const stateRoot = join(tmpdir(), `zara-compliance-test-${randomUUID()}`);
   process.env.ZARA_MEMORY_STATE_DIR = join(stateRoot, "memory");
   process.env.ZARA_AUDIT_LOG_STATE_DIR = join(stateRoot, "audit");
+  const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
+  const stateRepository = new FileTelephonyStateRepository(join(stateRoot, "telephony"));
 
   const moduleRef = await Test.createTestingModule({
     imports: [MemoryModule, TelephonyModule, ComplianceModule],
   })
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
-    .useValue(new FileTelephonyStateRepository(join(stateRoot, "telephony")))
+    .useValue({
+      listOrganizationIds: () => stateRepository.listOrganizationIds(),
+      load: (organizationId: string) => stateRepository.load(organizationId),
+      save: (record: Parameters<FileTelephonyStateRepository["save"]>[0]) => {
+        stateRepository.save(record);
+        incrementalRepository.loadConnections(
+          record.organizationId,
+          record.connections.map(({ id }) => id),
+        );
+        incrementalRepository.loadPhoneNumberProjections(
+          record.organizationId,
+          record.phoneNumbers,
+        );
+      },
+    })
     .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
-    .useValue(new InMemoryTelephonyIncrementalRepository())
+    .useValue(incrementalRepository)
     .compile();
 
   const app = moduleRef.createNestApplication();

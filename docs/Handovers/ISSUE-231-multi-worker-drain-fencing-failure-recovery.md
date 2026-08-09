@@ -25,6 +25,11 @@
 - Corrected the real-Postgres concurrency qualification to establish a valid ownership fence before explicitly expiring it, preventing wall-clock drift from silently skipping the reconciliation assertion.
 - Added explicit reverse-order rollback runbooks for the premium dispatch ownership and owner-lease migrations. The migration workflow now removes those dependencies before restoring pre-incremental call identities instead of relying on cascading index removal.
 - Unblocked the candidate PR quality gates by removing three branch-local lint defects, replacing the migration workflow's fixed test password with isolated-container trust authentication, and retaining fail-closed Coolify Redis authentication without scanner-hostile placeholder copy.
+- Corrected sandbox runtime module ownership: `SandboxLiveSessionsModule` now re-exports the owning tool-execution module instead of directly exporting its provider, and retains the integration control/runtime module required by sandbox grant APIs and checks.
+- Kept compliance controller tests isolated from production PostgreSQL by overriding the incremental telephony repository with the existing in-memory implementation and synchronizing projections when test configuration state is saved.
+- Stabilized Twilio capacity verification by waiting for the server-side local-close accounting callback after the client observes socket closure; production socket ordering remains unchanged.
+- Closed final review findings before replacement-branch commit: mapped all four production-required admission CPS variables into the realtime worker, exposed tracked reservation and pending-release posture to the load harness, and aligned canonical Redis-outage language with the last-confirmed-lease fencing decision.
+- Closed the standards re-review follow-ups: sandwich media now obeys the same lease-expiry fail-stop contract as premium media, separate Dockerfile worker documentation names `PSTN_WORKER_PUBLIC_MEDIA_URL`, and the ISSUE-229 handover no longer promises unfenced outage continuity.
 
 ## Tests Run
 
@@ -35,6 +40,7 @@
 - `npm.cmd run eval:pstn` passed: 25 tests.
 - `docker compose -f compose.coolify.yml config --quiet` passed after programmatically populating all 22 required variables with validation-only values.
 - Targeted `git diff --check` passed.
+- GitHub PR #120 passed quality gates, migration compatibility and rollback, GitGuardian, and Vercel.
 - RED: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` failed with `ENOENT` for the missing rollback-0015 runbook. The fresh-database rollback workflow then reproduced the production dependency failure when rollback 0009 tried to drop the tenant session identity index while the premium dispatch snapshot foreign key still depended on it.
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed after adding rollback 0015 and 0014 in strict reverse order.
 - REFACTOR: strengthened the regression to assert actual rollback execution order and the premium snapshot postcondition; the focused test and `npm.cmd exec -- eslint apps/api/src/database/telephony-migration-rollback-chain.test.ts` passed.
@@ -43,7 +49,28 @@
 - RED: `npm.cmd exec -- vitest run packages/core/src/deployment-docs.test.ts -t "production Redis fail-closed"` failed because the Coolify Redis requirement still used scanner-hostile placeholder copy instead of the required fail-closed form.
 - GREEN: the deployment contract passed with passwordless trust authentication limited to the ephemeral GitHub Postgres service and the production Redis password remaining mandatory.
 - REFACTOR: focused ESLint passed for the three CI-reported files; the affected reconciler, Twilio media, and deployment suites passed with 46 tests; API typecheck, migration drift, Compose validation, and targeted `git diff --check` passed.
-- The repository-wide local lint command remains obstructed only by the unrelated untracked `docs/system-design/system-design.js`; that file is not part of the candidate branch or PR.
+- RED: PR #119 full-suite CI failed 95 startup tests because `SandboxLiveSessionsModule` exported a provider owned by another module and omitted the integration module required by direct sandbox dependencies.
+- GREEN: runtime tool module and app-module verification passed with 13 tests after restoring Nest module ownership and imports.
+- RED: the first full clean-candidate run exposed 9 sandbox WebSocket tests returning `404` from integration grant setup because the sandbox module retained runtime services but not the integration controller module.
+- GREEN: the sandbox module now imports `IntegrationsModule`, which re-exports runtime grants while preserving the control-plane routes used by sandbox integration setup.
+- RED: the compliance controller suite failed 2 of 4 tests when its test module resolved the production incremental PostgreSQL repository during live-route activation.
+- GREEN: the compliance controller suite passed 4 tests and the telephony controller regression suite passed 24 tests with the in-memory incremental override.
+- RED: PR #119 full-suite CI observed the client close before the server capacity callback, so the Twilio test inspected events before `close:local` was recorded.
+- GREEN: the Twilio websocket suite passed 32 tests, and the concurrent telephony/capacity regression set passed 386 tests with 37 environment-gated skips after adding the bounded wait.
+- The clean replacement candidate full-suite run reached 1,527 passing tests with 41 environment-gated skips; 12 tests exceeded their five-second timeout under parallel Windows host pressure. Every affected test passed when rerun with one worker: 38 tests across five focused files and 99 tests across the two heavier web files.
+- `npm.cmd run lint`, `npm.cmd run typecheck`, and `npm.cmd run db:check` passed for the clean replacement candidate.
+- `npm.cmd run eval:runtime` passed: 5 tests.
+- `npm.cmd run eval:pstn` passed: 25 tests.
+- The real-Redis suite was selected locally but skipped its 15 tests because `ZARA_TEST_REDIS_URL` is not configured in this shell; PR #120's CI quality gate supplied Redis and passed the authoritative integration result.
+- `docker compose -f compose.coolify.yml config --quiet` passed after populating every required variable with validation-only process values.
+- Final `git diff --check` passed.
+- RED: final spec review found that production worker Compose omitted the four required admission CPS variables and that drain recovery ignored reservation debt; standards review found canonical docs still promised media survival beyond the last confirmed lease.
+- GREEN: production worker compilation, deployment contracts, admission posture propagation, capacity client validation, and reservation-debt drain rejection passed in a focused 80-test suite.
+- GREEN: the broader simulator, capacity, platform-admin, worker, and admission regression set passed 134 tests across 18 files.
+- REFACTOR: full lint, full typecheck, schema drift, deployment contracts, runtime evals (5), PSTN evals (25), and Compose validation with all 22 required variables passed.
+- RED: standards re-review found sandwich ownership loss was ignored, the separate-worker deployment guide named only the Compose URL alias, and ISSUE-229 retained superseded outage wording.
+- GREEN: focused premium/sandwich ownership-loss and Dockerfile-worker documentation contracts passed; the final eight-file regression set passed 122 tests.
+- REFACTOR: full lint and full typecheck passed after the ownership-loss and deployment-documentation corrections.
 
 ## Pending Work
 
@@ -60,4 +87,4 @@
 
 ## Next Recommended Step
 
-Obtain green candidate PR gates, then deploy without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
+Deploy the merged PR #120 release SHA without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.

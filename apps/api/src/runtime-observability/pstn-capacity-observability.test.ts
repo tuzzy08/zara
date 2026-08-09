@@ -561,6 +561,10 @@ describe("PstnCapacityRecorder", () => {
       runtimePath: "pstn-premium-realtime",
       provider: "twilio",
     });
+    recorder.recordAdmissionPosture({
+      trackedReservations: 2,
+      pendingReleases: 1,
+    });
     recorder.recordDuplicateClaim({ source: "media_socket" });
 
     expect(points).toEqual([
@@ -595,6 +599,10 @@ describe("PstnCapacityRecorder", () => {
         attributes: { source: "media_socket" },
       },
     ]);
+    expect(recorder.getSnapshot().admission).toEqual({
+      trackedReservations: 2,
+      pendingReleases: 1,
+    });
   });
 
   it("periodically samples process pressure without requiring a staff API read", async () => {

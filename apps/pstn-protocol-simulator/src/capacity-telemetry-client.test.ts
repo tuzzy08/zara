@@ -47,6 +47,15 @@ describe("CapacityTelemetryClient", () => {
         },
       })),
     }).read()).rejects.toThrow("invalid capacity posture");
+
+    const { admission: _admission, ...withoutAdmission } = sample;
+    void _admission;
+    await expect(new CapacityTelemetryClient({
+      endpoint: "https://admin-api.example.test/platform-admin/runtime/ai-observability",
+      fetch: vi.fn(async () => Response.json({
+        aiObservability: { pstnCapacity: withoutAdmission },
+      })),
+    }).read()).rejects.toThrow("invalid capacity posture");
   });
 });
 
@@ -74,6 +83,7 @@ const sample = {
     queues: resource,
   },
   calls: { active: 0 },
+  admission: { trackedReservations: 0, pendingReleases: 0 },
   process: { rssBytes: 128 * 1024 * 1024 },
   sockets: { open: [], bufferedBytes: 0 },
   queues: [],

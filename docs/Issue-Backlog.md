@@ -5088,7 +5088,7 @@ Implementation summary:
 - Area: Runtime / Telephony / Observability / Platform Admin
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, telephony, observability, platform-admin, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md](../docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md)
 - External: [Linear ZAR-224](https://linear.app/zara-voice/issue/ZAR-224/pstn-capacity-112-expose-single-instance-capacity-posture)
@@ -5111,7 +5111,7 @@ Implementation summary:
 - Area: Runtime / Telephony / Testing / Observability
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, telephony, observability, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-223-pstn-protocol-simulator.md](../docs/Handovers/ISSUE-223-pstn-protocol-simulator.md)
 - External: [Linear ZAR-225](https://linear.app/zara-voice/issue/ZAR-225/pstn-capacity-212-build-deterministic-twilio-and-openai-protocol)
@@ -5152,7 +5152,7 @@ Acceptance criteria:
 - Area: Runtime / Telephony / Database
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, database, runtime, telephony, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-225-incremental-telephony-persistence.md](../docs/Handovers/ISSUE-225-incremental-telephony-persistence.md)
 - External: [Linear ZAR-226](https://linear.app/zara-voice/issue/ZAR-226/pstn-capacity-412-expand-incremental-telephony-persistence-contracts)
@@ -5174,7 +5174,7 @@ Implementation summary:
 - Area: Runtime / Telephony / Database
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, database, runtime, telephony, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: ISSUE-225
 - Handover: [docs/Handovers/ISSUE-226-incremental-inbound-call-setup.md](../docs/Handovers/ISSUE-226-incremental-inbound-call-setup.md)
 - External: [Linear ZAR-228](https://linear.app/zara-voice/issue/ZAR-228/pstn-capacity-512-migrate-inbound-webhook-dispatch-and-media-token)

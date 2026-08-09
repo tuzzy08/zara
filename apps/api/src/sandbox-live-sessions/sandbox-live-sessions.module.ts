@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { IntegrationsModule } from "../integrations/integrations.module";
 import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
@@ -17,7 +18,6 @@ import {
   UnavailableLiveSandboxIntentClassifierProvider,
 } from "./sandbox-intent-classifier.provider";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
-import { RuntimeAgentToolExecutorService } from "./runtime-agent-tool-executor.service";
 import { RuntimeAgentToolExecutionModule } from "./runtime-agent-tool-execution.module";
 import { createLiveSandboxTextModelProvider } from "./sandbox-text-model-provider-factory";
 import { SandboxLiveSessionsController } from "./sandbox-live-sessions.controller";
@@ -34,6 +34,7 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
 
 @Module({
   imports: [
+    IntegrationsModule,
     RuntimeAgentToolExecutionModule,
     RuntimePromptPolicyModule,
     VoiceLibraryModule,
@@ -118,7 +119,6 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
   ],
   exports: [
     RuntimeAgentToolExecutionModule,
-    RuntimeAgentToolExecutorService,
     SandboxLiveSessionsService,
     liveSandboxIntentClassifierProviderToken,
   ],

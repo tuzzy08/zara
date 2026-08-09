@@ -33,6 +33,10 @@ export interface CapacityTelemetrySample {
     ResourcePosture
   >;
   calls: { active: number };
+  admission: {
+    trackedReservations: number;
+    pendingReleases: number;
+  };
   process: { rssBytes: number } | null;
   sockets: {
     open: Array<{ leg: string; count: number }>;
@@ -552,6 +556,8 @@ function hasRequiredTelemetry(sample: CapacityTelemetrySample) {
         && (posture.utilization === null || Number.isFinite(posture.utilization));
     })
     && Number.isFinite(sample.calls.active)
+    && Number.isFinite(sample.admission.trackedReservations)
+    && Number.isFinite(sample.admission.pendingReleases)
     && Number.isFinite(sample.sockets.bufferedBytes)
     && Array.isArray(sample.sockets.open)
     && sample.sockets.open.every((socket) => Number.isFinite(socket.count))
@@ -569,6 +575,10 @@ function hasRecoveredToBaseline(baseline: CapacityTelemetrySample, current: Capa
   const memoryAllowance = Math.max(32 * 1024 * 1024, baseline.process!.rssBytes * 0.1);
   return current.status !== "exhausted"
     && current.calls.active <= baseline.calls.active
+    && current.admission.trackedReservations
+      <= baseline.admission.trackedReservations
+    && current.admission.pendingReleases
+      <= baseline.admission.pendingReleases
     && (current.resources.calls.used ?? Number.POSITIVE_INFINITY)
       <= (baseline.resources.calls.used ?? Number.NEGATIVE_INFINITY)
     && currentSockets <= baselineSockets

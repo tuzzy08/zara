@@ -11,13 +11,14 @@
 - Added deterministic `ci-smoke`, stepped, same/cross-tenant burst, failure-matrix, and two-hour soak profiles. The stepped curve is pinned to 1, 5, 10, 20, 40, 60, and 100 concurrent calls.
 - Added scenario coverage for delayed provider readiness, Twilio marks, interruption/clear, tool continuation, same-provider and cross-provider handoff, long audio output, quota errors, provider closure, and nonfatal exporter failure.
 - Added an external load runner with arrival pacing, active-call telemetry monitoring, an immediate exhaustion abort, telemetry completeness checks, scenario/traffic/identity checks, first-audio and success SLOs, and post-stage drain recovery checks for calls, reservations, sockets, playback queues, and process RSS.
+- Closed a review gap in reservation recovery evidence: staff capacity telemetry now exposes bounded tracked-reservation and pending-release counts, and a stage cannot pass drain recovery while either count remains above its baseline.
 - Added qualification proof for observed local concurrency, advancing telemetry, workload-correlated active calls/socket legs, and per-stage exporter-failure deltas; configured concurrency is no longer treated as measured concurrency.
 - Required post-handoff specialist continuation for same-provider and cross-provider scenarios, explicit specialized workflow destinations, a 100-call target ceiling, pre-stage exhaustion rejection, and deadline rechecks after arrival pacing.
 - Added a typed, atomic `zara.pstn-load-report.v1` writer with a bounded failure taxonomy and forbidden credential, token, caller, transcript, payload, and media fields.
 - Added a staff capacity-posture client with bounded request timeouts and external tenant configuration that rejects inline credentials, production execution, insecure endpoints, unknown scenario destinations, cross-tenant underconfiguration, and unapproved release-scale runs.
 - Extended the virtual Twilio caller with abort propagation and webhook, media-connect, first-audio, and total-call timing while preserving the deterministic protocol contract.
 - Added root and simulator commands for CI smoke and explicitly approved release profiles, plus operator documentation, report interpretation, cost boundaries, and baseline retention rules.
-- Re-audited staging readiness from candidate commit `0620ad2`. The candidate remains local by instruction, and no staging target, external tenant fixture, staff telemetry authorization, or load approval variables are configured in the workspace.
+- Re-audited staging readiness before push from candidate commit `0620ad2` and confirmed that no staging target, external tenant fixture, staff telemetry authorization, or load approval variables are configured in the workspace. The replacement candidate is now pushed in PR #120; the staging inputs remain outstanding.
 - Identified the missed baseline sequence explicitly. Commit `fa08cb7` contains the completed load suite and is the direct parent of `a9f7022`, the first incremental-persistence commit; only `fa08cb7` can reconstruct the intended pre-persistence artifact from repository history.
 
 ## Tests Run
@@ -29,6 +30,8 @@
 - GREEN: `npm.cmd exec -- eslint apps/pstn-protocol-simulator/src`.
 - GREEN: `npm.cmd run eval:pstn` - 25 PSTN media evals passed.
 - GREEN: `git diff --check`.
+- RED: the reservation-debt regression passed a stage even though tracked reservations and pending releases remained above baseline.
+- GREEN: the focused capacity client, load runner, admission coordinator, observability, worker, and deployment suites passed with 80 tests after admission posture became a required telemetry field and drain gate.
 - BLOCKED: `npm.cmd run load:pstn:ci` exited with the intentionally redacted `pstn_protocol_smoke_failed` result before traffic generation because the documented test/staging tenant and telemetry configuration is absent. This is not staging certification evidence.
 
 ## Pending Work
@@ -36,8 +39,8 @@
 - Provision one isolated staging resource shape and external generator that can be reused without capacity-affecting configuration drift.
 - Configure the external generator's tenant fixture file, staff-authorized capacity telemetry endpoint/session, simulator transport, release SHA, report store, and explicit release-load approval.
 - Deploy historical commit `fa08cb7` to reconstruct the pre-persistence single-instance baseline, run the explicitly approved profiles, and retain the report plus resource manifest in the approved baseline store.
-- Obtain authorization to push candidate `0620ad2`, deploy it to the same resource shape, and run the same approved profiles as the post-refactor comparison.
-- If `fa08cb7` cannot be deployed faithfully, record an explicit ZAR-227 acceptance waiver and release-owner rebaseline decision; do not label a `0620ad2` report as the required pre-persistence baseline.
+- Deploy the merged PR #120 release SHA to the same resource shape and run the same approved profiles as the post-refactor comparison.
+- If `fa08cb7` cannot be deployed faithfully, record an explicit ZAR-227 acceptance waiver and release-owner rebaseline decision; do not label the post-refactor report as the required pre-persistence baseline.
 - Reconcile the measured qualified target and any observed bottleneck with the capacity envelope before marking this issue Implemented.
 
 ## Risks
@@ -45,7 +48,6 @@
 - Release-scale and real-provider runs can incur provider cost and must never run implicitly in ordinary CI.
 - A valid baseline requires an isolated staging resource shape and staff-authorized capacity telemetry; a local synthetic report is not certification evidence.
 - Staging must route the selected workflow scenarios to the external OpenAI protocol simulator before the deterministic profiles are meaningful.
-- The current no-push constraint prevents the exact local candidate from being deployed and therefore prevents valid staging qualification.
 - The original chronological pre-persistence baseline was not captured before `a9f7022`; historical reconstruction must preserve commit `fa08cb7` and the same resource shape, or the acceptance gap requires an explicit waiver.
 
 ## Decisions
@@ -57,4 +59,4 @@
 
 ## Next Recommended Step
 
-Provision the isolated target and generator, capture the `fa08cb7` historical baseline, then after push authorization run `0620ad2` on the same shape for comparison. Otherwise obtain an explicit ZAR-227 baseline waiver before closure.
+Provision the isolated target and generator, capture the `fa08cb7` historical baseline, then run the merged PR #120 release SHA on the same shape for comparison. Otherwise obtain an explicit ZAR-227 baseline waiver before closure.

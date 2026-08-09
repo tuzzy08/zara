@@ -24,6 +24,7 @@ const healthyTelemetry = (overrides: Partial<CapacityTelemetrySample> = {}): Cap
     ]),
   ) as CapacityTelemetrySample["resources"],
   calls: { active: 0 },
+  admission: { trackedReservations: 0, pendingReleases: 0 },
   process: { rssBytes: 128 * 1024 * 1024 },
   sockets: { open: [], bufferedBytes: 0 },
   queues: [],
@@ -394,6 +395,34 @@ describe("PstnLoadRunner", () => {
 
     expect(report.outcome).toBe("failed");
     expect(report.failures).toContainEqual(expect.objectContaining({ code: "drain_not_recovered" }));
+  });
+
+  it("fails drain recovery while admission reservations remain above baseline", async () => {
+    const samples = [
+      healthyTelemetry(),
+      healthyTelemetry(),
+      healthyTelemetry({
+        admission: { trackedReservations: 1, pendingReleases: 1 },
+      }),
+      healthyTelemetry({
+        admission: { trackedReservations: 1, pendingReleases: 1 },
+      }),
+    ];
+    const runner = new PstnLoadRunner({
+      runCall: vi.fn(async () => passedCall()),
+      readTelemetry: vi.fn(async () => samples.shift() ?? healthyTelemetry()),
+      sleep: vi.fn(async () => undefined),
+      drainAttempts: 1,
+    });
+
+    const report = await runner.run(profile({
+      stages: [{ ...profile().stages[0]!, callCount: 1 }],
+    }), metadata);
+
+    expect(report.outcome).toBe("failed");
+    expect(report.failures).toContainEqual(expect.objectContaining({
+      code: "drain_not_recovered",
+    }));
   });
 
   it("requires the exporter-failure scenario to produce nonfatal telemetry evidence", async () => {

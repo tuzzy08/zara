@@ -48,6 +48,7 @@ type PstnAdmissionObservability = Pick<
   | "recordAdmissionOwnershipLost"
   | "recordAdmissionBackendHealth"
   | "recordPendingRelease"
+  | "recordAdmissionPosture"
 >;
 
 export interface PstnAdmissionOwnershipLostEvent {
@@ -135,6 +136,7 @@ export class PstnAdmissionCoordinator {
           input,
           state: "claim",
         });
+        this.recordAdmissionPosture();
       }
     }
     return result;
@@ -179,6 +181,7 @@ export class PstnAdmissionCoordinator {
           result.leaseExpiresAt,
         ),
       });
+      this.recordAdmissionPosture();
       this.ensureRenewalTimer();
       this.scheduleOwnershipDeadlineCheck();
     }
@@ -209,6 +212,7 @@ export class PstnAdmissionCoordinator {
       inFlight: undefined,
     };
     this.pendingReleases.set(key, releaseIntent);
+    this.recordAdmissionPosture();
     this.observability?.recordPendingRelease({
       delta: 1,
       runtimePath: releaseIntent.input?.runtime ?? "unknown",
@@ -278,6 +282,7 @@ export class PstnAdmissionCoordinator {
     this.tracked.clear();
     this.unresolvedActiveLeases.clear();
     this.pendingReleases.clear();
+    this.recordAdmissionPosture();
   }
 
   private buildInput(scope: PstnAdmissionScope): PstnCallAdmissionInput {
@@ -621,6 +626,7 @@ export class PstnAdmissionCoordinator {
 
     if (result.outcome !== "backend_unavailable") {
       this.pendingReleases.delete(key);
+      this.recordAdmissionPosture();
       this.observability?.recordPendingRelease({
         delta: -1,
         runtimePath: pending.input?.runtime ?? "unknown",
@@ -675,6 +681,13 @@ export class PstnAdmissionCoordinator {
     }
     clearTimeout(this.releaseRetryTimer);
     this.releaseRetryTimer = undefined;
+  }
+
+  private recordAdmissionPosture() {
+    this.observability?.recordAdmissionPosture({
+      trackedReservations: this.tracked.size,
+      pendingReleases: this.pendingReleases.size,
+    });
   }
 
   private trackingKey(tenantId: string, callSessionId: string) {

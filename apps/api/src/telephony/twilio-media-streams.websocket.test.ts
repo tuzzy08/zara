@@ -848,6 +848,10 @@ describe("Twilio Media Streams websocket bridge", () => {
     const close = await withTimeout(nextClose(socket), "twilio stop close");
     expect(close.code).toBe(1000);
     expect(close.reason).toBe("twilio_stop");
+    await withTimeout(
+      waitFor(() => capacityEvents.includes("close:local")),
+      "local capacity close",
+    );
     expect(
       incrementalRepository.callLifecycleTransitions.map((transition) => transition.nextState.stage),
     ).toEqual(["media-connected", "active", "draining", "completed"]);
@@ -1891,6 +1895,80 @@ describe("Twilio Media Streams websocket bridge", () => {
     await app.close();
   }, 30_000);
 
+  it("closes sandwich media and persists failure when admission ownership is lost", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const callSid = "CA-sandwich-ownership-lost";
+    const callSessionId = `${callSid}:telephony`;
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-sandwich-ownership-lost",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(
+      webhookResponse.text,
+      "zaraStreamToken",
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${getListeningPort(app)}${streamUrl.pathname}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "sandwich ownership-lost websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-sandwich-ownership-lost",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(
+      waitFor(() =>
+        bridge
+          .getSessionEvents(callSessionId)
+          .some((event) => event.type === "started")),
+      "sandwich ownership-lost start",
+    );
+    const lifecycle = vi.spyOn(
+      app.get(TelephonyService),
+      "recordPstnCallLifecycle",
+    );
+    lifecycle.mockClear();
+    const closed = nextClose(socket);
+
+    await (
+      bridge as unknown as {
+        handleAdmissionOwnershipLost(input: {
+          tenantId: string;
+          callSessionId: string;
+          runtime: "pstn-sandwich";
+          reason: "lease_unrecoverable";
+        }): Promise<void>;
+      }
+    ).handleAdmissionOwnershipLost({
+      tenantId: "tenant-west-africa",
+      callSessionId,
+      runtime: "pstn-sandwich",
+      reason: "lease_unrecoverable",
+    });
+
+    await expect(
+      withTimeout(closed, "sandwich ownership-lost websocket close"),
+    ).resolves.toEqual({
+      code: 4409,
+      reason: "pstn_call_ownership_lost",
+    });
+    expect(lifecycle).toHaveBeenCalledWith({
+      organizationId: "tenant-west-africa",
+      callSessionId,
+      stage: "failed",
+      reasonCode: "pstn_admission_ownership_lost",
+    });
+
+    await app.close();
+  }, 30_000);
+
   it("closes premium media fail-stop when ownership-loss cleanup fails", async () => {
     const stop = vi.fn(async () => {
       throw new Error("provider stop failed");
@@ -2401,6 +2479,7 @@ async function createRoutedTwilioApp(options?: {
     | "recordAdmissionLease"
     | "recordAdmissionOwnershipLost"
     | "recordAdmissionBackendHealth"
+    | "recordAdmissionPosture"
     | "recordDuplicateClaim"
   >>;
 }) {
@@ -2460,6 +2539,7 @@ async function createRoutedTwilioApp(options?: {
       recordAdmissionLease() {},
       recordAdmissionOwnershipLost() {},
       recordAdmissionBackendHealth() {},
+      recordAdmissionPosture() {},
       recordDuplicateClaim() {},
       ...options?.capacityObservability,
     })

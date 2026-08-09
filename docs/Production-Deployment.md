@@ -36,7 +36,7 @@ Production-critical environment variables:
 - `ZARA_TWILIO_WEBHOOK_URL=https://api.zara.ai/telephony/webhooks/twilio` when the Twilio webhook path cannot be derived from `API_PUBLIC_URL`
 - `ZARA_TWILIO_MEDIA_STREAM_BASE_URL=wss://api.zara.ai/telephony/twilio/media-streams` when the Twilio media stream path cannot be derived from `API_PUBLIC_URL`
 - a distinct Coolify service domain in `https://host:4020` form for each worker application
-- a distinct `REALTIME_WORKER_PUBLIC_URL=wss://host/telephony/twilio/media-streams` value advertised by each worker
+- a distinct `PSTN_WORKER_PUBLIC_MEDIA_URL=wss://host/telephony/twilio/media-streams` value advertised by each Dockerfile worker application; the checked-in Compose baseline accepts `REALTIME_WORKER_PUBLIC_URL` and maps it to this worker variable
 - `PSTN_ADMISSION_REDIS_URL`
 - a unique `PSTN_WORKER_ID` in each worker application and the same deployed artifact identifier in `PSTN_WORKER_RELEASE_ID`
 - worker heartbeat, drain, resource, WebSocket, and concurrency limits from `deploy/coolify.env.example`
