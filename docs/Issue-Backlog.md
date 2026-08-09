@@ -5064,7 +5064,7 @@ Implementation summary:
 - Area: Auth / Security / API
 - Milestone: Production Readiness
 - Labels: auth, backend, security, testing, tdd-required
-- Status: Implemented
+- Status: In Progress
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-221-better-auth-rate-limit-concurrency.md](../docs/Handovers/ISSUE-221-better-auth-rate-limit-concurrency.md)
 - External: [Linear ZAR-221](https://linear.app/zara-voice/issue/ZAR-221/issue-221-make-better-auth-database-rate-limiting-concurrency-safe)
@@ -5088,7 +5088,7 @@ Implementation summary:
 - Area: Runtime / Telephony / Observability / Platform Admin
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, telephony, observability, platform-admin, testing, tdd-required
-- Status: Implemented
+- Status: In Progress
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md](../docs/Handovers/ISSUE-222-pstn-single-instance-capacity-posture.md)
 - External: [Linear ZAR-224](https://linear.app/zara-voice/issue/ZAR-224/pstn-capacity-112-expose-single-instance-capacity-posture)
@@ -5111,7 +5111,7 @@ Implementation summary:
 - Area: Runtime / Telephony / Testing / Observability
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, telephony, observability, testing, tdd-required
-- Status: Implemented
+- Status: In Progress
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-223-pstn-protocol-simulator.md](../docs/Handovers/ISSUE-223-pstn-protocol-simulator.md)
 - External: [Linear ZAR-225](https://linear.app/zara-voice/issue/ZAR-225/pstn-capacity-212-build-deterministic-twilio-and-openai-protocol)

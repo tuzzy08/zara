@@ -15,6 +15,7 @@ External: [Linear ZAR-219](https://linear.app/zara-voice/issue/ZAR-219/refresh-t
 - Updated `DESIGN.md` with the approved Calls-page visual contract and the restricted functional color exception.
 - Restored the mockup-strength gray outline and hover ring on provider Connect/Manage buttons, with regression coverage confirming configured Twilio connections retain heartbeat and number-import actions.
 - Added a restrained Calls-page motion layer: staggered metric/provider/connection entrance, centered dialog reveal, tactile provider/action controls, busy-state icon feedback, a quiet configured LED signal, pointer-gated hover effects, and opacity-only reduced-motion fallbacks.
+- Kept the existing Connections table layout while increasing configured-connection text size and replacing its compact icon-only operations with slightly larger icon-and-text buttons. Heartbeat, validation, import, and deletion now use green, orange, blue, and red borders respectively.
 
 ## Tests Run
 
@@ -27,12 +28,16 @@ External: [Linear ZAR-219](https://linear.app/zara-voice/issue/ZAR-219/refresh-t
 - `npx tsc -p apps/web/tsconfig.json --noEmit` (follow-up)
 - `npx vitest --run --pool=threads --maxWorkers=1 apps/web/src/TelephonyScreen.test.tsx` (4 passed; motion hooks and existing critical flows)
 - `npx tsc -p apps/web/tsconfig.json --noEmit` (motion pass)
+- `npx.cmd vitest run apps/web/src/TelephonyScreen.test.tsx --pool=threads --maxWorkers=1 --no-file-parallelism --testTimeout=30000 --reporter=verbose` (4 passed; labeled connection actions).
+- `npx.cmd vitest run apps/web/src/app.test.tsx --pool=threads --maxWorkers=1 --no-file-parallelism --testTimeout=30000 --reporter=verbose -t "consolidated utilities|heartbeats, credential rotation"` (2 passed, 71 skipped).
+- `npm.cmd run typecheck --workspace @zara/web` (passed).
+- `npx.cmd eslint apps/web/src/SandboxScreen.tsx apps/web/src/SandboxScreen.test.tsx apps/web/src/TelephonyScreen.tsx apps/web/src/TelephonyScreen.test.tsx apps/web/src/app.test.tsx` (passed).
 
 ## Decisions
 
 - Credential validation happens before persistence by calling Twilio's incoming-number inventory endpoint without importing inventory.
 - Existing platform-managed tenant records remain readable/routable, but tenants can no longer create them.
-- Connection operations use compact Lucide icon buttons with accessible labels and tooltips.
+- Connection operations use slightly enlarged Lucide icon-and-text buttons with visible labels, accessible names, tooltips, and functional colored borders.
 - Calls motion uses CSS transform/opacity animation with custom easing; no runtime animation dependency was added.
 
 ## Pending Work

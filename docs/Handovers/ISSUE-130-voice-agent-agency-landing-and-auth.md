@@ -274,3 +274,35 @@ Review the complete landing page in the normal development session; hero-video r
 ### Next Recommended Step
 
 Complete the paired Armory comparison at full desktop and narrow-mobile widths when Computer Use can validate both URLs, then replace only the atmospheric poster when an approved video is available.
+
+## Precision Glyph Replacement (2026-07-29)
+
+### Work Completed
+
+- Replaced the rejected freehand-looking marketing glyphs with a sixteen-symbol precision family built on one 48-unit optical grid.
+- Standardized the family around rounded terminals and joins, a 1.5-unit primary stroke, and a quieter 1-unit secondary construction layer.
+- Redrew routing, agent, handoff, memory, phone, waveform, policy, tool, observability, network, calendar, commerce, cloud, signal, code, and completion symbols from scratch.
+- Removed the skewed pseudo-3D glyph presentation and rotating case-card treatment in favor of upright geometry, controlled optical lift, and restrained depth.
+
+### Tests Run
+
+- RED: focused landing test failed under the fork pool because the rendered glyph SVG did not yet expose the required rounded linecap and linejoin contract.
+- GREEN: `npm.cmd run test:run -- apps/web/src/MarketingLandingPageMockup.test.tsx --pool=forks --fileParallelism=false` — passed, 1 test.
+- Thread-pool attempt remained blocked by the existing Vitest worker-start timeout before import.
+- `npm.cmd run typecheck --workspace @zara/web` — passed.
+- `npm.cmd exec eslint apps/web/src/MarketingLandingPageMockup.tsx apps/web/src/MarketingLandingPageMockup.test.tsx` — passed.
+- `npm.cmd run build --workspace @zara/web` — passed with the existing large-chunk warning.
+- Browser review at `http://127.0.0.1:4175/` — checked the large capability and call-pattern symbols plus small telemetry usage; the family remained crisp and legible across those scales.
+
+### Pending Work
+
+- No required glyph replacement work remains.
+
+### Risks And Decisions
+
+- Keep the marketing family bespoke rather than substituting stock Lucide icons.
+- Use secondary construction marks sparingly so 22–27px workflow and telemetry instances remain legible.
+
+### Next Recommended Step
+
+Review the revised glyph family in the normal landing preview and identify any individual metaphor that should change; geometry and presentation should continue to follow the shared precision system.

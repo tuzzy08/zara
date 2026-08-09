@@ -24,6 +24,7 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Follow-up on 2026-07-09: consolidated Phone test start/end controls into the Phone test panel, removed the duplicate toolbar start button, and removed the inert checklist/placeholder latency and call-quality cards from the sandbox surface.
 - Follow-up on 2026-07-10: kept the Phone test start button green and disabled while a waiting/active test is in progress, and added sandbox-side automatic expiry so an active waiting session completes with an `expired` result when the waiting window closes.
 - Follow-up on 2026-07-10: server-side Phone test completion now attempts to complete the matching Twilio provider call for active `expired` or `manually_ended` sessions, using the inbound dispatch/test-session correlation instead of requiring the sandbox UI to know provider call-control details.
+- Follow-up on 2026-07-15: reduced the full sandbox card stack so Live cost and Session metrics are the only persistent right-rail cards. Escalations, Monitor, Replay, Routing, Tools, and Manifest remain available in one tabbed utility dock below the primary session surface, and the separate Runtime decision card/label was removed.
 
 ## Tests Run
 
@@ -58,6 +59,9 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Follow-up on 2026-07-10: GREEN `npm.cmd run typecheck --workspace @zara/api`
 - Follow-up on 2026-07-10: BLOCKED `npm.cmd run test:run -- --pool=forks --testTimeout=30000 apps/web/src/app.test.tsx -t "starts a protected Phone test|expires a protected Phone test|delete an individual imported"` because unrelated dirty landing-page work imports missing `./MarketingWorkflowScene`.
 - Follow-up on 2026-07-10: BLOCKED `npm.cmd run typecheck --workspace @zara/web` on the same unrelated `MarketingWorkflowScene` import/type error before reaching sandbox/calls code.
+- Follow-up on 2026-07-15: RED `npx.cmd vitest run apps/web/src/SandboxScreen.test.tsx apps/web/src/TelephonyScreen.test.tsx --pool=threads --maxWorkers=1 --no-file-parallelism --testTimeout=30000 --reporter=verbose` failed because Runtime decision still rendered and the utility tablist did not exist; the Telephony worker did not start in the combined run.
+- Follow-up on 2026-07-15: GREEN `npx.cmd vitest run apps/web/src/SandboxScreen.test.tsx --pool=threads --maxWorkers=1 --no-file-parallelism --testTimeout=30000 --reporter=verbose` (4 passed).
+- Follow-up on 2026-07-15: GREEN `npx.cmd vitest run apps/web/src/app.test.tsx --pool=threads --maxWorkers=1 --no-file-parallelism --testTimeout=30000 --reporter=dot -t "active sandbox monitor|escalation queue"` (2 passed, 71 skipped).
 
 ## Pending Work
 
@@ -81,6 +85,7 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Phone test actions should live next to the allowed-caller and waiting-window fields; the toolbar remains for workflow selection, refresh, and sandbox mode switching.
 - Waiting-window expiry should use the existing Phone test completion API with status `expired`, so the stored result participates in activation gating like provider-side expiry results.
 - Active Phone test expiry/manual end is a backend call-control concern: the API derives the Twilio Call SID from the execution session and completes the provider call best-effort, logging success/failure/skips with redacted diagnostics.
+- Secondary sandbox inspection stays available through one tabbed utility dock; persistent right-rail emphasis is reserved for live cost and session metrics.
 
 ## Next Recommended Step
 
