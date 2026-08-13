@@ -517,6 +517,8 @@ describe("telephony persistence and secret storage", () => {
     twilioRouting?: TwilioNumberRoutingProvider;
     incrementalRepository?: InMemoryTelephonyIncrementalRepository;
   }) {
+    process.env.PAYG_MAXIMUM_CALL_SECONDS ??= "300";
+    process.env.PAYG_RESERVATION_TTL_SECONDS ??= "360";
     tempDirectory = mkdtempSync(join(tmpdir(), "zara-telephony-"));
     const storePath = join(tempDirectory, "telephony-store");
     const secretVault = new TelephonySecretVault({
@@ -531,7 +533,7 @@ describe("telephony persistence and secret storage", () => {
     return {
       incrementalRepository,
       storePath,
-      service: new TelephonyService(
+      service: createTestTelephonyService(
         repository,
         secretVault,
         input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
@@ -566,7 +568,7 @@ describe("telephony persistence and secret storage", () => {
     return {
       incrementalRepository,
       storePath,
-      service: new TelephonyService(
+      service: createTestTelephonyService(
         repository,
         secretVault,
         input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
@@ -601,6 +603,44 @@ describe("telephony persistence and secret storage", () => {
       renewIntervalMs: 30_000,
       commandTimeoutMs: 750,
     });
+  }
+
+  function createTestTelephonyService(
+    repository: FileTelephonyStateRepository,
+    secretVault: TelephonySecretVault,
+    inventory: TwilioNumberInventoryProvider,
+    routing: TwilioNumberRoutingProvider,
+    incrementalRepository: InMemoryTelephonyIncrementalRepository,
+    admissionCoordinator: PstnAdmissionCoordinator,
+    premiumResolver: never,
+  ) {
+    process.env.PAYG_MAXIMUM_CALL_SECONDS ??= "300";
+    process.env.PAYG_RESERVATION_TTL_SECONDS ??= "360";
+    return new TelephonyService(
+      repository,
+      secretVault,
+      inventory,
+      routing,
+      incrementalRepository,
+      admissionCoordinator,
+      premiumResolver,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { async evaluateNextSafeSegment() { return { billingAccessMode: "subscription" }; } } as never,
+      { async start() { return { outcome: "reserved", duplicate: false }; },
+        async releaseByReservationKey() { return { outcome: "released", duplicate: false }; } } as never,
+      { async getStatus() { return { outcome: "found", status: "active" }; } } as never,
+      { async resolve() { return { mode: "subscription", subscriptionId: "test-subscription",
+        catalogId: "test-catalog", planSlug: "growth", premiumAllowed: true,
+        available: true, availableIncludedSeconds: 300,
+        availablePaygMinor: 0, availableOverageMinor: 0 }; } } as never,
+    );
   }
 
   function createUnusedPremiumSnapshotResolver() {

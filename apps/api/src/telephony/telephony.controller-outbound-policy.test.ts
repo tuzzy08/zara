@@ -65,7 +65,7 @@ describe("TelephonyController outbound-policy", () => {
         )
         .send({
           actorUserId: "user-ops-lead",
-          phoneNumber: "+14155550110",
+          phoneNumber: "+2348015550110",
           friendlyName: "Premium support",
         });
 
@@ -95,7 +95,7 @@ describe("TelephonyController outbound-policy", () => {
       const inboundValidationResponse = await request(app.getHttpServer())
         .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
         .send({
-          toPhoneNumber: "+14155550110",
+          toPhoneNumber: "+2348015550110",
           fromPhoneNumber: "+233201110001",
           callSid: "CA-platform-inbound-1",
         });
@@ -171,8 +171,8 @@ describe("TelephonyController outbound-policy", () => {
       const outboundBlockedResponse = await request(app.getHttpServer())
         .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
         .send({
-          fromPhoneNumber: "+14155550110",
-          toPhoneNumber: "+14155550999",
+          fromPhoneNumber: "+2348015550110",
+          toPhoneNumber: "+2348015550999",
           callSid: "CA-outbound-blocked-1",
           publishedVersionId: "workflow-vip-v1",
           workflowLabel: "VIP reception",
@@ -194,8 +194,8 @@ describe("TelephonyController outbound-policy", () => {
       const outboundQueuedResponse = await request(app.getHttpServer())
         .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
         .send({
-          fromPhoneNumber: "+14155550110",
-          toPhoneNumber: "+14155550999",
+          fromPhoneNumber: "+2348015550110",
+          toPhoneNumber: "+2348015550999",
           callSid: "CA-outbound-queued-1",
           publishedVersionId: "workflow-vip-v1",
           workflowLabel: "VIP reception",
@@ -294,7 +294,7 @@ describe("TelephonyController outbound-policy", () => {
         .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/register-number`)
         .send({
           actorUserId: "user-ops-lead",
-          phoneNumber: "+14155550110",
+          phoneNumber: "+2348015550110",
           friendlyName: "Campaign caller ID",
         });
       const phoneNumberId = numberResponse.body.phoneNumber.id as string;
@@ -310,8 +310,8 @@ describe("TelephonyController outbound-policy", () => {
         .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
         .send({
           actorUserId: "user-campaign-operator",
-          fromPhoneNumber: "+14155550110",
-          toPhoneNumber: "+14155550998",
+          fromPhoneNumber: "+2348015550110",
+          toPhoneNumber: "+2348015550998",
           callSid: "CA-outbound-campaign-1",
           publishedVersionId: "workflow-campaign-v1",
           workflowLabel: "Campaign reception",
@@ -342,8 +342,8 @@ describe("TelephonyController outbound-policy", () => {
         { userId: "user-campaign-operator" },
       ).send({
           actorUserId: "user-campaign-operator",
-          fromPhoneNumber: "+14155550110",
-          toPhoneNumber: "+14155550997",
+          fromPhoneNumber: "+2348015550110",
+          toPhoneNumber: "+2348015550997",
           callSid: "CA-outbound-campaign-2",
           publishedVersionId: "workflow-campaign-v1",
           workflowLabel: "Campaign reception",
@@ -428,7 +428,7 @@ describe("TelephonyController outbound-policy", () => {
         .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/register-number`)
         .send({
           actorUserId: "user-ops-lead",
-          phoneNumber: "+14155550110",
+          phoneNumber: "+2348015550110",
           friendlyName: "Compliance caller ID",
         });
       const phoneNumberId = numberResponse.body.phoneNumber.id as string;
@@ -444,8 +444,8 @@ describe("TelephonyController outbound-policy", () => {
         .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
         .send({
           actorUserId: "user-campaign-operator",
-          fromPhoneNumber: "+14155550110",
-          toPhoneNumber: "+14155550997",
+          fromPhoneNumber: "+2348015550110",
+          toPhoneNumber: "+2348015550997",
           callSid: "CA-dnc-blocked-1",
           publishedVersionId: "workflow-compliance-v1",
           workflowLabel: "Compliance reception",
@@ -459,7 +459,7 @@ describe("TelephonyController outbound-policy", () => {
             endHour: 19,
           },
           compliancePolicy: {
-            dncPhoneNumbers: ["+14155550997"],
+            dncPhoneNumbers: ["+2348015550997"],
             timezone: "Africa/Lagos",
             localTime: "2026-05-24T11:00:00+01:00",
           },
@@ -480,8 +480,8 @@ describe("TelephonyController outbound-policy", () => {
         .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
         .send({
           actorUserId: "user-campaign-operator",
-          fromPhoneNumber: "+14155550110",
-          toPhoneNumber: "+14155550996",
+          fromPhoneNumber: "+2348015550110",
+          toPhoneNumber: "+2348015550996",
           callSid: "CA-timezone-unknown-1",
           publishedVersionId: "workflow-compliance-v1",
           workflowLabel: "Compliance reception",
@@ -513,8 +513,8 @@ describe("TelephonyController outbound-policy", () => {
         { userId: "user-campaign-operator" },
       ).send({
           actorUserId: "user-campaign-operator",
-          fromPhoneNumber: "+14155550110",
-          toPhoneNumber: "+14155550996",
+          fromPhoneNumber: "+2348015550110",
+          toPhoneNumber: "+2348015550996",
           callSid: "CA-timezone-override-1",
           publishedVersionId: "workflow-compliance-v1",
           workflowLabel: "Compliance reception",

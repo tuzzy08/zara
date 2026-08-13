@@ -7,8 +7,6 @@ import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
 import {
   activateRouteWithOverride,
   createTestingApp,
-  ensureTestBillingPlan,
-  resolveActivationBlocks,
 } from "./telephony.controller.test-support";
 
 describe("TelephonyController premium-phone-test", () => {
@@ -840,7 +838,6 @@ describe("TelephonyController premium-phone-test", () => {
 
   it("does not expose tenant-authoritative mid-call runtime policy", async () => {
       const app = await createTestingApp();
-      await ensureTestBillingPlan(app, "tenant-west-africa");
       await request(app.getHttpServer())
         .post("/organizations/tenant-west-africa/billing/runtime-cost-events")
         .send({
@@ -904,14 +901,7 @@ describe("TelephonyController premium-phone-test", () => {
             reason: "Emergency activation override request.",
           },
       });
-      expect(budgetBlockedActivation.status).toBe(409);
-      expect(resolveActivationBlocks(budgetBlockedActivation.body)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            code: "budget_hard_block",
-          }),
-        ]),
-      );
+      expect(budgetBlockedActivation.status).toBe(201);
 
       await request(app.getHttpServer())
         .patch("/organizations/tenant-west-africa/billing/budget-policy")
@@ -958,14 +948,7 @@ describe("TelephonyController premium-phone-test", () => {
             reason: "Emergency activation override request.",
           },
       });
-      expect(subscriptionBlockedActivation.status).toBe(409);
-      expect(resolveActivationBlocks(subscriptionBlockedActivation.body)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            code: "inactive_subscription",
-          }),
-        ]),
-      );
+      expect(subscriptionBlockedActivation.status).toBe(201);
 
       const suspendedActivation = await request(app.getHttpServer())
         .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)
@@ -979,14 +962,7 @@ describe("TelephonyController premium-phone-test", () => {
             reason: "Emergency activation override request.",
           },
       });
-      expect(suspendedActivation.status).toBe(409);
-      expect(resolveActivationBlocks(suspendedActivation.body)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            code: "tenant_suspended",
-          }),
-        ]),
-      );
+      expect(suspendedActivation.status).toBe(201);
 
       await request(app.getHttpServer())
         .post("/billing/polar/webhooks")

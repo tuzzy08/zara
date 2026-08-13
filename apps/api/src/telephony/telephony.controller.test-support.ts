@@ -29,6 +29,9 @@ import { TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-c
 import { BillingPaygEligibilityService } from "../billing/billing-payg-eligibility.service.js";
 import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository.js";
 import { TrustedCallCommercialModeResolver } from "../billing/trusted-call-commercial-mode-resolver.js";
+import { TrustedSubscriptionCallLifecycleService } from "../billing/trusted-subscription-call-lifecycle.service.js";
+import { TrustedPaygTerminalFinalizationService } from "../billing/trusted-payg-terminal-finalization.service.js";
+import { TrustedTerminalBillingRecoveryService } from "../billing/trusted-terminal-billing-recovery.service.js";
 
 export async function createTestingApp(input: {
   installTenantAuth?: boolean | undefined;
@@ -41,6 +44,8 @@ export async function createTestingApp(input: {
   tenantStatusRepository?: Pick<PostgresTenantStatusRepository, "getStatus"> | undefined;
   commercialModeResolver?: Pick<TrustedCallCommercialModeResolver, "resolve"> | undefined;
 } = {}) {
+  process.env.PAYG_MAXIMUM_CALL_SECONDS ??= "300";
+  process.env.PAYG_RESERVATION_TTL_SECONDS ??= "360";
   const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
   const stateRepository = new FileTelephonyStateRepository(
     join(tmpdir(), "zara-telephony-tests", randomUUID()),
@@ -147,9 +152,30 @@ export async function createTestingApp(input: {
     .useValue(input.commercialModeResolver ?? {
       async resolve() {
         return { mode: "subscription" as const, subscriptionId: "test-subscription",
-          catalogId: "test-catalog", planSlug: "growth", premiumAllowed: true };
+          catalogId: "test-catalog", planSlug: "growth", premiumAllowed: true,
+          available: true, availableIncludedSeconds: 300,
+          availablePaygMinor: 0, availableOverageMinor: 0 };
       },
-    });
+    })
+    .overrideProvider(TrustedSubscriptionCallLifecycleService)
+    .useValue({
+      async start() { return { outcome: "reserved" as const, duplicate: false }; },
+      async releaseByReservationKey() { return { outcome: "released" as const, duplicate: false }; },
+      async getReservationByKey() {
+        return { planSlug: "growth", meterClass: "standard", billingMode: "byo",
+          provider: "twilio", direction: "inbound" };
+      },
+      async finalizeByReservationKey() {
+        return { outcome: "finalized" as const, duplicate: false, paygAppliedMinor: 0 };
+      },
+    })
+    .overrideProvider(TrustedPaygTerminalFinalizationService)
+    .useValue({
+      async resolveCallBillingMode() { return "subscription" as const; },
+      async getPinnedCallChargeContext() { return null; },
+    })
+    .overrideProvider(TrustedTerminalBillingRecoveryService)
+    .useValue({ async submit() { return { status: "completed" as const }; } });
   if (input.billingService !== undefined) {
     moduleBuilder.overrideProvider(BillingService).useValue(input.billingService);
   }

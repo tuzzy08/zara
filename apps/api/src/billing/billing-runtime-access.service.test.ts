@@ -19,6 +19,7 @@ describe("BillingService runtime access", () => {
         id text not null,
         provider_subscription_id text not null unique,
         catalog_id text not null,
+        plan_slug text,
         status text not null,
         current_period_end timestamptz,
         cancel_at_period_end boolean not null,

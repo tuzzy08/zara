@@ -15,6 +15,13 @@ import WebSocket, { type RawData } from "ws";
 import { ComplianceModule } from "../compliance/compliance.module";
 import { BILLING_POLAR_CLIENT } from "../billing/polar-billing.client";
 import { TrustedBillingUsageProducer } from "../billing/trusted-billing-usage-producer";
+import { BILLING_READ_MODEL_REPOSITORY } from "../billing/billing-read-model.repository";
+import { BILLING_LEDGER_REPOSITORY } from "../billing/postgres-billing-ledger.repository";
+import { TrustedCallCommercialModeResolver } from "../billing/trusted-call-commercial-mode-resolver";
+import { TrustedSubscriptionCallLifecycleService } from "../billing/trusted-subscription-call-lifecycle.service";
+import { TrustedPaygTerminalFinalizationService } from "../billing/trusted-payg-terminal-finalization.service";
+import { TrustedTerminalBillingRecoveryService } from "../billing/trusted-terminal-billing-recovery.service";
+import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
 import {
   BILLING_STATE_REPOSITORY,
   FileBillingStateRepository,
@@ -50,6 +57,7 @@ import {
 import { TelephonyService } from "./telephony.service";
 import {
   createPolarClient,
+  createTestBillingLedgerRepository,
   ensureTestBillingPlan,
 } from "./telephony.controller.test-support";
 import {
@@ -2493,6 +2501,8 @@ async function createRoutedTwilioApp(options?: {
     | "recordDuplicateClaim"
   >>;
 }) {
+  process.env.PAYG_MAXIMUM_CALL_SECONDS ??= "300";
+  process.env.PAYG_RESERVATION_TTL_SECONDS ??= "360";
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
@@ -2504,6 +2514,38 @@ async function createRoutedTwilioApp(options?: {
     )
     .overrideProvider(BILLING_POLAR_CLIENT)
     .useValue(createPolarClient())
+    .overrideProvider(BILLING_READ_MODEL_REPOSITORY)
+    .useValue({
+      async getSubscriptionProductId(planSlug: string) {
+        return `polar-catalog-${planSlug}-test`;
+      },
+      async getPaygProductId() { return "polar-catalog-payg-test"; },
+      async load() { return null; },
+    })
+    .overrideProvider(BILLING_LEDGER_REPOSITORY)
+    .useValue(createTestBillingLedgerRepository())
+    .overrideProvider(PostgresTenantStatusRepository)
+    .useValue({ async getStatus() { return { outcome: "found", status: "active" }; } })
+    .overrideProvider(TrustedCallCommercialModeResolver)
+    .useValue({ async resolve() {
+      return { mode: "subscription", subscriptionId: "test-subscription",
+        catalogId: "test-catalog", planSlug: "growth", premiumAllowed: true,
+        available: true, availableIncludedSeconds: 300,
+        availablePaygMinor: 0, availableOverageMinor: 0 };
+    } })
+    .overrideProvider(TrustedSubscriptionCallLifecycleService)
+    .useValue({
+      async start() { return { outcome: "reserved", duplicate: false }; },
+      async releaseByReservationKey() { return { outcome: "released", duplicate: false }; },
+      async getReservationByKey() { return { planSlug: "growth", meterClass: "standard",
+        billingMode: "byo", provider: "twilio", direction: "inbound" }; },
+      async finalizeByReservationKey() { return { outcome: "finalized", duplicate: false }; },
+    })
+    .overrideProvider(TrustedPaygTerminalFinalizationService)
+    .useValue({ async resolveCallBillingMode() { return "subscription"; },
+      async getPinnedCallChargeContext() { return null; } })
+    .overrideProvider(TrustedTerminalBillingRecoveryService)
+    .useValue({ async submit() { return { status: "completed" }; } })
     .overrideProvider(TrustedBillingUsageProducer)
     .useValue({
       async recordTerminalCall() {},

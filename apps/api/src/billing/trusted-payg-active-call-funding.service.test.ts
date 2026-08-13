@@ -41,9 +41,14 @@ describe("TrustedPaygActiveCallFundingService", () => {
         tenant_id text not null, id text not null, reservation_key text not null,
         catalog_id text not null, charge_context jsonb, funding_source text not null, status text not null,
         reserved_amount_minor bigint not null, actual_amount_minor bigint, session_id text,
+        terminal_outcome text,
         currency text not null, expires_at timestamptz not null, finalized_at timestamptz,
         released_at timestamptz, created_at timestamptz not null, updated_at timestamptz not null,
         primary key (tenant_id, id), unique (tenant_id, reservation_key)
+      );
+      create table billing_terminal_recovery_jobs (
+        tenant_id text not null, reservation_id text not null,
+        commercial_mode text not null, status text not null
       );
     `);
     const adapter = database.adapters.createPg();

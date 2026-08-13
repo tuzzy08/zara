@@ -313,6 +313,9 @@ export function createHandoffExecutionHarness(input: {
           context: createPremiumCallRuntimeContext(),
         };
       },
+      async applyCallRuntimePolicy() {
+        return { session: { status: "active" as const } };
+      },
     } as never,
     {
       async loadPremiumDispatchSnapshot() {
