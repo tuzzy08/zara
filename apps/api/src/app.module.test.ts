@@ -4,12 +4,32 @@ import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
 import { AppModule } from "./app.module";
+import { PostgresTenantStatusRepository } from "./persistence/tenant-status.repository";
+import { PostgresPlatformBillingReadRepository } from "./platform-admin/platform-billing-read.repository";
 
 describe("AppModule", () => {
   it("boots in test mode and serves the health endpoint", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(PostgresTenantStatusRepository)
+      .useValue({ async getStatus() { return { outcome: "found", status: "active" }; } })
+      .overrideProvider(PostgresPlatformBillingReadRepository)
+      .useValue({
+        async read() {
+          return {
+            currency: null,
+            shadowEstimateMinor: null,
+            premiumShadowEstimateMinor: null,
+            deliveredChargeMinor: null,
+            incompleteUsageCount: 0,
+            blockedUsageCount: 0,
+            tenantsOverBudget: 0,
+            organizations: [],
+          };
+        },
+      })
+      .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
     await app.init();
@@ -28,7 +48,25 @@ describe("AppModule", () => {
   it("mounts the guarded platform-admin API in the application module", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(PostgresTenantStatusRepository)
+      .useValue({ async getStatus() { return { outcome: "found", status: "active" }; } })
+      .overrideProvider(PostgresPlatformBillingReadRepository)
+      .useValue({
+        async read() {
+          return {
+            currency: null,
+            shadowEstimateMinor: null,
+            premiumShadowEstimateMinor: null,
+            deliveredChargeMinor: null,
+            incompleteUsageCount: 0,
+            blockedUsageCount: 0,
+            tenantsOverBudget: 0,
+            organizations: [],
+          };
+        },
+      })
+      .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
     await app.init();

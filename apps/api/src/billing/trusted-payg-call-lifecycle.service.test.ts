@@ -62,6 +62,12 @@ describe("TrustedPaygCallLifecycleService", () => {
         updated_at timestamptz not null,
         primary key (tenant_id, id),
         unique (tenant_id, reservation_key)
+      );
+      create table billing_terminal_recovery_jobs (
+        tenant_id text not null,
+        reservation_id text not null,
+        commercial_mode text not null,
+        status text not null
       )
     `);
     const adapter = database.adapters.createPg();

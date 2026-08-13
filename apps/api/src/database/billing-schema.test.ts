@@ -100,10 +100,10 @@ describe("production billing schema", () => {
       ["billing_payg_orders", ["tenantId", "id", "providerOrderId", "currency", "paidAmountMinor", "grantedCreditMinor", "status", "createdAt"]],
       ["billing_payg_credit_entries", ["tenantId", "id", "orderId", "entryType", "amountMinor", "idempotencyKey", "sessionId", "expiresAt", "createdAt"]],
       ["billing_webhook_receipts", ["tenantId", "provider", "eventId", "eventType", "payloadHash", "receivedAt", "processedAt", "status", "error"]],
-      ["billing_outbox", ["tenantId", "id", "aggregateType", "aggregateId", "eventType", "payload", "status", "attemptCount", "nextAttemptAt", "lastError", "createdAt", "deliveredAt"]],
+      ["billing_outbox", ["tenantId", "id", "aggregateType", "aggregateId", "eventType", "payload", "status", "attemptCount", "nextAttemptAt", "lastError", "createdAt", "deliveredAt", "chargeReleaseId", "chargePromotedAt"]],
       ["billing_polar_mappings", ["id", "catalogId", "mappingType", "internalKey", "providerId", "environment", "createdAt"]],
       ["billing_reservation_accounts", ["tenantId", "reservedAmountMinor", "updatedAt"]],
-      ["billing_charge_reservations", ["tenantId", "id", "reservationKey", "catalogId", "chargeContext", "fundingSource", "status", "reservedAmountMinor", "actualAmountMinor", "sessionId", "currency", "expiresAt", "finalizedAt", "releasedAt", "createdAt", "updatedAt"]],
+      ["billing_charge_reservations", ["tenantId", "id", "reservationKey", "catalogId", "chargeContext", "fundingSource", "status", "reservedAmountMinor", "actualAmountMinor", "sessionId", "terminalOutcome", "currency", "expiresAt", "finalizedAt", "releasedAt", "createdAt", "updatedAt"]],
     ]);
   });
 });

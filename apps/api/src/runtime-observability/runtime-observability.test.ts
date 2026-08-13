@@ -466,6 +466,10 @@ describe("runtime observability", () => {
     expect(JSON.stringify(exportPlan)).not.toContain("AUDIO_BASE64_PAYLOAD");
     expect(JSON.stringify(exportPlan)).not.toContain("secret://twilio/token");
     expect(JSON.stringify(exportPlan)).not.toContain("ignore all prior instructions");
+    expect(exportPlan.spans.find((span) => span.name === "pstn.premium.policy_stop_failed")?.attributes).toMatchObject({
+      "zara.reason": "billing_policy_terminalization_failed",
+      "zara.code": "billing_policy_terminalization_failed",
+    });
   });
 
   it("projects premium realtime PSTN traces separately from sandwich traces", () => {
@@ -610,10 +614,6 @@ describe("runtime observability", () => {
       playbackClearCount: 1,
       handoffDurationMs: 300,
       cleanupCount: 1,
-    });
-    expect(exportPlan.spans.find((span) => span.name === "pstn.premium.policy_stop_failed")?.attributes).toMatchObject({
-      "zara.reason": "billing_policy_terminalization_failed",
-      "zara.code": "billing_policy_terminalization_failed",
     });
     expect(exportPlan.spans.map((span) => span.name)).toEqual(expect.arrayContaining([
       "pstn.premium.readiness", "pstn.premium.pressure", "pstn.premium.playback",

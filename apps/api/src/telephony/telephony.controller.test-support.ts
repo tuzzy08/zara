@@ -9,6 +9,8 @@ import { type AvailableTwilioPhoneNumber } from "@zara/core";
 import { BILLING_POLAR_CLIENT, type BillingPolarClient } from "../billing/polar-billing.client.js";
 import { ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE } from "../billing/billing.controller.js";
 import { BILLING_STATE_REPOSITORY, FileBillingStateRepository } from "../billing/billing-state.repository.js";
+import { BILLING_READ_MODEL_REPOSITORY } from "../billing/billing-read-model.repository.js";
+import { BILLING_LEDGER_REPOSITORY } from "../billing/postgres-billing-ledger.repository.js";
 import { TrustedBillingUsageProducer } from "../billing/trusted-billing-usage-producer.js";
 import { BillingService } from "../billing/billing.service.js";
 import { ComplianceModule } from "../compliance/compliance.module.js";
@@ -80,6 +82,20 @@ export async function createTestingApp(input: {
         join(tmpdir(), "zara-telephony-billing-tests", randomUUID()),
       ),
     )
+    .overrideProvider(BILLING_READ_MODEL_REPOSITORY)
+    .useValue({
+      async getSubscriptionProductId(planSlug: string) {
+        return `polar-catalog-${planSlug}-test`;
+      },
+      async getPaygProductId() {
+        return "polar-catalog-payg-test";
+      },
+      async load() {
+        return null;
+      },
+    })
+    .overrideProvider(BILLING_LEDGER_REPOSITORY)
+    .useValue(createTestBillingLedgerRepository())
     .overrideProvider(AUDIT_LOG_REPOSITORY)
     .useValue(
       new FileAuditLogRepository(
@@ -384,6 +400,44 @@ export function createPolarClient(): BillingPolarClient {
   };
 }
 
+export function createTestBillingLedgerRepository() {
+  const receipts = new Set<string>();
+  return {
+    async listSubscriptionProjections() { return []; },
+    async upsertTenantAccount() {},
+    async recordPolarWebhookReceipt(input: { eventId: string }) {
+      const duplicate = receipts.has(input.eventId);
+      receipts.add(input.eventId);
+      return { duplicate };
+    },
+    async findPolarMappingByProviderId(providerId: string) {
+      if (providerId === "polar-benefit-premium-runtime") {
+        return {
+          catalogId: "test-catalog",
+          mappingType: "benefit",
+          internalKey: "premium-realtime",
+          providerId,
+          environment: "sandbox",
+        };
+      }
+      return {
+        catalogId: "test-catalog",
+        mappingType: "product",
+        internalKey: providerId.includes("starter") ? "starter"
+          : providerId.includes("scale") ? "scale" : "growth",
+        providerId,
+        environment: "sandbox",
+      };
+    },
+    async applyPolarCustomerStateProjection() {},
+    async upsertSubscriptionProjection() {},
+    async applyPaidPaygOrder() {},
+    async applyPaidInvoiceProjection() {},
+    async applyPaygOrderRefund() {},
+    async markPolarWebhookProcessed() {},
+  };
+}
+
 export async function activateRouteWithOverride(input: {
   app: INestApplication;
   organizationId?: string | undefined;
@@ -467,6 +521,7 @@ export async function ensureTestBillingPlan(
         grantedBenefits: [
           {
             id: "benefit-premium-runtime",
+            benefitId: "polar-benefit-premium-runtime",
             type: "custom",
             properties: { key: "premium-realtime" },
           },

@@ -11,6 +11,7 @@ import {
   BILLING_STATE_REPOSITORY,
   FileBillingStateRepository,
 } from "../billing/billing-state.repository";
+import { BILLING_READ_MODEL_REPOSITORY } from "../billing/billing-read-model.repository";
 import { MemoryModule } from "../memory/memory.module";
 import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import { TelephonyModule } from "../telephony/telephony.module";
@@ -18,8 +19,12 @@ import { TELEPHONY_INCREMENTAL_REPOSITORY } from "../telephony/telephony-increme
 import { InMemoryTelephonyIncrementalRepository } from "../telephony/telephony-incremental.repository.test-helper";
 import {
   createPolarClient,
+  createTestBillingLedgerRepository,
   ensureTestBillingPlan,
 } from "../telephony/telephony.controller.test-support";
+import { BILLING_LEDGER_REPOSITORY } from "../billing/postgres-billing-ledger.repository";
+import { TrustedCallCommercialModeResolver } from "../billing/trusted-call-commercial-mode-resolver";
+import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
 import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
@@ -313,6 +318,38 @@ async function createTestingApp(): Promise<INestApplication> {
   })
     .overrideProvider(BILLING_STATE_REPOSITORY)
     .useValue(new FileBillingStateRepository(join(stateRoot, "billing")))
+    .overrideProvider(BILLING_READ_MODEL_REPOSITORY)
+    .useValue({
+      async getSubscriptionProductId(planSlug: string) {
+        return `polar-catalog-${planSlug}-test`;
+      },
+      async getPaygProductId() {
+        return "polar-catalog-payg-test";
+      },
+      async load() {
+        return null;
+      },
+    })
+    .overrideProvider(BILLING_LEDGER_REPOSITORY)
+    .useValue(createTestBillingLedgerRepository())
+    .overrideProvider(TrustedCallCommercialModeResolver)
+    .useValue({
+      async resolve() {
+        return {
+          mode: "subscription",
+          subscriptionId: "test-subscription",
+          catalogId: "test-catalog",
+          planSlug: "growth",
+          premiumAllowed: true,
+          available: true,
+          availableIncludedSeconds: 60,
+          availablePaygMinor: 0,
+          availableOverageMinor: 0,
+        };
+      },
+    })
+    .overrideProvider(PostgresTenantStatusRepository)
+    .useValue({ async getStatus() { return { outcome: "found", status: "active" }; } })
     .overrideProvider(BILLING_POLAR_CLIENT)
     .useValue(createPolarClient())
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)

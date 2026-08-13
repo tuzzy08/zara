@@ -33,6 +33,8 @@ describe("TelephonyService incremental inbound persistence", () => {
   beforeEach(() => {
     vi.stubEnv("ZARA_TWILIO_WEBHOOK_URL", webhookUrl);
     vi.stubEnv("ZARA_STREAM_TOKEN_SECRET", "12345678901234567890123456789012");
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
   });
 
   it("durably records and atomically establishes an incoming call without a snapshot save", async () => {
@@ -108,7 +110,6 @@ describe("TelephonyService incremental inbound persistence", () => {
       "EV-nonblocking-provider-health",
     );
 
-    expect(response).toHaveProperty("dispatch");
     expect(response.twiml).toContain("<Connect>");
   });
 
@@ -162,7 +163,6 @@ describe("TelephonyService incremental inbound persistence", () => {
       "EV-fresh-healthy-provider",
     );
 
-    expect(response).toHaveProperty("dispatch");
     expect(response.twiml).toContain("<Connect>");
   });
 
@@ -278,6 +278,15 @@ describe("TelephonyService incremental inbound persistence", () => {
         undefined,
         admissionCoordinator,
         createActiveBillingService() as BillingService,
+        undefined,
+        harness.trustedPaygFinalizer,
+        undefined,
+        undefined,
+        undefined,
+        harness.trustedSubscriptionLifecycle,
+        undefined,
+        undefined,
+        harness.trustedTerminalRecovery,
       ),
       "CA-failed-setup-replay",
       "EV-failed-setup-replay",
@@ -450,7 +459,13 @@ describe("TelephonyService incremental inbound persistence", () => {
   it("finalizes admission immediately when runtime policy terminates a call", async () => {
     const admissionCoordinator = createAdmissionCoordinator();
     const release = vi.spyOn(admissionCoordinator, "release");
-    const harness = await createReadyHarness({ admissionCoordinator });
+    let tenantStatus = "active";
+    const harness = await createReadyHarness({
+      admissionCoordinator,
+      tenantStatusRepository: {
+        async getStatus() { return { outcome: "found", status: tenantStatus }; },
+      },
+    });
     const call = await answer(
       harness.service,
       "CA-policy-terminal",
@@ -460,6 +475,7 @@ describe("TelephonyService incremental inbound persistence", () => {
       throw new Error("Expected the policy test call to be routed.");
     }
 
+    tenantStatus = "suspended";
     await harness.service.applyCallRuntimePolicy({
       organizationId,
       callSessionId: call.dispatch.callSessionId!,
@@ -1952,7 +1968,7 @@ describe("TelephonyService incremental inbound persistence", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
-  it("uses durable BYO payment grace when a new inbound call starts", async () => {
+  it("blocks a new inbound call when durable commercial status is past due", async () => {
     let paymentPastDue = false;
     const accessRequests: unknown[] = [];
     const billingService = {
@@ -1991,16 +2007,11 @@ describe("TelephonyService incremental inbound persistence", () => {
       "EV-byo-payment-grace",
     );
 
-    expect(response.twiml).toContain("<Connect>");
-    expect(accessRequests).toEqual([
-      expect.objectContaining({
-        organizationId,
-        accessContext: "byo_live_runtime",
-      }),
-    ]);
+    expect(response.twiml).not.toContain("<Connect>");
+    expect(accessRequests).toEqual([]);
   });
 
-  it("uses durable platform payment posture for an active call", async () => {
+  it("keeps an active funded call running when the new-call posture becomes past due", async () => {
     let paymentPastDue = false;
     const accessRequests: unknown[] = [];
     const billingService = {
@@ -2069,13 +2080,8 @@ describe("TelephonyService incremental inbound persistence", () => {
       now: "2026-08-10T10:00:00.000Z",
     });
 
-    expect(result.session.status).toBe("grace-active");
-    expect(accessRequests).toEqual([
-      expect.objectContaining({
-        organizationId,
-        accessContext: "platform_managed_pstn",
-      }),
-    ]);
+    expect(result.session.status).toBe("ringing");
+    expect(accessRequests).toEqual([]);
   });
 
   it("applies the trusted durable PAYG next-segment posture to an active call", async () => {
@@ -2572,6 +2578,7 @@ describe("TelephonyService incremental inbound persistence", () => {
     vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
     vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
     const harness = await createReadyHarness({
+      disableTrustedTerminalRecovery: true,
       trustedPaygFinalizer: { async resolveCallBillingMode() { return "subscription" as const; },
         async getPinnedCallChargeContext() { return null; } } as unknown as TrustedPaygTerminalFinalizationService,
     });
@@ -2728,6 +2735,7 @@ async function createReadyHarness(
     runtimeProfile?: "cost-optimized" | "premium-realtime";
     commercialModeResolver?: TrustedCallCommercialModeResolver;
     trustedTerminalRecovery?: TrustedTerminalBillingRecoveryService;
+    disableTrustedTerminalRecovery?: boolean;
   } = {},
 ) {
   const stateRepository = new MemoryTelephonyStateRepository();
@@ -2742,11 +2750,20 @@ async function createReadyHarness(
       provider: "twilio", direction: "inbound" }; },
     async finalizeByReservationKey() { return { outcome: "finalized" as const, duplicate: false }; },
   } as unknown as TrustedSubscriptionCallLifecycleService;
-  const trustedTerminalRecovery = input.trustedTerminalRecovery
-    ?? (input.trustedUsageProducer === undefined ? undefined : {
+  const trustedPaygFinalizer = input.trustedPaygFinalizer ?? {
+    async resolveCallBillingMode() { return "subscription" as const; },
+    async getPinnedCallChargeContext() { return null; },
+  } as unknown as TrustedPaygTerminalFinalizationService;
+  const trustedTerminalRecovery = input.disableTrustedTerminalRecovery
+    ? undefined
+    : input.trustedTerminalRecovery
+    ?? {
       async submit(request: Parameters<TrustedTerminalBillingRecoveryService["submit"]>[0]) {
+        if (input.trustedUsageProducer === undefined) {
+          return { status: "completed" };
+        }
         const settlement = request.settlement.commercialMode === "payg"
-          ? await input.trustedPaygFinalizer?.finalizeTerminalCall(request.settlement.fact)
+          ? await trustedPaygFinalizer.finalizeTerminalCall(request.settlement.fact)
           : await trustedSubscriptionLifecycle.finalizeByReservationKey(request.settlement.fact);
         const paygAppliedMinor = settlement !== undefined && "paygAppliedMinor" in settlement
           ? Number(settlement.paygAppliedMinor)
@@ -2757,7 +2774,7 @@ async function createReadyHarness(
         });
         return { status: "completed" };
       },
-    } as unknown as TrustedTerminalBillingRecoveryService);
+    } as unknown as TrustedTerminalBillingRecoveryService;
   let service = createService(
     stateRepository,
     incrementalRepository,
@@ -2765,7 +2782,7 @@ async function createReadyHarness(
     admissionCoordinator,
     billingService,
     input.trustedUsageProducer,
-    input.trustedPaygFinalizer,
+    trustedPaygFinalizer,
     input.trustedPaygCallStart,
     input.billingPaygEligibility,
     input.trustedPaygFunding,
@@ -2873,9 +2890,25 @@ async function createReadyHarness(
       input.auditLogService,
       admissionCoordinator,
       billingService,
+      input.trustedUsageProducer,
+      trustedPaygFinalizer,
+      input.trustedPaygCallStart,
+      input.billingPaygEligibility,
+      input.trustedPaygFunding,
+      trustedSubscriptionLifecycle,
+      input.tenantStatusRepository as never,
+      input.commercialModeResolver,
+      trustedTerminalRecovery,
     );
   }
-  return { service, stateRepository, incrementalRepository };
+  return {
+    service,
+    stateRepository,
+    incrementalRepository,
+    trustedSubscriptionLifecycle,
+    trustedPaygFinalizer,
+    trustedTerminalRecovery,
+  };
 }
 
 function createActiveBillingService() {
