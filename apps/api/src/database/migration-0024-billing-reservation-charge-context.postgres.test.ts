@@ -94,6 +94,7 @@ describe.skipIf(connectionString === undefined)(
            where id = 'reservation-pinned'`,
           "Billing reservation charge context pins are immutable",
         );
+        await pool.query(`set search_path to "${schema}", public`);
         await expectFailure(
           pool,
           rollback,
@@ -101,6 +102,7 @@ describe.skipIf(connectionString === undefined)(
         );
 
         await pool.query(`delete from "${schema}".billing_charge_reservations`);
+        await pool.query(`set search_path to "${schema}", public`);
         await pool.query(rollback);
         const column = await pool.query(
           `select 1 from information_schema.columns

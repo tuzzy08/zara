@@ -54,31 +54,37 @@ describe.skipIf(connectionString === undefined)("subscription PAYG pin migration
         primary key (tenant_id, id)
       )`);
       await pool.query(migration);
-      await pool.query(`insert into billing_subscription_call_reservations values (
+      await pool.query(`insert into "${schema}".billing_subscription_call_reservations values (
         'tenant-1','reservation-1','subscription-1','cycle-1','catalog-v1','growth','standard','active',
         120,60,12,'byo','twilio','outbound',null,null,null,0,12
       )`);
       await expectFailure(pool,
-        `update billing_subscription_call_reservations set catalog_id = 'catalog-v2' where id = 'reservation-1'`,
+        `update "${schema}".billing_subscription_call_reservations
+         set catalog_id = 'catalog-v2' where id = 'reservation-1'`,
         "Subscription reservation financial pins are immutable");
-      await pool.query(`update billing_subscription_call_reservations
+      await pool.query(`update "${schema}".billing_subscription_call_reservations
         set terminal_outcome = 'transferred' where id = 'reservation-1'`);
       await expectFailure(pool,
-        `update billing_subscription_call_reservations set terminal_outcome = 'completed' where id = 'reservation-1'`,
+        `update "${schema}".billing_subscription_call_reservations
+         set terminal_outcome = 'completed' where id = 'reservation-1'`,
         "Subscription reservation terminal outcome is immutable");
-      await pool.query(`insert into billing_charge_reservations
+      await pool.query(`insert into "${schema}".billing_charge_reservations
         (tenant_id, id, terminal_outcome) values ('tenant-1', 'payg-1', null)`);
-      await pool.query(`update billing_charge_reservations
+      await pool.query(`update "${schema}".billing_charge_reservations
         set terminal_outcome = 'transferred' where id = 'payg-1'`);
       await expectFailure(pool,
-        `update billing_charge_reservations set terminal_outcome = 'completed' where id = 'payg-1'`,
+        `update "${schema}".billing_charge_reservations
+         set terminal_outcome = 'completed' where id = 'payg-1'`,
         "PAYG reservation terminal outcome is immutable");
       await expectFailure(pool,
-        `update billing_charge_reservations set terminal_outcome = null where id = 'payg-1'`,
+        `update "${schema}".billing_charge_reservations
+         set terminal_outcome = null where id = 'payg-1'`,
         "PAYG reservation terminal outcome is immutable");
+      await pool.query(`set search_path to "${schema}", public`);
       await expectFailure(pool, rollback, "Rollback 0025 blocked");
-      await pool.query(`delete from billing_subscription_call_reservations`);
-      await pool.query(`delete from billing_charge_reservations`);
+      await pool.query(`delete from "${schema}".billing_subscription_call_reservations`);
+      await pool.query(`delete from "${schema}".billing_charge_reservations`);
+      await pool.query(`set search_path to "${schema}", public`);
       await pool.query(rollback);
       const column = await pool.query(`select 1 from information_schema.columns
         where table_schema = $1 and table_name = 'billing_subscription_call_reservations'
