@@ -306,3 +306,99 @@ Complete the paired Armory comparison at full desktop and narrow-mobile widths w
 ### Next Recommended Step
 
 Review the revised glyph family in the normal landing preview and identify any individual metaphor that should change; geometry and presentation should continue to follow the shared precision system.
+
+## Hero Route Diagram Correction (2026-08-09)
+
+### Work Completed
+
+- Rebuilt the hero route diagram so its paths, nodes, labels, and ports share one responsive SVG coordinate system.
+- Attached every path endpoint to the exact center of a visible node port.
+- Added left and right ports to the bidirectional route, agent, and tool nodes.
+- Increased node size, label size, node stroke width, port size, and route stroke width.
+- Added a restrained semantic palette: cyan call input, amber routing, violet agent, coral tool, and green human transfer.
+- Changed the blinking live status light from white to green.
+
+### Tests Run
+
+- RED: focused landing test failed because the route map had no accessible SVG contract, no bidirectional port groups, and no live-status class.
+- GREEN: `npm.cmd run test:run -- apps/web/src/MarketingLandingPageMockup.test.tsx --pool=threads --fileParallelism=false` passed, 1 test.
+- `npm.cmd run typecheck --workspace @zara/web` passed.
+- `npm.cmd exec eslint apps/web/src/MarketingLandingPageMockup.tsx apps/web/src/MarketingLandingPageMockup.test.tsx` passed.
+- `npm.cmd run build --workspace @zara/web` passed with the existing large-chunk warning.
+- Browser review at 1440 x 900, 917 x 685, and 390 x 844 confirmed connected endpoints, visible labels, distinct node colors, and the green live light.
+
+### Pending Work
+
+- No required route diagram correction remains.
+
+### Risks And Decisions
+
+- Keep all route geometry inside one SVG. Do not return to separate percentage-positioned HTML nodes over an unrelated SVG path layer.
+- Keep color limited to the diagram and live state so the larger monochrome marketing direction remains intact.
+
+### Next Recommended Step
+
+Review the updated hero in the normal landing preview. Change only individual color values or node labels if the product language changes.
+
+## Measurement Grid Alignment (2026-08-09)
+
+### Work Completed
+
+- Made the measurement introduction span the full twelve-column grid.
+- Centered the section label, heading, and supporting text.
+- Moved the P50 / P95 card into the same grid row as Live and $/Call on desktop.
+- Preserved the existing single-column metric stack on small screens.
+
+### Tests Run
+
+- RED: the focused landing test failed because the measurement introduction did not have the full-row layout contract.
+- GREEN: `npm.cmd run test:run -- apps/web/src/MarketingLandingPageMockup.test.tsx --pool=threads --fileParallelism=false` passed, 2 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed.
+- `npm.cmd exec eslint apps/web/src/MarketingLandingPageMockup.tsx apps/web/src/MarketingLandingPageMockup.test.tsx` passed.
+- `npm.cmd run build --workspace @zara/web` passed with the existing large-chunk warning.
+- Browser review at 1920 x 900 confirmed one aligned desktop metric row and centered section text. The small-screen stack remains intact.
+
+### Pending Work
+
+- No required measurement alignment work remains.
+
+### Risks And Decisions
+
+- Keep the measurement introduction as a full-row grid item. A partial-width introduction lets the first metric fill the remaining columns and creates the rejected staggered layout.
+
+### Next Recommended Step
+
+Review the measurement section in the normal landing preview and adjust only its vertical spacing if a denser section is preferred.
+
+## Workflow Preview Geometry Correction (2026-08-09)
+
+### Work Completed
+
+- Rebuilt the workflow preview as one responsive SVG with shared node, port, and edge coordinates.
+- Replaced percentage-positioned HTML nodes over a separate SVG path layer.
+- Added exact left and right ports to the nine intermediate workflow nodes.
+- Added exact source and target ports to Incoming call and Resolved.
+- Connected all twelve visible paths to port centers.
+- Preserved the horizontally inspectable small-screen canvas so node labels remain readable.
+
+### Tests Run
+
+- RED: the focused landing test failed because the workflow preview had no connected SVG contract or explicit workflow ports.
+- GREEN: `npm.cmd run test:run -- apps/web/src/MarketingLandingPageMockup.test.tsx --pool=threads --fileParallelism=false` passed, 3 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed.
+- `npm.cmd exec eslint apps/web/src/MarketingLandingPageMockup.tsx apps/web/src/MarketingLandingPageMockup.test.tsx` passed.
+- `npm.cmd run build --workspace @zara/web` passed with the existing large-chunk warning.
+- Browser review at 1790 x 787 confirmed that all desktop paths terminate at visible ports. The 390 x 844 review confirmed the readable horizontal canvas behavior.
+
+### Pending Work
+
+- No required workflow preview alignment work remains.
+
+### Risks And Decisions
+
+- Keep workflow preview geometry in one SVG. Separate percentage-positioned nodes and paths will drift at responsive sizes.
+- Keep the small-screen canvas scrollable. Scaling the complete graph into the mobile viewport makes its labels too small.
+
+### Next Recommended Step
+
+Review the corrected workflow graph in the normal landing preview. Change path routing only when the illustrated workflow model changes.
