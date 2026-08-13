@@ -239,8 +239,11 @@ describe.skipIf(connectionString === undefined)("terminal billing recovery Postg
       })).resolves.toMatchObject({ outcome: "denied", availableMinor: 100 });
       await expectFailure(client, rollback, "Rollback 0026 blocked");
       const retained = await client.query(`select
-        to_regclass('billing_terminal_recovery_jobs') job,
-        to_regclass('billing_subscription_overage_accounts') account`);
+        to_regclass($1) job,
+        to_regclass($2) account`, [
+        `${schema}.billing_terminal_recovery_jobs`,
+        `${schema}.billing_subscription_overage_accounts`,
+      ]);
       expect(retained.rows[0]?.job).not.toBeNull();
       expect(retained.rows[0]?.account).not.toBeNull();
 
@@ -250,8 +253,11 @@ describe.skipIf(connectionString === undefined)("terminal billing recovery Postg
       await client.query(`update billing_subscription_call_reservations
         set status='finalized' where id='subscription-reservation'`);
       await client.query(rollback);
-      const tables = await client.query(`select to_regclass('billing_terminal_recovery_jobs') job,
-        to_regclass('billing_subscription_overage_accounts') account`);
+      const tables = await client.query(`select to_regclass($1) job,
+        to_regclass($2) account`, [
+        `${schema}.billing_terminal_recovery_jobs`,
+        `${schema}.billing_subscription_overage_accounts`,
+      ]);
       expect(tables.rows[0]).toEqual({ job: null, account: null });
     } finally {
       await client.query("set search_path to public");

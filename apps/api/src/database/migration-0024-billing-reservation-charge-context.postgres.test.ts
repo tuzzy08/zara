@@ -68,16 +68,18 @@ describe.skipIf(connectionString === undefined)(
 
         await pool.query(migration);
         await pool.query(
-          "update billing_charge_reservations set status = 'expired' where id = 'reservation-legacy'",
+          `update "${schema}".billing_charge_reservations
+           set status = 'expired' where id = 'reservation-legacy'`,
         );
         await expectFailure(
           pool,
-          `insert into billing_charge_reservations (tenant_id, id, catalog_id, status)
+          `insert into "${schema}".billing_charge_reservations
+             (tenant_id, id, catalog_id, status)
            values ('tenant-new', 'reservation-missing-context', 'catalog-v1', 'active')`,
           "New billing reservations require a charge context pin",
         );
         await pool.query(
-          `insert into billing_charge_reservations (
+          `insert into "${schema}".billing_charge_reservations (
              tenant_id, id, catalog_id, charge_context, status
            ) values (
              'tenant-new', 'reservation-pinned', 'catalog-v1',
@@ -87,7 +89,7 @@ describe.skipIf(connectionString === undefined)(
         );
         await expectFailure(
           pool,
-          `update billing_charge_reservations
+          `update "${schema}".billing_charge_reservations
            set charge_context = '{"runtimePath":"pstn-premium-realtime"}'::jsonb
            where id = 'reservation-pinned'`,
           "Billing reservation charge context pins are immutable",
@@ -98,7 +100,7 @@ describe.skipIf(connectionString === undefined)(
           "Rollback 0024 blocked",
         );
 
-        await pool.query("delete from billing_charge_reservations");
+        await pool.query(`delete from "${schema}".billing_charge_reservations`);
         await pool.query(rollback);
         const column = await pool.query(
           `select 1 from information_schema.columns

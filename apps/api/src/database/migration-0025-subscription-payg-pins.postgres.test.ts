@@ -44,7 +44,10 @@ describe.skipIf(connectionString === undefined)("subscription PAYG pin migration
         reserved_overage_minor bigint not null, billing_mode text not null, provider text not null,
         direction text not null, route_rate_id text, route_identity jsonb,
         route_rate_minor_per_minute bigint, reserved_telephony_minor bigint not null,
-        primary key (tenant_id, id)
+        primary key (tenant_id, id),
+        constraint billing_subscription_call_reservations_values_check
+          check (reserved_seconds > 0 and reserved_included_seconds >= 0
+            and reserved_included_seconds <= reserved_seconds and reserved_overage_minor >= 0)
       )`);
       await pool.query(`create table billing_charge_reservations (
         tenant_id text not null, id text not null,
