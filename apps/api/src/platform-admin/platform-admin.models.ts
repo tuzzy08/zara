@@ -25,8 +25,12 @@ export interface PlatformAdminDashboard {
     modelProvider: string;
   };
   spend: {
-    monthToDateUsd: number;
-    premiumRealtimeUsd: number;
+    currency: "USD" | null;
+    shadowEstimateMinor: number | null;
+    premiumShadowEstimateMinor: number | null;
+    deliveredChargeMinor: number | null;
+    incompleteUsageCount: number;
+    blockedUsageCount: number;
     tenantsOverBudget: number;
   };
   queues: {
@@ -34,6 +38,50 @@ export interface PlatformAdminDashboard {
     complianceReviewCount: number;
     supportQueueCount: number;
   };
+}
+
+export interface PlatformBillingReadModel {
+  currency: "USD" | null;
+  shadowEstimateMinor: number | null;
+  premiumShadowEstimateMinor: number | null;
+  deliveredChargeMinor: number | null;
+  incompleteUsageCount: number;
+  blockedUsageCount: number;
+  tenantsOverBudget: number;
+  organizations: PlatformOrganizationBillingReadModel[];
+}
+
+export interface PlatformOrganizationBillingReadModel {
+  organizationId: string;
+  organizationName: string;
+  hasBillingData: boolean;
+  subscription: {
+    status: string;
+    planSlug: string | null;
+  } | null;
+  usage: {
+    currency: "USD";
+    shadowEstimateMinor: number | null;
+    premiumShadowEstimateMinor: number | null;
+    deliveredChargeMinor: number | null;
+    incompleteUsageCount: number;
+    blockedUsageCount: number;
+    callSeconds: number;
+    premiumRuntimeSeconds: number;
+  } | null;
+  budget: {
+    currency: "USD";
+    overageLimitMinor: number;
+    overBudget: boolean;
+  } | null;
+  payg: {
+    currency: "USD";
+    paidCreditMinor: number;
+    totalCreditMinor: number;
+    consumedCreditMinor: number;
+    reservedCreditMinor: number;
+    availableCreditMinor: number;
+  } | null;
 }
 
 export interface PlatformAdminAuditEntry {
@@ -56,13 +104,18 @@ export interface PlatformOrganizationSummary {
   id: string;
   name: string;
   status: PlatformOrganizationStatus;
-  plan: "starter" | "scale" | "enterprise";
+  plan: string | null;
   usage: {
-    monthToDateUsd: number;
-    callMinutes: number;
-    premiumRealtimeMinutes: number;
+    currency: "USD";
+    shadowEstimateMinor: number | null;
+    premiumShadowEstimateMinor: number | null;
+    deliveredChargeMinor: number | null;
+    incompleteUsageCount: number;
+    blockedUsageCount: number;
+    callSeconds: number;
+    premiumRuntimeSeconds: number;
     overBudget: boolean;
-  };
+  } | null;
   telephony: {
     connectionModes: string[];
     failingRoutes: number;
@@ -74,12 +127,14 @@ export interface PlatformOrganizationSummary {
     revokedConnections: number;
   };
   riskFlags: string[];
-  billingControls: PlatformBillingControls;
+  billingControls: PlatformBillingControls | null;
 }
 
 export interface PlatformBillingControls {
-  monthlyBudgetUsd: number;
-  premiumRealtimeEnabled: boolean;
+  currency?: "USD" | undefined;
+  overageLimitMinor?: number | undefined;
+  monthlyBudgetUsd?: number | undefined;
+  premiumRealtimeEnabled?: boolean | undefined;
   planLimitOverride?: string | undefined;
 }
 

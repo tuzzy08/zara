@@ -53,6 +53,21 @@ jobs:
           npm exec -- vitest run
           apps/api/src/telephony/postgres-telephony-incremental.repository.postgres.test.ts
           apps/api/src/database/migration-0012-rolling.postgres.test.ts
+          apps/api/src/database/migration-0023-subscription-reservations.postgres.test.ts
+          apps/api/src/database/migration-0024-billing-reservation-charge-context.postgres.test.ts
+          apps/api/src/database/migration-0025-subscription-payg-pins.postgres.test.ts
+          apps/api/src/database/migration-0026-terminal-billing-recovery.postgres.test.ts
+          apps/api/src/database/migration-0027-billing-charge-release.test.ts
+          apps/api/src/database/migration-0028-billing-release-evidence.test.ts
+          apps/api/src/database/migration-0029-billing-charge-promotion.test.ts
+          apps/api/src/database/migration-0030-billing-release-evidence-integrity.test.ts
+          apps/api/src/database/migration-0030-billing-release-evidence-integrity.postgres.test.ts
+          apps/api/src/database/migration-0031-billing-adjustment-evidence-integrity.test.ts
+          apps/api/src/database/migration-0032-provider-evidence-scope.test.ts
+          apps/api/src/database/migration-0033-provider-billing-scopes.test.ts
+          apps/api/src/database/migration-0034-provider-scope-tenant-isolation.test.ts
+          apps/api/src/database/migration-0035-provider-scope-history.test.ts
+          apps/api/src/billing/trusted-subscription-call-lifecycle.service.test.ts
 
       - name: Create rollback test database
         run: |
@@ -76,6 +91,70 @@ jobs:
           import { readFile } from "node:fs/promises";
           import pg from "pg";
           const pool = new pg.Pool({ connectionString: process.env.ROLLBACK_DATABASE_URL });
+          const billingReservationRollback = await readFile(
+            "docs/Runbooks/rollback-0018-billing-reservations.sql",
+            "utf8",
+          );
+          const subscriptionReservationRollback = await readFile(
+            "docs/Runbooks/rollback-0023-subscription-reservations.sql",
+            "utf8",
+          );
+          const billingChargeContextRollback = await readFile(
+            "docs/Runbooks/rollback-0024-billing-reservation-charge-context.sql",
+            "utf8",
+          );
+          const subscriptionPaygPinsRollback = await readFile(
+            "docs/Runbooks/rollback-0025-subscription-payg-pins.sql",
+            "utf8",
+          );
+          const terminalBillingRecoveryRollback = await readFile(
+            "docs/Runbooks/rollback-0026-terminal-billing-recovery.sql",
+            "utf8",
+          );
+          const billingChargeReleaseRollback = await readFile(
+            "docs/Runbooks/rollback-0027-billing-charge-release.sql",
+            "utf8",
+          );
+          const billingReleaseEvidenceRollback = await readFile(
+            "docs/Runbooks/rollback-0028-billing-release-evidence.sql",
+            "utf8",
+          );
+          const providerEvidenceScopeRollback = await readFile(
+            "docs/Runbooks/rollback-0032-provider-evidence-scope.sql",
+            "utf8",
+          );
+          const providerBillingScopesRollback = await readFile(
+            "docs/Runbooks/rollback-0033-provider-billing-scopes.sql",
+            "utf8",
+          );
+          const providerScopeTenantIsolationRollback = await readFile(
+            "docs/Runbooks/rollback-0034-provider-scope-tenant-isolation.sql",
+            "utf8",
+          );
+          const providerScopeHistoryRollback = await readFile(
+            "docs/Runbooks/rollback-0035-provider-scope-history.sql",
+            "utf8",
+          );
+          const billingCyclesUtcDaysRollback = await readFile(
+            "docs/Runbooks/rollback-0036-billing-cycles-utc-days.sql",
+            "utf8",
+          );
+          const billingAdjustmentEvidenceIntegrityRollback = await readFile(
+            "docs/Runbooks/rollback-0031-billing-adjustment-evidence-integrity.sql",
+            "utf8",
+          );
+          const billingReleaseEvidenceIntegrityRollback = await readFile(
+            "docs/Runbooks/rollback-0030-billing-release-evidence-integrity.sql",
+            "utf8",
+          );
+          const billingChargePromotionRollback = await readFile(
+            "docs/Runbooks/rollback-0029-billing-charge-promotion.sql",
+            "utf8",
+          );
+          const billingRollback = await readFile(
+            "docs/Runbooks/rollback-0016-production-billing.sql",
+            "utf8",
+          );
           const premiumOwnerLeaseRollback = await readFile(
             "docs/Runbooks/rollback-0015-telephony-premium-owner-lease.sql",
             "utf8",
@@ -104,6 +183,22 @@ jobs:
             "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
             "utf8",
           );
+          await pool.query(billingCyclesUtcDaysRollback);
+          await pool.query(providerScopeHistoryRollback);
+          await pool.query(providerScopeTenantIsolationRollback);
+          await pool.query(providerBillingScopesRollback);
+          await pool.query(providerEvidenceScopeRollback);
+          await pool.query(billingAdjustmentEvidenceIntegrityRollback);
+          await pool.query(billingReleaseEvidenceIntegrityRollback);
+          await pool.query(billingChargePromotionRollback);
+          await pool.query(billingReleaseEvidenceRollback);
+          await pool.query(billingChargeReleaseRollback);
+          await pool.query(terminalBillingRecoveryRollback);
+          await pool.query(subscriptionPaygPinsRollback);
+          await pool.query(billingChargeContextRollback);
+          await pool.query(subscriptionReservationRollback);
+          await pool.query(billingReservationRollback);
+          await pool.query(billingRollback);
           await pool.query(premiumOwnerLeaseRollback);
           await pool.query(premiumDispatchOwnershipRollback);
           await pool.query(abusePostureRollback);
@@ -175,6 +270,10 @@ jobs:
           `);
           const result = await pool.query(
             `select
+               not exists (
+                 select 1 from pg_tables
+                 where schemaname = 'public' and tablename like 'billing_%'
+               ) as billing_tables_removed,
                to_regclass('telephony_media_stream_tokens') as token_table,
                to_regclass('telephony_phone_test_checkpoints') as checkpoint_table,
                to_regclass('telephony_premium_dispatch_snapshots') as premium_snapshot_table,
@@ -269,7 +368,8 @@ jobs:
           );
           const row = result.rows[0];
           if (
-            row?.token_table !== null ||
+            !row?.billing_tables_removed ||
+            row.token_table !== null ||
             row.checkpoint_table !== null ||
             row.premium_snapshot_table !== null ||
             row.legacy_session_index === null ||

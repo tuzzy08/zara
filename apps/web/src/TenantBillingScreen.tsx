@@ -5,10 +5,11 @@ import { Badge, Button, Card } from "@zara/ui";
 import {
   fetchTenantBillingState,
   openPolarCustomerPortal,
+  startPaygCheckout,
   startPolarCheckout,
   type TenantBillingState,
 } from "./tenantBillingApi";
-import { formatStatus, formatUsd } from "./tenantPageFormatting";
+import { formatMoneyMinor, formatStatus, formatUsageCost } from "./tenantPageFormatting";
 import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
@@ -36,8 +37,13 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
     void loadBilling();
   }, [loadBilling]);
 
-  const totalUsageUsd = useMemo(
-    () => billing?.usage.reduce((sum, usage) => sum + usage.costUsd, 0) ?? 0,
+  const postedUsageMinor = useMemo(
+    () => billing?.usage.reduce(
+      (sum, usage) => usage.disposition === "posted"
+        ? sum + (usage.costMinor ?? (usage.costUsd === null ? 0 : Math.round(usage.costUsd * 100)))
+        : sum,
+      0,
+    ) ?? 0,
     [billing],
   );
 
@@ -47,7 +53,12 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
   };
 
   const startCheckout = async () => {
-    const checkout = await startPolarCheckout(organizationId, billing?.plan.slug ?? "growth");
+    const checkout = await startPolarCheckout(organizationId, billing?.plan?.slug ?? "starter");
+    showToast(`Polar checkout ready: ${new URL(checkout.checkoutUrl).hostname}`);
+  };
+
+  const addPaygCredit = async () => {
+    const checkout = await startPaygCheckout(organizationId);
     showToast(`Polar checkout ready: ${new URL(checkout.checkoutUrl).hostname}`);
   };
 
@@ -61,9 +72,25 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
         <>
           <TenantSummaryGrid
             items={[
-              { label: "Plan", value: billing.plan.name, detail: formatStatus(billing.plan.status) },
-              { label: "Usage spend", value: formatUsd(totalUsageUsd), detail: "Current cycle" },
-              { label: "Budget", value: formatUsd(billing.plan.budgetUsedUsd), detail: `${formatUsd(billing.plan.budgetLimitUsd)} limit` },
+              {
+                label: "Plan",
+                value: billing.plan?.name ?? "No plan",
+                detail: billing.plan === null ? "Not subscribed" : formatStatus(billing.plan.status),
+              },
+              { label: "Posted spend", value: formatMoneyMinor(postedUsageMinor, billing.currency), detail: "Current cycle" },
+              {
+                label: billing.plan === null ? "PAYG credit" : "Budget",
+                value: billing.plan === null
+                  ? formatMoneyMinor(billing.payg.remainingCreditMinor, billing.currency)
+                  : billing.budgetPolicy === null || billing.budgetPolicy === undefined
+                    ? "No policy"
+                    : formatMoneyMinor(postedUsageMinor, billing.currency),
+                detail: billing.plan === null
+                  ? `${formatMoneyMinor(billing.payg.reservedCreditMinor, billing.currency)} reserved`
+                  : billing.budgetPolicy === null || billing.budgetPolicy === undefined
+                    ? "No billing limit"
+                    : `${formatMoneyMinor(billing.budgetPolicy.monthlyBudgetMinor ?? Math.round(billing.budgetPolicy.monthlyBudgetUsd * 100), billing.currency)} limit`,
+              },
             ]}
           />
 
@@ -71,15 +98,37 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
             <Card className="surface-card overflow-hidden">
               <TenantSectionHeader eyebrow="Subscription" title="Polar customer state" />
               <div className="tenant-list">
-                <article className="tenant-row">
-                  <div>
-                    <div className="panel-title">{billing.plan.name}</div>
-                    <div className="panel-meta">
-                      {formatUsd(billing.plan.monthlyBaseUsd)} base - {billing.plan.includedMinutes.toLocaleString()} included minutes
+                {billing.plan === null ? (
+                  <article className="tenant-row">
+                    <div>
+                      <div className="panel-title">No billing plan</div>
+                      <div className="panel-meta">
+                        {billing.payg.packAmountMinor === null
+                          ? "Choose a plan. PAYG checkout is not configured."
+                          : `Choose a plan or add ${formatMoneyMinor(billing.payg.packAmountMinor, billing.currency)} PAYG credit to start.`}
+                      </div>
                     </div>
-                  </div>
-                  <Badge className="table-status">{formatStatus(billing.plan.status)}</Badge>
-                </article>
+                    <Badge className="table-status">Not subscribed</Badge>
+                  </article>
+                ) : (
+                  <article className="tenant-row">
+                    <div>
+                      <div className="panel-title">{billing.plan.name}</div>
+                      <div className="panel-meta">
+                        {billing.plan.monthlyBaseMinor === null || billing.plan.monthlyBaseMinor === undefined
+                          ? "Catalog price unavailable"
+                          : `${formatMoneyMinor(billing.plan.monthlyBaseMinor, billing.currency)} base`}
+                        {billing.plan.includedStandardRuntimeSeconds === null || billing.plan.includedStandardRuntimeSeconds === undefined
+                          ? ""
+                          : ` - ${(billing.plan.includedStandardRuntimeSeconds / 60).toLocaleString()} standard minutes included`}
+                        {billing.plan.includedPremiumRuntimeSeconds === null || billing.plan.includedPremiumRuntimeSeconds === undefined
+                          ? ""
+                          : ` - ${(billing.plan.includedPremiumRuntimeSeconds / 60).toLocaleString()} premium minutes included`}
+                      </div>
+                    </div>
+                    <Badge className="table-status">{formatStatus(billing.plan.status)}</Badge>
+                  </article>
+                )}
                 <article className="tenant-row">
                   <div>
                     <div className="panel-title">Customer external id</div>
@@ -101,11 +150,44 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
                     <ExternalLink size={14} />
                     Checkout
                   </Button>
+                  {billing.payg.packAmountMinor === null ? null : (
+                    <Button className="workflow-button" type="button" onClick={() => void addPaygCredit()}>
+                      <ExternalLink size={14} />
+                      Add {formatMoneyMinor(billing.payg.packAmountMinor, billing.currency)} credit
+                    </Button>
+                  )}
                   <Button className="workflow-button" type="button" aria-label="Open Polar customer portal" onClick={() => void openPortal()}>
                     <ExternalLink size={14} />
                     Portal
                   </Button>
                 </div>
+              </div>
+            </Card>
+
+            <Card className="surface-card overflow-hidden">
+              <TenantSectionHeader eyebrow="PAYG" title="PAYG credit" />
+              <div className="tenant-list">
+                <article className="tenant-row">
+                  <div><div className="panel-title">Paid credit</div><div className="panel-meta">Credit from paid $5 packs</div></div>
+                  <strong>{formatMoneyMinor(billing.payg.paidCreditMinor, billing.currency)} paid</strong>
+                </article>
+                <article className="tenant-row">
+                  <div><div className="panel-title">Active reservations</div><div className="panel-meta">Held for live sessions</div></div>
+                  <strong>{formatMoneyMinor(billing.payg.reservedCreditMinor, billing.currency)} reserved</strong>
+                </article>
+                <article className="tenant-row">
+                  <div><div className="panel-title">Available credit</div><div className="panel-meta">Ready for a new session</div></div>
+                  <strong>{formatMoneyMinor(billing.payg.remainingCreditMinor, billing.currency)} available</strong>
+                </article>
+                {billing.payg.sessionDebits.map((debit) => (
+                  <article className="tenant-row" key={debit.id}>
+                    <div><div className="panel-title">{debit.sessionId}</div><div className="panel-meta">{new Date(debit.createdAt).toLocaleString()}</div></div>
+                    <strong>-{formatMoneyMinor(debit.amountMinor, billing.currency)}</strong>
+                  </article>
+                ))}
+                {billing.payg.sessionDebits.length === 0 ? (
+                  <div className="panel-meta">No PAYG session debits.</div>
+                ) : null}
               </div>
             </Card>
 
@@ -120,10 +202,11 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
                         {usage.used.toLocaleString()} {usage.unit}{usage.limit === undefined ? "" : ` of ${usage.limit.toLocaleString()}`}
                       </div>
                     </div>
-                    <strong>{formatUsd(usage.costUsd)}</strong>
+                    <strong>{formatUsageCost(usage, billing.currency)}</strong>
                   </article>
                 ))}
-                {billing.plan.budgetWarning ? (
+                {billing.usage.length === 0 ? <div className="panel-meta">No metered usage in this billing period.</div> : null}
+                {billing.plan?.budgetWarning ? (
                   <TenantStatusBanner tone="danger">Budget usage has crossed the warning threshold.</TenantStatusBanner>
                 ) : null}
               </div>
@@ -138,9 +221,17 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
                       <div className="panel-title">{invoice.invoiceNumber}</div>
                       <div className="panel-meta">{invoice.providerOrderId} - {new Date(invoice.createdAt).toLocaleDateString()}</div>
                     </div>
-                    <strong>{formatUsd(invoice.amountUsd)}</strong>
+                    <div>
+                      <strong>{formatMoneyMinor(invoice.amountMinor ?? Math.round(invoice.amountUsd * 100), invoice.currency)}</strong>
+                      <div className="panel-meta">{formatStatus(invoice.status)}</div>
+                    </div>
                   </article>
                 ))}
+                {billing.invoices.length === 0 ? (
+                  <div className="panel-meta">
+                    {billing.payg.paidCreditMinor > 0 ? "No subscription invoices." : "No invoices or credit-pack orders."}
+                  </div>
+                ) : null}
               </div>
             </Card>
           </section>

@@ -155,6 +155,7 @@ export type PstnCallObservabilityEventType =
   | "premium.interruption"
   | "premium.handoff"
   | "premium.cleanup"
+  | "premium.policy_stop_failed"
   | "call.ended"
   | "provider.failure"
   | "runtime.failure";
@@ -1153,6 +1154,8 @@ function mapPstnEventToSpanName(type: PstnCallObservabilityEventType) {
       return "pstn.premium.handoff";
     case "premium.cleanup":
       return "pstn.premium.cleanup";
+    case "premium.policy_stop_failed":
+      return "pstn.premium.policy_stop_failed";
     case "call.ended":
       return "pstn.call.ended";
     case "provider.failure":

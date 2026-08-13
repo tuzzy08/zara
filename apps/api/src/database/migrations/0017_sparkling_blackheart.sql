@@ -1,0 +1,1 @@
+ALTER TABLE "billing_payg_credit_entries" ADD COLUMN "session_id" text;

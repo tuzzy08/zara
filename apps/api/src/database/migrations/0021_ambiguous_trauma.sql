@@ -1,0 +1,4 @@
+ALTER TABLE "billing_charge_reservations" DROP CONSTRAINT "billing_charge_reservations_status_check";--> statement-breakpoint
+ALTER TABLE "billing_charge_reservations" ADD COLUMN "released_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "billing_charge_reservations" ADD CONSTRAINT "billing_charge_reservations_release_check" CHECK (("billing_charge_reservations"."status" = 'released' and "billing_charge_reservations"."released_at" is not null) or ("billing_charge_reservations"."status" <> 'released' and "billing_charge_reservations"."released_at" is null));--> statement-breakpoint
+ALTER TABLE "billing_charge_reservations" ADD CONSTRAINT "billing_charge_reservations_status_check" CHECK ("billing_charge_reservations"."status" in ('active', 'expired', 'finalized', 'released'));

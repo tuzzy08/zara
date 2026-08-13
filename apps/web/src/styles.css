@@ -5760,8 +5760,13 @@ button {
 
 .telephony-connections-table td {
   min-width: 120px;
-  height: 62px;
-  font-size: 13px;
+  height: 68px;
+  font-size: 14px;
+}
+
+.telephony-connection-name {
+  font-size: 15px;
+  line-height: 1.35;
 }
 
 .telephony-connections-table td strong,
@@ -5780,8 +5785,9 @@ button {
 }
 
 .telephony-table-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .telephony-icon-button {
@@ -5794,6 +5800,30 @@ button {
 
 .telephony-action-button {
   transition: transform 150ms var(--telephony-ease-out);
+}
+
+.telephony-action-button-labeled {
+  min-width: max-content;
+  min-height: 40px;
+  gap: 7px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.telephony-action-heartbeat {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #35ca76 58%, transparent);
+}
+
+.telephony-action-validate {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ff9f43 72%, transparent);
+}
+
+.telephony-action-import {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #0a72ef 62%, transparent);
+}
+
+.telephony-action-delete {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--zara-red) 70%, transparent);
 }
 
 .telephony-action-button:active:not(:disabled) {
@@ -8125,6 +8155,67 @@ button {
   gap: 16px;
   min-width: 0;
   align-items: start;
+}
+
+.sandbox-primary-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sandbox-utilities {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--zara-surface-strong);
+  box-shadow: var(--zara-shadow);
+}
+
+.sandbox-utility-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 2px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--zara-border-soft);
+  padding: 8px 10px 0;
+}
+
+.sandbox-utility-tab {
+  min-height: 40px;
+  flex: 0 0 auto;
+  gap: 7px;
+  border-radius: 6px 6px 0 0;
+  color: var(--zara-muted-strong);
+  padding: 0 10px;
+}
+
+.sandbox-utility-tab-active {
+  color: var(--zara-blue);
+  box-shadow: inset 0 -2px 0 var(--zara-blue);
+}
+
+.sandbox-utility-count {
+  min-width: 20px;
+  border-radius: 999px;
+  background: var(--zara-surface);
+  color: var(--zara-muted-strong);
+  padding: 2px 6px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.sandbox-utility-content {
+  padding: 12px;
+}
+
+.sandbox-utility-panel {
+  min-width: 0;
+  padding: 14px;
+}
+
+.sandbox-utility-panel .sandbox-empty-copy {
+  min-height: 72px;
 }
 
 .sandbox-live-surface,

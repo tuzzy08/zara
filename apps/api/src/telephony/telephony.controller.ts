@@ -267,7 +267,6 @@ export class TelephonyController {
     body: {
       actorUserId: string;
       now?: string | undefined;
-      tenantStatus?: "active" | "suspended" | undefined;
       override?: {
         actorUserId: string;
         approvedByUserId: string;
@@ -280,7 +279,6 @@ export class TelephonyController {
       numberId,
       actorUserId: tenantAuth.userId,
       now: body.now,
-      tenantStatus: body.tenantStatus,
       override: body.override === undefined
         ? undefined
         : {
@@ -321,7 +319,6 @@ export class TelephonyController {
     body: {
       actorUserId: string;
       now?: string | undefined;
-      tenantStatus?: "active" | "suspended" | undefined;
       override?: {
         actorUserId: string;
         approvedByUserId: string;
@@ -334,7 +331,6 @@ export class TelephonyController {
       numberId,
       actorUserId: tenantAuth.userId,
       now: body.now,
-      tenantStatus: body.tenantStatus,
       override: body.override === undefined
         ? undefined
         : {
@@ -366,33 +362,6 @@ export class TelephonyController {
     });
   }
 
-  @Post("organizations/:organizationId/telephony/calls/:callSessionId/runtime-policy")
-  @UseGuards(TenantOrganizationGuard)
-  applyCallRuntimePolicy(
-    @Param("organizationId") organizationId: string,
-    @Param("callSessionId") callSessionId: string,
-    @Body()
-    body: {
-      now?: string | undefined;
-      graceUntil?: string | undefined;
-      subscriptionStatus?: "active" | "trialing" | "none" | "past_due" | "canceled" | undefined;
-      tenantStatus?: "active" | "suspended" | undefined;
-      budgetAction?: "allow" | "warn" | "block" | undefined;
-      budgetReasons?: string[] | undefined;
-    },
-  ) {
-    return this.telephonyService.applyCallRuntimePolicy({
-      organizationId,
-      callSessionId,
-      now: body.now,
-      graceUntil: body.graceUntil,
-      subscriptionStatus: body.subscriptionStatus,
-      tenantStatus: body.tenantStatus,
-      budgetAction: body.budgetAction,
-      budgetReasons: body.budgetReasons,
-    });
-  }
-
   @Post("organizations/:organizationId/telephony/dispatch/outbound")
   @UseGuards(TenantOrganizationGuard)
   dispatchOutboundCall(
@@ -407,8 +376,6 @@ export class TelephonyController {
       workflowLabel: string;
       workspaceId: string;
       consentGranted: boolean;
-      budgetRemainingUsd: number;
-      estimatedCostUsd: number;
       localHour: number;
       callingWindow: { startHour: number; endHour: number };
       actorUserId?: string | undefined;
@@ -438,8 +405,6 @@ export class TelephonyController {
       workflowLabel: body.workflowLabel,
       workspaceId: body.workspaceId,
       consentGranted: body.consentGranted,
-      budgetRemainingUsd: body.budgetRemainingUsd,
-      estimatedCostUsd: body.estimatedCostUsd,
       localHour: body.localHour,
       callingWindow: body.callingWindow,
       actorUserId: tenantAuth.userId,

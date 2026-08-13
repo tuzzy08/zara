@@ -163,9 +163,6 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /organizations/:orgId/billing/customer-portal
 - PATCH /organizations/:orgId/billing/budget-policy
 - POST /organizations/:orgId/billing/budget-checks
-- POST /organizations/:orgId/billing/usage-events
-- POST /organizations/:orgId/billing/telephony-minute-events
-- POST /organizations/:orgId/billing/runtime-cost-events
 - POST /billing/polar/webhooks
 - GET /organizations/:orgId/calls/:callId/events
 - POST /organizations/:orgId/telephony/calls/:callSessionId/events
@@ -218,7 +215,7 @@ Twilio `<Connect><Stream>` responses use queryless `wss://` stream URLs. They in
 - Platform-admin responses expose health, status, usage, diagnostics, and masked operational metadata, never raw provider secrets, OAuth tokens, payment-provider secrets, or decrypted credentials.
 - Platform-admin impersonation start and revoke actions also write tenant compliance audit records that link back to the impersonation session.
 - Runtime event writes are idempotent.
-- Payment webhooks, usage billing events, telephony minute events, and runtime cost events are idempotent.
+- Payment webhooks and trusted server billing facts are idempotent.
 - Published versions are immutable.
 
 ## Workflow Validation Contract
@@ -656,26 +653,23 @@ The current tenant billing contract exposes plan, usage, budget, invoice/order, 
 - `POST /organizations/:orgId/billing/customer-portal`
 - `PATCH /organizations/:orgId/billing/budget-policy`
 - `POST /organizations/:orgId/billing/budget-checks`
-- `POST /organizations/:orgId/billing/usage-events`
-- `POST /organizations/:orgId/billing/telephony-minute-events`
-- `POST /organizations/:orgId/billing/runtime-cost-events`
 - `POST /billing/polar/webhooks`
 
-Billing state responses are tenant-scoped and public-safe. They include the Polar customer external ID, plan, subscription status, granted entitlements, usage totals, budget policy, budget warnings, usage aggregates by feature, telephony minute aggregates by provider connection, runtime cost events, and invoice/order summaries, but never return `POLAR_ACCESS_TOKEN`, webhook secrets, provider bearer tokens, or raw payment provider payload secrets.
+Billing state responses are tenant-scoped and public-safe. `plan` is nullable. A new tenant receives no plan, subscription, usage, entitlement, invoice, checkout, or fake balance. Once real state exists, responses include the Polar customer external ID, plan, subscription status, granted entitlements, usage totals, budget policy, budget warnings, usage aggregates by feature, telephony minute aggregates by provider connection, runtime cost events, and invoice/order summaries. Responses never return `POLAR_ACCESS_TOKEN`, webhook secrets, provider bearer tokens, or raw payment provider payload secrets.
 
 Checkout and customer portal actions require tenant billing admin access and route through Zara backend APIs. Checkout creates a Polar session with `externalCustomerId` set to the Zara organization ID and metadata that includes the organization and actor IDs. Customer portal actions create an authenticated Polar customer-session URL from the backend so the browser only receives the hosted portal URL.
 
-The API includes `@polar-sh/better-auth` and `@polar-sh/sdk`. `apps/api/src/billing/better-auth-polar.ts` defines the Better Auth Polar plugin composition for checkout, portal, usage, and webhooks, while `BillingService` owns Zara's tenant billing state and the public API contract. Polar webhook handling currently processes `customer.state_changed` and `order.paid`, verifies signatures when `POLAR_WEBHOOK_SECRET` is configured, updates subscription, plan, entitlement, invoice/order, and cancellation state, and stores processed webhook IDs to suppress replay. Usage events use caller-supplied idempotency keys before forwarding event ingestion to Polar with the Zara organization ID as the external customer ID. Usage events carry a feature key, and tenant billing state derives feature aggregates only from unique persisted events.
+The API includes `@polar-sh/better-auth` and `@polar-sh/sdk`. `apps/api/src/billing/better-auth-polar.ts` defines the Better Auth Polar plugin composition for checkout, portal, usage, and webhooks, while `BillingService` owns Zara's tenant billing state and the public API contract. Polar webhook handling currently processes `customer.state_changed` and `order.paid`, verifies signatures when `POLAR_WEBHOOK_SECRET` is configured, updates subscription, plan, entitlement, invoice/order, and cancellation state, and stores processed webhook IDs to suppress replay.
 
-Telephony minute events are keyed by tenant, call session, provider, and provider connection. Completed and transferred calls are rounded up to the next full minute and forwarded to Polar as `zara_telephony_minutes`; failed calls are classified, retained in accounting state, and billed as zero minutes. Billing state exposes provider-connection aggregates with completed, failed, and transferred call counts.
+Tenant-facing requests cannot create billing facts. The former generic usage, telephony-minute, and runtime-cost mutation routes return `404` in the production module graph. Trusted server lifecycle code sends facts to `TrustedBillingUsageProducer`. It resolves the effective immutable catalog and writes tenant-qualified idempotent ledger entries. Customer charge and supplier cost fields stay separate. Charge delivery stays in shadow mode until ISSUE-248.
 
-Runtime cost events accept the same usage shape emitted by `turn.cost.delta` runtime events for STT minutes, model input tokens, model output tokens, and TTS characters. Billing resolves them against a versioned runtime rate catalog, stores complete/incomplete cost components, flags unknown model/STT/TTS rates in `missingRates`, and creates Polar usage events only for components with known rates.
+Terminal call facts use the tenant, call session, provider, provider connection, ownership, route, runtime path, outcome, and server-measured duration. Platform-managed carrier duration rounds up by route. BYO calls do not create a platform carrier charge. Failed calls without a provider connection create an explicit zero-charge fact. Missing rate or provider data creates an incomplete fact. Standard and premium runtime facts store raw seconds. Browser sandbox V1 is non-billable, and phone tests use a separate usage class.
 
 Tenant budget policy controls monthly spend, call minutes, and premium runtime minutes. Budget checks project a requested call or premium runtime reservation against current billing usage, then return `allow`, `warn`, or `block` according to the configured over-budget behavior. Billing state exposes warning records once configured usage crosses the policy threshold so admins can see near-limit budgets before a hard block.
 
 ## State Repository Implementation Notes
 
-Billing, integrations, and memory currently use tenant-scoped file-backed JSON state repositories for their local control-plane state. Telephony keeps the same file-backed adapter for focused tests and support paths while the production module uses normalized Postgres tables. These file-backed repositories share `createTenantJsonStateRepository` for storage mechanics: tenant file naming, tenant listing, validated load, atomic replacement, optional corrupt snapshot quarantine, optional encoded organization IDs, and optional trailing newline writes.
+Billing production state uses Postgres. The billing JSON adapter is for focused local tests only. The public `billing_tenant_states` JSONB row is a read-model cache; immutable price, ledger, adjustment, and PAYG credit records are the financial facts. Integrations and memory still use tenant-scoped file-backed JSON state repositories for their local control-plane state. Telephony keeps the same file-backed adapter for focused tests and support paths while its production module uses normalized Postgres tables. These file-backed repositories share `createTenantJsonStateRepository` for storage mechanics: tenant file naming, tenant listing, validated load, atomic replacement, optional corrupt snapshot quarantine, optional encoded organization IDs, and optional trailing newline writes.
 
 Feature repositories remain responsible for their own persisted schema validation, compatibility normalization, encrypted credential references, and public response shaping. The shared adapter should not learn billing, integration, memory, or telephony domain rules.
 

@@ -2,6 +2,14 @@ import { computeTwilioWebhookSignature } from "@zara/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../compliance/audit-log.service";
+import type { BillingService } from "../billing/billing.service";
+import type { TrustedBillingUsageProducer } from "../billing/trusted-billing-usage-producer";
+import type { TrustedPaygTerminalFinalizationService } from "../billing/trusted-payg-terminal-finalization.service";
+import type { BillingPaygEligibilityService } from "../billing/billing-payg-eligibility.service";
+import type { TrustedPaygActiveCallFundingService } from "../billing/trusted-payg-active-call-funding.service";
+import type { TrustedSubscriptionCallLifecycleService } from "../billing/trusted-subscription-call-lifecycle.service";
+import type { TrustedCallCommercialModeResolver } from "../billing/trusted-call-commercial-mode-resolver";
+import type { TrustedTerminalBillingRecoveryService } from "../billing/trusted-terminal-billing-recovery.service";
 import type {
   TelephonyIncrementalRepository,
 } from "./telephony-incremental.repository";
@@ -12,6 +20,7 @@ import { InMemoryTelephonyIncrementalRepository } from "./telephony-incremental.
 import type { PersistedTelephonyStateRecord, TelephonyStateRepository } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
+import type { TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-call-start.service";
 import type { TwilioNumberInventoryProvider } from "./twilio-number-inventory.provider";
 import type { TwilioNumberRoutingProvider } from "./twilio-number-routing.provider";
 
@@ -268,6 +277,7 @@ describe("TelephonyService incremental inbound persistence", () => {
         harness.incrementalRepository,
         undefined,
         admissionCoordinator,
+        createActiveBillingService() as BillingService,
       ),
       "CA-failed-setup-replay",
       "EV-failed-setup-replay",
@@ -1532,6 +1542,1047 @@ describe("TelephonyService incremental inbound persistence", () => {
     );
   });
 
+  it("releases the subscription claim when inbound call setup persistence fails", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const releaseByReservationKey = vi.fn(async () => ({
+      outcome: "released" as const, duplicate: false,
+    }));
+    const harness = await createReadyHarness({
+      trustedSubscriptionLifecycle: {
+        async start() {
+          return { outcome: "reserved" as const, duplicate: false,
+            reservation: { id: "subscription-setup-failure" } };
+        },
+        releaseByReservationKey,
+      } as unknown as TrustedSubscriptionCallLifecycleService,
+    });
+    vi.spyOn(harness.incrementalRepository, "createCallSetup")
+      .mockRejectedValueOnce(new Error("setup failed"));
+
+    const response = await answer(
+      harness.service,
+      "CA-subscription-setup-failure",
+      "EV-subscription-setup-failure",
+    );
+
+    expect(response).toMatchObject({ reasonCode: "call_setup_persistence_failed" });
+    expect(releaseByReservationKey).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      reservationKey: "CA-subscription-setup-failure:telephony",
+    }));
+  });
+
+  it("blocks an ambiguous past-due inbound call before any billing reservation", async () => {
+    let status = "active";
+    const subscriptionStart = vi.fn();
+    const paygStart = vi.fn();
+    const harness = await createReadyHarness({
+      billingService: createBillingStateService({ plan: { slug: "growth" }, status: () => status }),
+      trustedSubscriptionLifecycle: {
+        start: subscriptionStart,
+      } as unknown as TrustedSubscriptionCallLifecycleService,
+      trustedPaygCallStart: {
+        start: paygStart,
+      } as unknown as TrustedPaygTelephonyCallStartService,
+    });
+    status = "past_due";
+
+    const response = await answer(harness.service, "CA-ambiguous-inbound", "EV-ambiguous-inbound");
+
+    expect(response.twiml).not.toContain("<Connect>");
+    expect(subscriptionStart).not.toHaveBeenCalled();
+    expect(paygStart).not.toHaveBeenCalled();
+  });
+
+  it("blocks an ambiguous past-due outbound call before any billing reservation", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    let status = "active";
+    const subscriptionStart = vi.fn();
+    const paygStart = vi.fn();
+    const harness = await createReadyHarness({
+      billingService: createBillingStateService({ plan: { slug: "growth" }, status: () => status }),
+      trustedSubscriptionLifecycle: {
+        start: subscriptionStart,
+      } as unknown as TrustedSubscriptionCallLifecycleService,
+      trustedPaygCallStart: {
+        startOutbound: paygStart,
+      } as unknown as TrustedPaygTelephonyCallStartService,
+    });
+    status = "past_due";
+
+    const result = await harness.service.dispatchOutboundCall({ organizationId,
+      fromPhoneNumber: "+14155557890", toPhoneNumber: "+2348031234567",
+      callSid: "CA-ambiguous-outbound", publishedVersionId: "workflow-v1", workflowLabel: "Support",
+      workspaceId: "workspace-1", consentGranted: true, budgetRemainingUsd: 5,
+      estimatedCostUsd: 0.75, localHour: 12, callingWindow: { startHour: 8, endHour: 19 },
+      now: "2026-08-11T09:00:00.000Z",
+    });
+
+    expect(result.dispatch.disposition).toBe("blocked");
+    expect(subscriptionStart).not.toHaveBeenCalled();
+    expect(paygStart).not.toHaveBeenCalled();
+  });
+
+  it("rejects spoofed active status when the durable tenant is suspended", async () => {
+    let durableStatus: "active" | "suspended" | "archived" | "missing" | "error" = "active";
+    const tenantReads: string[] = [];
+    const harness = await createReadyHarness({
+      tenantStatusRepository: {
+        async getStatus(tenantId: string) {
+          tenantReads.push(tenantId);
+          if (durableStatus === "error") throw new Error("tenant status unavailable");
+          if (durableStatus === "missing") return { outcome: "missing" };
+          return { outcome: "found", status: durableStatus };
+        },
+      },
+    });
+    const phoneNumberId = (await harness.service.getState(organizationId)).phoneNumbers[0]!.id;
+    await harness.service.pauseLiveRoute({ organizationId, numberId: phoneNumberId,
+      actorUserId: "operator-1", now: "2026-08-11T09:00:00.000Z" });
+    for (const status of ["suspended", "archived", "missing", "error"] as const) {
+      durableStatus = status;
+      await expect(harness.service.resumeLiveRoute({ organizationId, numberId: phoneNumberId,
+        actorUserId: "operator-1", now: "2026-08-11T09:01:00.000Z",
+        tenantStatus: "active",
+        override: { actorUserId: "operator-1", approvedByUserId: "platform-admin-1",
+          reason: "Tenant status authority test." },
+      } as never)).rejects.toThrow("Live route resume blocked");
+    }
+    durableStatus = "active";
+    await expect(harness.service.resumeLiveRoute({ organizationId, numberId: phoneNumberId,
+      actorUserId: "operator-1", now: "2026-08-11T09:02:00.000Z",
+      override: { actorUserId: "operator-1", approvedByUserId: "platform-admin-1",
+        reason: "Tenant status authority test." },
+    })).resolves.toMatchObject({ phoneNumber: { liveRoute: { activationStatus: "active" } } });
+    expect(tenantReads.every((tenantId) => tenantId === organizationId)).toBe(true);
+  });
+
+  it("blocks PAYG sandwich outbound before reservation and durable provider command", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const events: string[] = [];
+    const startOutbound = vi.fn(async (input: {
+      ownershipMode: string;
+      provider: string;
+      fromPhoneNumber: string;
+      toPhoneNumber: string;
+      startProvider: () => Promise<unknown>;
+    }) => {
+      events.push("reserved");
+      const providerResult = await input.startProvider();
+      return {
+        outcome: "started" as const,
+        reservation: { id: "reservation-outbound" },
+        duplicateReservation: false,
+        providerResult,
+      };
+    });
+    const harness = await createReadyHarness({
+      billingService: {
+        async getBillingState() {
+          return {
+            plan: null,
+            subscription: { status: "none" },
+            telephonyMinuteAggregates: [],
+            usage: [],
+            entitlements: [],
+            budgetPolicy: {
+              monthlyBudgetUsd: 0,
+              callMinuteLimit: 0,
+              premiumRuntimeMinuteLimit: 0,
+              overBudgetBehavior: "block",
+            },
+          };
+        },
+        async getRuntimeAccessPosture() {
+          return {
+            subscriptionStatus: "none",
+            accessAllowed: false,
+            reason: "subscription_missing",
+          };
+        },
+      } as unknown as BillingService,
+      billingPaygEligibility: {
+        async getEligibility() {
+          return {
+            eligible: true,
+            balanceMinor: 500,
+            reservedMinor: 0,
+            availableMinor: 500,
+          };
+        },
+      } as unknown as BillingPaygEligibilityService,
+      trustedPaygCallStart: { startOutbound } as unknown as TrustedPaygTelephonyCallStartService,
+    });
+    const createExecution = harness.incrementalRepository.createCallExecution.bind(
+      harness.incrementalRepository,
+    );
+    vi.spyOn(harness.incrementalRepository, "createCallExecution")
+      .mockImplementation(async (input) => {
+        events.push("durable-provider-command");
+        return createExecution(input);
+      });
+
+    const result = await harness.service.dispatchOutboundCall({
+      organizationId,
+      fromPhoneNumber: "+14155557890",
+      toPhoneNumber: "+2348031234567",
+      callSid: "CA-outbound-payg",
+      publishedVersionId: "workflow-v1",
+      workflowLabel: "Support",
+      workspaceId: "workspace-1",
+      consentGranted: true,
+      budgetRemainingUsd: 5,
+      estimatedCostUsd: 0.75,
+      localHour: 12,
+      callingWindow: { startHour: 8, endHour: 19 },
+      now: "2026-08-11T09:00:00.000Z",
+    });
+
+    expect(result.dispatch.disposition).toBe("blocked");
+    expect(events).toEqual([]);
+    expect(startOutbound).not.toHaveBeenCalled();
+  });
+
+  it("reserves subscription allowance before the durable outbound provider command seam", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const events: string[] = [];
+    const start = vi.fn(async () => {
+      events.push("subscription-reserved");
+      return { outcome: "reserved" as const, duplicate: false, reservation: { id: "subscription-reservation" } };
+    });
+    const harness = await createReadyHarness({
+      trustedSubscriptionLifecycle: { start } as unknown as TrustedSubscriptionCallLifecycleService,
+    });
+    const createExecution = harness.incrementalRepository.createCallExecution.bind(harness.incrementalRepository);
+    vi.spyOn(harness.incrementalRepository, "createCallExecution").mockImplementation(async (input) => {
+      events.push("durable-provider-command");
+      return createExecution(input);
+    });
+
+    const result = await harness.service.dispatchOutboundCall({
+      organizationId, fromPhoneNumber: "+14155557890", toPhoneNumber: "+2348031234567",
+      callSid: "CA-outbound-subscription", publishedVersionId: "workflow-v1", workflowLabel: "Support",
+      workspaceId: "workspace-1", consentGranted: true, budgetRemainingUsd: 5, estimatedCostUsd: 0.75,
+      localHour: 12, callingWindow: { startHour: 8, endHour: 19 }, now: "2026-08-11T09:00:00.000Z",
+    });
+
+    expect(result.dispatch.disposition).toBe("queued");
+    expect(result.dispatch.policyChecks?.budget).toEqual({
+      status: "passed",
+      detail: "Durable billing allowance is available.",
+    });
+    expect(events).toEqual(["subscription-reserved", "durable-provider-command"]);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId, reservationKey: "CA-outbound-subscription:telephony",
+      meterClass: "standard", billingMode: "byo", provider: "twilio", direction: "outbound",
+      maximumRuntimeSeconds: 300, now: "2026-08-11T09:00:00.000Z",
+    }));
+  });
+
+  it("releases subscription allowance when outbound durable command creation fails", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const releaseByReservationKey = vi.fn(async () => ({ outcome: "released" as const, duplicate: false }));
+    const harness = await createReadyHarness({ trustedSubscriptionLifecycle: {
+      async start() { return { outcome: "reserved" as const, duplicate: false, reservation: { id: "sub" } }; },
+      releaseByReservationKey,
+    } as unknown as TrustedSubscriptionCallLifecycleService });
+    vi.spyOn(harness.incrementalRepository, "createCallExecution").mockRejectedValueOnce(new Error("provider command failed"));
+
+    await expect(harness.service.dispatchOutboundCall({ organizationId,
+      fromPhoneNumber: "+14155557890", toPhoneNumber: "+2348031234567", callSid: "CA-subscription-failed",
+      publishedVersionId: "workflow-v1", workflowLabel: "Support", workspaceId: "workspace-1",
+      consentGranted: true, budgetRemainingUsd: 5, estimatedCostUsd: 0.75, localHour: 12,
+      callingWindow: { startHour: 8, endHour: 19 }, now: "2026-08-11T09:00:00.000Z",
+    })).rejects.toThrow("provider command failed");
+    expect(releaseByReservationKey).toHaveBeenCalledWith({ organizationId,
+      reservationKey: "CA-subscription-failed:telephony", now: "2026-08-11T09:00:00.000Z" });
+  });
+
+  it("releases subscription allowance when inbound admission denies the call", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const releaseByReservationKey = vi.fn(async () => ({ outcome: "released" as const, duplicate: false }));
+    const harness = await createReadyHarness({
+      admissionCoordinator: createAdmissionCoordinator({ reserve: vi.fn(async () => ({ outcome: "denied" as const,
+        reasonCode: "tenant_concurrency_limit" as const, limitingDimension: "tenant_concurrency" as const,
+        remainingCapacity: 0 })) }),
+      trustedSubscriptionLifecycle: { async start() {
+        return { outcome: "reserved" as const, duplicate: false, reservation: { id: "sub-inbound" } };
+      }, releaseByReservationKey } as unknown as TrustedSubscriptionCallLifecycleService,
+    });
+    const response = await answer(harness.service, "CA-subscription-admission-denied", "EV-subscription-admission-denied");
+    expect(response.twiml).not.toContain("<Connect>");
+    expect(releaseByReservationKey).toHaveBeenCalledWith(expect.objectContaining({ organizationId,
+      reservationKey: "CA-subscription-admission-denied:telephony" }));
+  });
+
+  it("blocks platform-managed inbound before subscription reservation without an approved route", async () => {
+    const start = vi.fn();
+    const harness = await createReadyHarness({
+      ownershipMode: "platform_managed",
+      trustedSubscriptionLifecycle: {
+        start,
+      } as unknown as TrustedSubscriptionCallLifecycleService,
+    });
+
+    const response = await answer(harness.service, "CA-platform-inbound", "EV-platform-inbound");
+
+    expect(response.twiml).not.toContain("<Connect>");
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("uses durable commercial state when the billing display cache is stale", async () => {
+    const staleBillingService = {
+      async getBillingState() {
+        return {
+          plan: null,
+          subscription: { status: "canceled" },
+          telephonyMinuteAggregates: [{ billableMinutes: 99 }],
+          usage: [],
+          entitlements: [],
+          budgetPolicy: {
+            monthlyBudgetUsd: 1,
+            callMinuteLimit: 1,
+            premiumRuntimeMinuteLimit: 0,
+            overBudgetBehavior: "block",
+          },
+        };
+      },
+      async getRuntimeAccessPosture() {
+        return {
+          subscriptionStatus: "canceled",
+          accessAllowed: false,
+          reason: "stale_display_cache",
+        };
+      },
+    } as unknown as BillingService;
+    const harness = await createReadyHarness({
+      activateRoute: false,
+      billingService: staleBillingService,
+      commercialModeResolver: {
+        async resolve() {
+          return {
+            mode: "subscription" as const,
+            subscriptionId: "subscription-durable",
+            catalogId: "catalog-durable",
+            planSlug: "growth",
+            premiumAllowed: true,
+            available: true,
+            availableIncludedSeconds: 300,
+            availablePaygMinor: 0,
+            availableOverageMinor: 0,
+          };
+        },
+      } as unknown as TrustedCallCommercialModeResolver,
+    });
+    const number = (await harness.service.getState(organizationId)).phoneNumbers[0]!;
+
+    await expect(harness.service.activateLiveRoute({
+      organizationId,
+      numberId: number.id,
+      actorUserId: "operator-1",
+      now: "2026-08-11T09:00:00.000Z",
+      override: {
+        actorUserId: "operator-1",
+        approvedByUserId: "platform-admin-1",
+        reason: "Verify durable billing authority over stale display state.",
+      },
+    })).resolves.toEqual(expect.objectContaining({
+      phoneNumber: expect.objectContaining({
+        liveRoute: expect.objectContaining({ activationStatus: "active" }),
+      }),
+    }));
+  });
+
+  it("blocks live activation when durable subscription allowance is exhausted", async () => {
+    const harness = await createReadyHarness({
+      activateRoute: false,
+      commercialModeResolver: {
+        async resolve() {
+          return { mode: "subscription" as const, subscriptionId: "sub-exhausted",
+            catalogId: "catalog-v1", planSlug: "growth", premiumAllowed: true,
+            available: false, availableIncludedSeconds: 0,
+            availablePaygMinor: 0, availableOverageMinor: 0 };
+        },
+      } as unknown as TrustedCallCommercialModeResolver,
+    });
+    const number = (await harness.service.getState(organizationId)).phoneNumbers[0]!;
+
+    await expect(harness.service.activateLiveRoute({ organizationId, numberId: number.id,
+      actorUserId: "operator-1", now: "2026-08-11T09:00:00.000Z",
+      override: { actorUserId: "operator-1", approvedByUserId: "platform-admin-1",
+        reason: "Exhausted durable allowance must block." } }))
+      .rejects.toThrow("Live route activation blocked");
+  });
+
+  it("blocks outbound before reservation when durable subscription allowance is exhausted", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    let available = true;
+    const start = vi.fn(async () => ({ outcome: "reserved" as const, duplicate: false,
+      reservation: { id: "must-not-reserve" } }));
+    const harness = await createReadyHarness({
+      commercialModeResolver: {
+        async resolve() {
+          return { mode: "subscription" as const, subscriptionId: "sub-1",
+            catalogId: "catalog-v1", planSlug: "growth", premiumAllowed: true,
+            available, availableIncludedSeconds: available ? 120 : 0,
+            availablePaygMinor: 0, availableOverageMinor: 0 };
+        },
+      } as unknown as TrustedCallCommercialModeResolver,
+      trustedSubscriptionLifecycle: { start, async releaseByReservationKey() {
+        return { outcome: "released" as const, duplicate: false };
+      } } as unknown as TrustedSubscriptionCallLifecycleService,
+    });
+    available = false;
+
+    const result = await harness.service.dispatchOutboundCall({ organizationId,
+      fromPhoneNumber: "+14155557890", toPhoneNumber: "+2348031234567", callSid: "CA-exhausted",
+      publishedVersionId: "workflow-v1", workflowLabel: "Support", workspaceId: "workspace-1",
+      consentGranted: true, budgetRemainingUsd: 999, estimatedCostUsd: 0,
+      localHour: 12, callingWindow: { startHour: 8, endHour: 19 },
+      now: "2026-08-11T09:00:00.000Z" });
+
+    expect(result.dispatch.disposition).toBe("blocked");
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("uses durable BYO payment grace when a new inbound call starts", async () => {
+    let paymentPastDue = false;
+    const accessRequests: unknown[] = [];
+    const billingService = {
+      async getBillingState() {
+        return {
+          plan: { slug: "growth" },
+          subscription: { status: paymentPastDue ? "past_due" : "active" },
+          telephonyMinuteAggregates: [],
+          usage: [],
+          entitlements: [],
+          budgetPolicy: {
+            monthlyBudgetUsd: 0,
+            callMinuteLimit: 0,
+            premiumRuntimeMinuteLimit: 0,
+            overBudgetBehavior: "warn",
+          },
+        };
+      },
+      async getRuntimeAccessPosture(input: unknown) {
+        accessRequests.push(input);
+        return {
+          subscriptionStatus: "past_due",
+          accessAllowed: true,
+          reason: "byo_payment_grace",
+          graceEndsAt: "2026-08-13T09:00:00.000Z",
+        };
+      },
+    } as unknown as BillingService;
+    const harness = await createReadyHarness({ billingService });
+    accessRequests.length = 0;
+    paymentPastDue = true;
+
+    const response = await answer(
+      harness.service,
+      "CA-byo-payment-grace",
+      "EV-byo-payment-grace",
+    );
+
+    expect(response.twiml).toContain("<Connect>");
+    expect(accessRequests).toEqual([
+      expect.objectContaining({
+        organizationId,
+        accessContext: "byo_live_runtime",
+      }),
+    ]);
+  });
+
+  it("uses durable platform payment posture for an active call", async () => {
+    let paymentPastDue = false;
+    const accessRequests: unknown[] = [];
+    const billingService = {
+      async getBillingState() {
+        return {
+          plan: { slug: "growth" },
+          subscription: { status: paymentPastDue ? "past_due" : "active" },
+          telephonyMinuteAggregates: [],
+          usage: [],
+          entitlements: [],
+          budgetPolicy: {
+            monthlyBudgetUsd: 0,
+            callMinuteLimit: 0,
+            premiumRuntimeMinuteLimit: 0,
+            overBudgetBehavior: "warn",
+          },
+        };
+      },
+      async getRuntimeAccessPosture(input: unknown) {
+        accessRequests.push(input);
+        const accessContext = (input as { accessContext: string }).accessContext;
+        return paymentPastDue
+          ? {
+              subscriptionStatus: "past_due",
+              accessAllowed: accessContext !== "platform_managed_pstn",
+              reason: accessContext === "platform_managed_pstn"
+                ? "platform_pstn_payment_past_due"
+                : "byo_payment_grace",
+              graceEndsAt: "2026-08-13T09:00:00.000Z",
+            }
+          : {
+              subscriptionStatus: "active",
+              accessAllowed: true,
+              reason: "subscription_active",
+            };
+      },
+    } as unknown as BillingService;
+    const harness = await createReadyHarness({ billingService });
+    const response = await answer(
+      harness.service,
+      "CA-active-byo-payment-grace",
+      "EV-active-byo-payment-grace",
+    );
+    const callSessionId = "dispatch" in response
+      ? response.dispatch?.callSessionId
+      : undefined;
+    if (callSessionId === undefined) {
+      throw new Error("Expected the platform-managed call to be routed.");
+    }
+    const callSetup = harness.incrementalRepository.callSetups.find(
+      ({ executionSession }) =>
+        executionSession.callSessionId === callSessionId,
+    );
+    if (callSetup === undefined) {
+      throw new Error("Expected the active call setup to be durable.");
+    }
+    Object.assign(callSetup.executionSession, {
+      ownershipMode: "platform_managed",
+    });
+    accessRequests.length = 0;
+    paymentPastDue = true;
+
+    const result = await harness.service.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId,
+      now: "2026-08-10T10:00:00.000Z",
+    });
+
+    expect(result.session.status).toBe("grace-active");
+    expect(accessRequests).toEqual([
+      expect.objectContaining({
+        organizationId,
+        accessContext: "platform_managed_pstn",
+      }),
+    ]);
+  });
+
+  it("applies the trusted durable PAYG next-segment posture to an active call", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    let payg = false;
+    const fundingInputs: Array<Record<string, unknown>> = [];
+    const harness = await createReadyHarness({
+      billingService: {
+        async getBillingState() {
+          return {
+            plan: payg ? null : { slug: "growth" },
+            subscription: { status: "active" },
+            telephonyMinuteAggregates: [], usage: [], entitlements: [],
+            budgetPolicy: {
+              monthlyBudgetUsd: 0, callMinuteLimit: 0,
+              premiumRuntimeMinuteLimit: 0, overBudgetBehavior: "warn",
+            },
+          };
+        },
+        async getRuntimeAccessPosture() {
+          return { subscriptionStatus: "active", accessAllowed: true };
+        },
+      } as unknown as BillingService,
+      trustedPaygFunding: {
+        async evaluateNextSafeSegment(input: Record<string, unknown>) {
+          fundingInputs.push(input);
+          return { billingAccessMode: "payg" as const, outcome: "unfunded" as const };
+        },
+      } as unknown as TrustedPaygActiveCallFundingService,
+    });
+    const call = await answer(
+      harness.service,
+      "CA-policy-payg-closeout",
+      "EV-policy-payg-closeout",
+    );
+    if (!("dispatch" in call)) {
+      throw new Error("Expected the PAYG policy test call to be routed.");
+    }
+    for (const [stage, at] of [
+      ["media-connected", "2026-08-11T10:01:00.000Z"],
+      ["provider-ready", "2026-08-11T10:02:00.000Z"],
+      ["active", "2026-08-11T10:03:00.000Z"],
+    ] as const) {
+      await harness.service.recordPstnCallLifecycle({
+        organizationId,
+        callSessionId: call.dispatch.callSessionId!,
+        stage,
+        at,
+      });
+    }
+
+    payg = true;
+    vi.stubEnv("PAYG_NEXT_SAFE_SEGMENT_SECONDS", "30");
+    const result = await harness.service.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId: call.dispatch.callSessionId!,
+      providerState: "available",
+      now: "2026-08-11T10:06:00.000Z",
+    });
+
+    expect(result.session).toMatchObject({
+      status: "closeout-pending",
+      policyState: {
+        state: "payg_closeout_after_turn",
+      },
+    });
+    expect(fundingInputs).toEqual([
+      expect.objectContaining({
+        organizationId,
+        callSessionId: call.dispatch.callSessionId,
+        nextSafeSegmentSeconds: 30,
+      }),
+    ]);
+  });
+
+  it("keeps an active PAYG call running when its own reservation funds the next segment", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    let available = true;
+    let activePayg = false;
+    const funding = vi.fn(async () => ({
+      billingAccessMode: "payg" as const,
+      outcome: "funded" as const,
+    }));
+    const harness = await createReadyHarness({
+      commercialModeResolver: {
+        async resolve() {
+          return activePayg
+            ? { mode: "payg" as const, available, availablePaygMinor: available ? 500 : 0 }
+            : { mode: "subscription" as const, subscriptionId: "sub-own-funded",
+                catalogId: "catalog-v1", planSlug: "growth", premiumAllowed: true,
+                available: true, availableIncludedSeconds: 300,
+                availablePaygMinor: 0, availableOverageMinor: 0 };
+        },
+      } as unknown as TrustedCallCommercialModeResolver,
+      trustedPaygFunding: {
+        evaluateNextSafeSegment: funding,
+      } as unknown as TrustedPaygActiveCallFundingService,
+    });
+    const call = await answer(harness.service, "CA-own-funded", "EV-own-funded");
+    if (!("dispatch" in call)) throw new Error("Expected a routed active-call test call.");
+    for (const [stage, at] of [
+      ["media-connected", "2026-08-11T10:01:00.000Z"],
+      ["provider-ready", "2026-08-11T10:02:00.000Z"],
+      ["active", "2026-08-11T10:03:00.000Z"],
+    ] as const) {
+      await harness.service.recordPstnCallLifecycle({
+        organizationId,
+        callSessionId: call.dispatch.callSessionId!,
+        stage,
+        at,
+      });
+    }
+    activePayg = true;
+    available = false;
+    vi.stubEnv("PAYG_NEXT_SAFE_SEGMENT_SECONDS", "30");
+
+    const result = await harness.service.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId: call.dispatch.callSessionId!,
+      providerState: "available",
+      now: "2026-08-11T10:06:00.000Z",
+    });
+
+    expect(result.session.status).toBe("active");
+    expect(funding).toHaveBeenCalledOnce();
+  });
+
+  it("fails a PAYG call closed when the next safe segment configuration is missing", async () => {
+    const fundingInputs: Array<Record<string, unknown>> = [];
+    const harness = await createReadyHarness({
+      trustedPaygFunding: {
+        async evaluateNextSafeSegment(input: Record<string, unknown>) {
+          fundingInputs.push(input);
+          return { billingAccessMode: "payg" as const, outcome: "unfunded" as const };
+        },
+      } as unknown as TrustedPaygActiveCallFundingService,
+    });
+    const call = await answer(
+      harness.service,
+      "CA-policy-payg-missing-segment",
+      "EV-policy-payg-missing-segment",
+    );
+    if (!("dispatch" in call)) {
+      throw new Error("Expected the PAYG policy test call to be routed.");
+    }
+    await harness.service.recordPstnCallLifecycle({
+      organizationId,
+      callSessionId: call.dispatch.callSessionId!,
+      stage: "media-connected",
+      at: "2026-08-11T10:01:00.000Z",
+    });
+
+    vi.stubEnv("PAYG_NEXT_SAFE_SEGMENT_SECONDS", "");
+    const result = await harness.service.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId: call.dispatch.callSessionId!,
+      now: "2026-08-11T10:06:00.000Z",
+    });
+
+    expect(result.session.status).toBe("closeout-pending");
+    expect(fundingInputs).toEqual([
+      expect.objectContaining({
+        callSessionId: call.dispatch.callSessionId,
+        nextSafeSegmentSeconds: undefined,
+      }),
+    ]);
+  });
+
+  it("fails a PAYG call closed when trusted lifecycle duration is missing", async () => {
+    const fundingInputs: Array<Record<string, unknown>> = [];
+    const harness = await createReadyHarness({
+      trustedPaygFunding: {
+        async evaluateNextSafeSegment(input: Record<string, unknown>) {
+          fundingInputs.push(input);
+          return { billingAccessMode: "payg" as const, outcome: "unfunded" as const };
+        },
+      } as unknown as TrustedPaygActiveCallFundingService,
+    });
+    const call = await answer(
+      harness.service,
+      "CA-policy-payg-missing-lifecycle",
+      "EV-policy-payg-missing-lifecycle",
+    );
+    if (!("dispatch" in call)) {
+      throw new Error("Expected the PAYG policy test call to be routed.");
+    }
+
+    vi.stubEnv("PAYG_NEXT_SAFE_SEGMENT_SECONDS", "30");
+    const result = await harness.service.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId: call.dispatch.callSessionId!,
+      now: "2026-08-11T10:06:00.000Z",
+    });
+
+    expect(result.session.status).toBe("closeout-pending");
+    expect(fundingInputs).toEqual([
+      expect.objectContaining({
+        callSessionId: call.dispatch.callSessionId,
+        runtimeSeconds: undefined,
+      }),
+    ]);
+  });
+
+  it("submits the same terminal fact to durable billing recovery on replay", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const facts: Array<Record<string, unknown>> = [];
+    const finalizations: Array<Record<string, unknown>> = [];
+    const submissions: Array<Record<string, unknown>> = [];
+    const harness = await createReadyHarness({
+      billingService: {
+        async getBillingState() {
+          return {
+            plan: null,
+            subscription: { status: "active" },
+            telephonyMinuteAggregates: [],
+            usage: [],
+            entitlements: [],
+            budgetPolicy: {
+              monthlyBudgetUsd: 0,
+              callMinuteLimit: 0,
+              premiumRuntimeMinuteLimit: 0,
+              overBudgetBehavior: "block",
+            },
+          };
+        },
+      } as unknown as BillingService,
+      trustedUsageProducer: {
+        async recordTerminalCall(fact: Record<string, unknown>) {
+          facts.push(fact);
+          return { recorded: 1, duplicates: 0, incomplete: 0 };
+        },
+      } as unknown as TrustedBillingUsageProducer,
+      trustedPaygFinalizer: {
+        async resolveCallBillingMode() { return "subscription" as const; },
+        async getPinnedCallChargeContext() { return null; },
+        async finalizeTerminalCall(fact: Record<string, unknown>) {
+          finalizations.push(fact);
+          return { duplicate: finalizations.length > 1 };
+        },
+      } as unknown as TrustedPaygTerminalFinalizationService,
+      trustedPaygCallStart: {
+        async start(input: { startProvider: () => Promise<unknown> }) {
+          return {
+            outcome: "started" as const,
+            reservation: { id: "payg-call-reservation:CA-trusted-billing:telephony" },
+            duplicateReservation: false,
+            providerResult: await input.startProvider(),
+          };
+        },
+      } as unknown as TrustedPaygTelephonyCallStartService,
+      trustedSubscriptionLifecycle: {
+        async start() { return { outcome: "reserved" as const, duplicate: false,
+          reservation: { id: "subscription-recovery" } }; },
+        async getReservationByKey() { return { catalogId: "catalog-v1", planSlug: "growth",
+          meterClass: "standard" as const, billingMode: "byo" as const,
+          provider: "twilio", direction: "inbound" as const }; },
+        async finalizeByReservationKey(fact: Record<string, unknown>) {
+          finalizations.push(fact);
+          return { outcome: "finalized", duplicate: finalizations.length > 1, paygAppliedMinor: 0 };
+        },
+        async releaseByReservationKey() { return { outcome: "released", duplicate: false }; },
+      } as unknown as TrustedSubscriptionCallLifecycleService,
+      trustedTerminalRecovery: {
+        async submit(input: Record<string, unknown>) {
+          submissions.push(input);
+          return { status: "completed" };
+        },
+      } as unknown as TrustedTerminalBillingRecoveryService,
+      commercialModeResolver: {
+        async resolve() { return { mode: "subscription" as const, subscriptionId: "sub-1",
+          catalogId: "catalog-v1", planSlug: "growth", premiumAllowed: false,
+          available: true, availableIncludedSeconds: 300,
+          availablePaygMinor: 0, availableOverageMinor: 0 }; },
+      } as unknown as TrustedCallCommercialModeResolver,
+    });
+    await answer(
+      harness.service,
+      "CA-trusted-billing",
+      "EV-trusted-billing",
+    );
+
+    await harness.service.recordPstnCallLifecycle({
+      organizationId,
+      callSessionId: "CA-trusted-billing:telephony",
+      stage: "active",
+      at: "2026-08-09T10:00:00.000Z",
+    });
+    await harness.service.recordPstnCallLifecycle({
+      organizationId,
+      callSessionId: "CA-trusted-billing:telephony",
+      stage: "completed",
+      at: "2026-08-09T10:01:01.000Z",
+    });
+    await harness.service.recordPstnCallLifecycle({
+      organizationId,
+      callSessionId: "CA-trusted-billing:telephony",
+      stage: "completed",
+      at: "2026-08-09T10:01:02.000Z",
+    });
+
+    expect(facts).toEqual([]);
+    expect(finalizations).toEqual([]);
+    expect(submissions).toEqual([
+      expect.objectContaining({
+        id: "terminal-billing:CA-trusted-billing:telephony",
+        idempotencyKey: "terminal-billing:CA-trusted-billing:telephony",
+        usageFact: expect.objectContaining({
+          organizationId,
+          callSessionId: "CA-trusted-billing:telephony",
+          commercialMode: "subscription",
+          runtimeSeconds: 61,
+          occurredAt: "2026-08-09T10:01:01.000Z",
+        }),
+        settlement: expect.objectContaining({
+          commercialMode: "subscription",
+          fact: expect.objectContaining({
+            reservationKey: "CA-trusted-billing:telephony",
+            actualSeconds: 61,
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        idempotencyKey: "terminal-billing:CA-trusted-billing:telephony",
+      }),
+    ]);
+  });
+
+  it("replays subscription terminal usage from the durable reservation mode and pin", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const facts: Array<Record<string, unknown>> = [];
+    const finalizations: Array<Record<string, unknown>> = [];
+    const paygFinalize = vi.fn();
+    const lifecycle = {
+      async start() { return { outcome: "reserved" as const, duplicate: false, reservation: { id: "sub-res" } }; },
+      async getReservationByKey() {
+        return { catalogId: "catalog-v1", planSlug: "growth", meterClass: "standard", billingMode: "byo",
+          provider: "twilio", direction: "inbound" };
+      },
+      async finalizeByReservationKey(input: Record<string, unknown>) {
+        finalizations.push(input);
+        return { outcome: "finalized", duplicate: finalizations.length > 1 };
+      },
+      async releaseByReservationKey() { return { outcome: "released", duplicate: false }; },
+    } as unknown as TrustedSubscriptionCallLifecycleService;
+    const harness = await createReadyHarness({
+      trustedSubscriptionLifecycle: lifecycle,
+      trustedUsageProducer: { async recordTerminalCall(fact: Record<string, unknown>) {
+        facts.push(fact); return { recorded: 1, duplicates: 0, incomplete: 0 };
+      } } as unknown as TrustedBillingUsageProducer,
+      trustedPaygFinalizer: {
+        async resolveCallBillingMode() { return "subscription" as const; },
+        async getPinnedCallChargeContext() { return null; },
+        finalizeTerminalCall: paygFinalize,
+      } as unknown as TrustedPaygTerminalFinalizationService,
+    });
+    await answer(harness.service, "CA-subscription-terminal", "EV-subscription-terminal");
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-subscription-terminal:telephony", stage: "active", at: "2026-08-09T10:00:00.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-subscription-terminal:telephony", stage: "completed", at: "2026-08-09T10:01:01.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-subscription-terminal:telephony", stage: "completed", at: "2026-08-09T10:01:02.000Z" });
+
+    expect(facts).toHaveLength(2);
+    expect(facts[0]).toEqual(expect.objectContaining({
+      catalogId: "catalog-v1", commercialMode: "subscription", planSlug: "growth",
+    }));
+    expect(finalizations).toEqual([
+      expect.objectContaining({ organizationId, reservationKey: "CA-subscription-terminal:telephony",
+        actualSeconds: 61 }),
+      expect.objectContaining({ reservationKey: "CA-subscription-terminal:telephony" }),
+    ]);
+    expect(paygFinalize).not.toHaveBeenCalled();
+  });
+
+  it("keeps a durable subscription transfer classified as transferred on replay", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const facts: Array<Record<string, unknown>> = [];
+    let terminalOutcome: "completed" | "transferred" | "failed" | undefined;
+    const lifecycle = {
+      async start() { return { outcome: "reserved" as const, duplicate: false, reservation: { id: "sub-transfer" } }; },
+      async getReservationByKey() {
+        return { catalogId: "catalog-v1", planSlug: "growth", meterClass: "standard", billingMode: "byo",
+          provider: "twilio", direction: "inbound", ...(terminalOutcome === undefined ? {} : { terminalOutcome }) };
+      },
+      async finalizeByReservationKey(input: { outcome: "completed" | "transferred" | "failed" }) {
+        terminalOutcome = input.outcome;
+        return { outcome: "finalized", duplicate: false };
+      },
+      async releaseByReservationKey() { return { outcome: "released", duplicate: false }; },
+    } as unknown as TrustedSubscriptionCallLifecycleService;
+    const harness = await createReadyHarness({
+      trustedSubscriptionLifecycle: lifecycle,
+      trustedUsageProducer: { async recordTerminalCall(fact: Record<string, unknown>) {
+        facts.push(fact); return { recorded: 1, duplicates: 0, incomplete: 0 };
+      } } as unknown as TrustedBillingUsageProducer,
+      trustedPaygFinalizer: {
+        async resolveCallBillingMode() { return "subscription" as const; },
+        async getPinnedCallChargeContext() { return null; },
+      } as unknown as TrustedPaygTerminalFinalizationService,
+    });
+    await answer(harness.service, "CA-subscription-transfer", "EV-subscription-transfer");
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-subscription-transfer:telephony", stage: "active", at: "2026-08-09T10:00:00.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-subscription-transfer:telephony", stage: "handoff", at: "2026-08-09T10:01:01.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-subscription-transfer:telephony", stage: "completed", at: "2026-08-09T10:02:01.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-subscription-transfer:telephony", stage: "completed", at: "2026-08-09T10:02:02.000Z" });
+
+    expect(facts.map((fact) => fact.outcome)).toEqual(["transferred", "transferred"]);
+  });
+
+  it("keeps a durable PAYG transfer classified as transferred on replay", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const facts: Array<Record<string, unknown>> = [];
+    let terminalOutcome: "completed" | "transferred" | "failed" | undefined;
+    const harness = await createReadyHarness({
+      trustedUsageProducer: { async recordTerminalCall(fact: Record<string, unknown>) {
+        facts.push(fact); return { recorded: 1, duplicates: 0, incomplete: 0 };
+      } } as unknown as TrustedBillingUsageProducer,
+      trustedPaygFinalizer: {
+        async resolveCallBillingMode() { return "payg" as const; },
+        async getPinnedCallChargeContext() {
+          return {
+            catalogId: "catalog-v1", runtimePath: "pstn-premium-realtime",
+            ownershipMode: "byo", provider: "twilio", direction: "inbound",
+            ...(terminalOutcome === undefined ? {} : { terminalOutcome }),
+          };
+        },
+        async finalizeTerminalCall(input: { outcome: "completed" | "transferred" | "failed" }) {
+          terminalOutcome = input.outcome;
+          return { outcome: "finalized", duplicate: false };
+        },
+      } as unknown as TrustedPaygTerminalFinalizationService,
+      trustedSubscriptionLifecycle: {
+        async start() { return { outcome: "reserved" as const, duplicate: false, reservation: { id: "sub-start" } }; },
+        async getReservationByKey() { return null; },
+        async releaseByReservationKey() { return { outcome: "released", duplicate: false }; },
+      } as unknown as TrustedSubscriptionCallLifecycleService,
+    });
+    await answer(harness.service, "CA-payg-transfer", "EV-payg-transfer");
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-payg-transfer:telephony", stage: "active", at: "2026-08-09T10:00:00.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-payg-transfer:telephony", stage: "handoff", at: "2026-08-09T10:01:01.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-payg-transfer:telephony", stage: "completed", at: "2026-08-09T10:02:01.000Z" });
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-payg-transfer:telephony", stage: "completed", at: "2026-08-09T10:02:02.000Z" });
+
+    expect(facts.map((fact) => fact.outcome)).toEqual(["transferred", "transferred"]);
+  });
+
+  it.each(["missing", "wrong-tenant"] as const)(
+    "fails terminal usage closed for a %s subscription reservation",
+    async (caseName) => {
+      vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+      vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+      const getReservationByKey = vi.fn(async (tenantId: string) =>
+        caseName === "wrong-tenant" && tenantId === "other-tenant"
+          ? { planSlug: "growth", meterClass: "standard", billingMode: "byo",
+              provider: "twilio", direction: "inbound" }
+          : null);
+      const harness = await createReadyHarness({
+        trustedUsageProducer: { async recordTerminalCall() {
+          throw new Error("Usage must not be recorded without one durable reservation.");
+        } } as unknown as TrustedBillingUsageProducer,
+        trustedPaygFinalizer: { async resolveCallBillingMode() { return "subscription" as const; },
+          async getPinnedCallChargeContext() { return null; } } as unknown as TrustedPaygTerminalFinalizationService,
+        trustedSubscriptionLifecycle: { async start() {
+          return { outcome: "reserved" as const, duplicate: false, reservation: { id: "sub" } };
+        }, getReservationByKey } as unknown as TrustedSubscriptionCallLifecycleService,
+      });
+      const callSid = `CA-terminal-${caseName}`;
+      await answer(harness.service, callSid, `EV-terminal-${caseName}`);
+      await harness.service.recordPstnCallLifecycle({ organizationId,
+        callSessionId: `${callSid}:telephony`, stage: "active", at: "2026-08-09T10:00:00.000Z" });
+      await expect(harness.service.recordPstnCallLifecycle({ organizationId,
+        callSessionId: `${callSid}:telephony`, stage: "completed", at: "2026-08-09T10:01:01.000Z" }))
+        .rejects.toThrow("no single durable billing reservation");
+      expect(getReservationByKey).toHaveBeenCalledWith(organizationId, `${callSid}:telephony`);
+    },
+  );
+
+  it("fails terminal finalization closed when durable billing recovery is unavailable", async () => {
+    vi.stubEnv("PAYG_MAXIMUM_CALL_SECONDS", "300");
+    vi.stubEnv("PAYG_RESERVATION_TTL_SECONDS", "360");
+    const harness = await createReadyHarness({
+      trustedPaygFinalizer: { async resolveCallBillingMode() { return "subscription" as const; },
+        async getPinnedCallChargeContext() { return null; } } as unknown as TrustedPaygTerminalFinalizationService,
+    });
+    await answer(harness.service, "CA-terminal-no-producer", "EV-terminal-no-producer");
+    await harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-terminal-no-producer:telephony", stage: "active", at: "2026-08-09T10:00:00.000Z" });
+    await expect(harness.service.recordPstnCallLifecycle({ organizationId,
+      callSessionId: "CA-terminal-no-producer:telephony", stage: "completed", at: "2026-08-09T10:01:01.000Z" }))
+      .rejects.toThrow("Trusted terminal billing recovery is unavailable");
+  });
+
   it("does not discard a legal lifecycle transition after three CAS conflicts", async () => {
     const harness = await createReadyHarness();
     await answer(
@@ -1665,23 +2716,69 @@ async function createReadyHarness(
     admissionCoordinator?: PstnAdmissionCoordinator;
     blockRoutingOnHealthFailure?: boolean;
     failedProviderHealth?: boolean;
+    billingService?: BillingService;
+    trustedUsageProducer?: TrustedBillingUsageProducer;
+    trustedPaygFinalizer?: TrustedPaygTerminalFinalizationService;
+    trustedPaygCallStart?: TrustedPaygTelephonyCallStartService;
+    billingPaygEligibility?: BillingPaygEligibilityService;
+      trustedPaygFunding?: TrustedPaygActiveCallFundingService;
+    trustedSubscriptionLifecycle?: TrustedSubscriptionCallLifecycleService;
+    tenantStatusRepository?: { getStatus(tenantId: string): Promise<unknown> };
+    ownershipMode?: "byo_provider_account" | "platform_managed";
+    runtimeProfile?: "cost-optimized" | "premium-realtime";
+    commercialModeResolver?: TrustedCallCommercialModeResolver;
+    trustedTerminalRecovery?: TrustedTerminalBillingRecoveryService;
   } = {},
 ) {
   const stateRepository = new MemoryTelephonyStateRepository();
   const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
   const admissionCoordinator =
     input.admissionCoordinator ?? createAdmissionCoordinator();
+  const billingService = input.billingService ?? createActiveBillingService();
+  const trustedSubscriptionLifecycle = input.trustedSubscriptionLifecycle ?? {
+    async start() { return { outcome: "reserved" as const, duplicate: false, reservation: { id: "subscription-test" } }; },
+    async releaseByReservationKey() { return { outcome: "released" as const, duplicate: false }; },
+    async getReservationByKey() { return { planSlug: "growth", meterClass: "standard", billingMode: "byo",
+      provider: "twilio", direction: "inbound" }; },
+    async finalizeByReservationKey() { return { outcome: "finalized" as const, duplicate: false }; },
+  } as unknown as TrustedSubscriptionCallLifecycleService;
+  const trustedTerminalRecovery = input.trustedTerminalRecovery
+    ?? (input.trustedUsageProducer === undefined ? undefined : {
+      async submit(request: Parameters<TrustedTerminalBillingRecoveryService["submit"]>[0]) {
+        const settlement = request.settlement.commercialMode === "payg"
+          ? await input.trustedPaygFinalizer?.finalizeTerminalCall(request.settlement.fact)
+          : await trustedSubscriptionLifecycle.finalizeByReservationKey(request.settlement.fact);
+        const paygAppliedMinor = settlement !== undefined && "paygAppliedMinor" in settlement
+          ? Number(settlement.paygAppliedMinor)
+          : 0;
+        await input.trustedUsageProducer!.recordTerminalCall({
+          ...request.usageFact,
+          ...(paygAppliedMinor === 0 ? {} : { paygAppliedMinor }),
+        });
+        return { status: "completed" };
+      },
+    } as unknown as TrustedTerminalBillingRecoveryService);
   let service = createService(
     stateRepository,
     incrementalRepository,
     input.auditLogService,
     admissionCoordinator,
+    billingService,
+    input.trustedUsageProducer,
+    input.trustedPaygFinalizer,
+    input.trustedPaygCallStart,
+    input.billingPaygEligibility,
+    input.trustedPaygFunding,
+    trustedSubscriptionLifecycle,
+    input.tenantStatusRepository as never,
+    input.commercialModeResolver,
+    trustedTerminalRecovery,
   );
   const connection = await service.createConnection({
     organizationId,
     actorUserId: "operator-1",
     label: "Twilio",
-    ownershipMode: "byo_provider_account",
+    ownershipMode: input.ownershipMode ?? "byo_provider_account",
     provider: "twilio",
     region: "us-east-1",
     blockRoutingOnHealthFailure:
@@ -1692,10 +2789,16 @@ async function createReadyHarness(
   incrementalRepository.loadConnections(organizationId, [
     connection.connection.id,
   ]);
-  await service.importTwilioNumbers({
-    organizationId,
-    connectionId: connection.connection.id,
-  });
+  if (input.ownershipMode === "platform_managed") {
+    await service.registerPhoneNumber({ organizationId,
+      connectionId: connection.connection.id, phoneNumber: "+14155557890",
+      friendlyName: "Support", externalNumberId: "PN78901001" });
+  } else {
+    await service.importTwilioNumbers({
+      organizationId,
+      connectionId: connection.connection.id,
+    });
+  }
   const phoneNumber = (await service.getState(organizationId)).phoneNumbers[0]!;
   await service.assignNumberRoute({
     organizationId,
@@ -1703,7 +2806,7 @@ async function createReadyHarness(
     publishedVersionId: "workflow-v1",
     workflowLabel: "Support",
     workspaceId: "workspace-1",
-    runtimeProfile: "cost-optimized",
+    runtimeProfile: input.runtimeProfile ?? "cost-optimized",
   });
   incrementalRepository.loadPhoneNumberProjections(
     organizationId,
@@ -1716,7 +2819,7 @@ async function createReadyHarness(
       publishedVersionId: "workflow-v1",
       workflowLabel: "Support",
       workspaceId: "workspace-1",
-      runtimeProfile: "cost-optimized",
+      runtimeProfile: input.runtimeProfile ?? "cost-optimized",
       allowedCallerNumbers: ["+233201110001"],
       now: "2026-07-23T10:00:00.000Z",
       expiresAt: "2099-07-23T10:30:00.000Z",
@@ -1734,6 +2837,25 @@ async function createReadyHarness(
       },
     });
   }
+  if (input.ownershipMode === "platform_managed") {
+    stateRepository.setConnectionExternalReference(connection.connection.id, accountSid);
+    service = createService(
+      stateRepository,
+      incrementalRepository,
+      input.auditLogService,
+      admissionCoordinator,
+      billingService,
+      input.trustedUsageProducer,
+      input.trustedPaygFinalizer,
+      input.trustedPaygCallStart,
+      input.billingPaygEligibility,
+      input.trustedPaygFunding,
+      trustedSubscriptionLifecycle,
+      input.tenantStatusRepository as never,
+      input.commercialModeResolver,
+      trustedTerminalRecovery,
+    );
+  }
   if (input.failedProviderHealth === true) {
     stateRepository.setConnectionHealth(connection.connection.id, "failed");
     incrementalRepository.setConnectionAdmissionPosture(
@@ -1750,9 +2872,54 @@ async function createReadyHarness(
       incrementalRepository,
       input.auditLogService,
       admissionCoordinator,
+      billingService,
     );
   }
   return { service, stateRepository, incrementalRepository };
+}
+
+function createActiveBillingService() {
+  return {
+    async getBillingState() {
+      return {
+        plan: { slug: "growth" },
+        subscription: { status: "active" },
+        telephonyMinuteAggregates: [],
+        usage: [],
+        entitlements: [],
+        budgetPolicy: {
+          monthlyBudgetUsd: 0,
+          callMinuteLimit: 0,
+          premiumRuntimeMinuteLimit: 0,
+          overBudgetBehavior: "warn",
+        },
+      };
+    },
+    async getRuntimeAccessPosture() {
+      return {
+        subscriptionStatus: "active",
+        accessAllowed: true,
+        reason: "subscription_active",
+      };
+    },
+  } as unknown as BillingService;
+}
+
+function createBillingStateService(input: {
+  plan: { slug: string } | null;
+  status: string | (() => string);
+}) {
+  return {
+    async getBillingState() {
+      return {
+        plan: input.plan,
+        subscription: { status: typeof input.status === "function" ? input.status() : input.status },
+        telephonyMinuteAggregates: [], usage: [], entitlements: [],
+        budgetPolicy: { monthlyBudgetUsd: 0, callMinuteLimit: 0,
+          premiumRuntimeMinuteLimit: 0, overBudgetBehavior: "warn" },
+      };
+    },
+  } as unknown as BillingService;
 }
 
 function createService(
@@ -1760,7 +2927,24 @@ function createService(
   incrementalRepository: TelephonyIncrementalRepository,
   auditLogService?: AuditLogService,
   admissionCoordinator = createAdmissionCoordinator(),
+  billingService?: BillingService,
+  trustedUsageProducer?: TrustedBillingUsageProducer,
+  trustedPaygFinalizer?: TrustedPaygTerminalFinalizationService,
+  trustedPaygCallStart?: TrustedPaygTelephonyCallStartService,
+  billingPaygEligibility?: BillingPaygEligibilityService,
+  trustedPaygFunding?: TrustedPaygActiveCallFundingService,
+  trustedSubscriptionLifecycle?: TrustedSubscriptionCallLifecycleService,
+  tenantStatusRepository: { getStatus(tenantId: string): Promise<unknown> } = {
+    async getStatus() { return { outcome: "found", status: "active" }; },
+  },
+  commercialModeResolver?: TrustedCallCommercialModeResolver,
+  trustedTerminalRecovery?: TrustedTerminalBillingRecoveryService,
 ) {
+  const activeCallFunding = trustedPaygFunding ?? {
+    async evaluateNextSafeSegment() {
+      return { billingAccessMode: "subscription" as const };
+    },
+  } as unknown as TrustedPaygActiveCallFundingService;
   return new TelephonyService(
     stateRepository,
     new TelephonySecretVault({
@@ -1773,8 +2957,30 @@ function createService(
     admissionCoordinator,
     createUnusedPremiumSnapshotResolver(),
     auditLogService,
+    billingService,
     undefined,
     undefined,
+    trustedUsageProducer,
+    trustedPaygCallStart,
+    trustedPaygFinalizer,
+    billingPaygEligibility,
+    activeCallFunding,
+    trustedSubscriptionLifecycle,
+    tenantStatusRepository as never,
+    commercialModeResolver ?? ({ async resolve(tenantId: string) {
+      const state = await billingService?.getBillingState(tenantId);
+      if (state?.plan === null && state.subscription.status === "none") {
+        return { mode: "payg" as const, available: true, availablePaygMinor: 500 };
+      }
+      if (state?.plan !== null && (state?.subscription.status === "active" || state?.subscription.status === "trialing")) {
+        return { mode: "subscription" as const, subscriptionId: "subscription-test",
+          catalogId: "catalog-test", planSlug: state.plan.slug, premiumAllowed: true,
+          available: true, availableIncludedSeconds: 300,
+          availablePaygMinor: 0, availableOverageMinor: 0 };
+      }
+      return { mode: "unavailable" as const };
+    } } as unknown as TrustedCallCommercialModeResolver),
+    trustedTerminalRecovery,
   );
 }
 
@@ -1818,7 +3024,8 @@ function createAdmissionCoordinator(
   return coordinator;
 }
 
-async function answer(service: TelephonyService, callSid: string, eventSid: string) {
+async function answer(service: TelephonyService, callSid: string, eventSid: string,
+  signatureSecret = authToken) {
   const payload = {
     AccountSid: accountSid,
     CallSid: callSid,
@@ -1831,7 +3038,7 @@ async function answer(service: TelephonyService, callSid: string, eventSid: stri
     signature: computeTwilioWebhookSignature({
       url: webhookUrl,
       parameters: payload,
-      authToken,
+      authToken: signatureSecret,
     }),
     payload,
   });
@@ -1907,6 +3114,17 @@ class MemoryTelephonyStateRepository implements TelephonyStateRepository {
             status: "degraded",
             healthStatus,
           }
+        : connection,
+    );
+  }
+
+  setConnectionExternalReference(connectionId: string, externalReference: string) {
+    if (this.record === null) {
+      throw new Error("Expected persisted telephony state.");
+    }
+    this.record.connections = this.record.connections.map((connection) =>
+      connection.id === connectionId
+        ? { ...connection, externalReference }
         : connection,
     );
   }

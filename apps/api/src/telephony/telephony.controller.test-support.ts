@@ -7,7 +7,10 @@ import { join } from "node:path";
 import request from "supertest";
 import { type AvailableTwilioPhoneNumber } from "@zara/core";
 import { BILLING_POLAR_CLIENT, type BillingPolarClient } from "../billing/polar-billing.client.js";
+import { ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE } from "../billing/billing.controller.js";
 import { BILLING_STATE_REPOSITORY, FileBillingStateRepository } from "../billing/billing-state.repository.js";
+import { TrustedBillingUsageProducer } from "../billing/trusted-billing-usage-producer.js";
+import { BillingService } from "../billing/billing.service.js";
 import { ComplianceModule } from "../compliance/compliance.module.js";
 import { AUDIT_LOG_REPOSITORY, FileAuditLogRepository } from "../compliance/audit-log.repository.js";
 import { configureCors } from "../config/cors.js";
@@ -20,17 +23,27 @@ import { PSTN_PREMIUM_WORKER_AVAILABILITY, type PstnPremiumWorkerAvailability } 
 import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models.js";
 import { TWILIO_NUMBER_INVENTORY_PROVIDER, type TwilioNumberInventoryProvider } from "./twilio-number-inventory.provider.js";
 import { TWILIO_NUMBER_ROUTING_PROVIDER, type TwilioCallDiagnosticDetail, type TwilioIncomingNumberRouteConfiguration, type TwilioMonitorAlertDiagnostic, type TwilioNumberRoutingProvider, type TwilioRecentCallDiagnostic } from "./twilio-number-routing.provider.js";
+import { TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-call-start.service.js";
+import { BillingPaygEligibilityService } from "../billing/billing-payg-eligibility.service.js";
+import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository.js";
+import { TrustedCallCommercialModeResolver } from "../billing/trusted-call-commercial-mode-resolver.js";
 
 export async function createTestingApp(input: {
   installTenantAuth?: boolean | undefined;
+  skipTestBillingPlan?: boolean | undefined;
   twilioRouting?: TwilioNumberRoutingProvider | undefined;
   workerAvailability?: PstnPremiumWorkerAvailability | undefined;
+  paygCallStart?: Pick<TrustedPaygTelephonyCallStartService, "start"> | undefined;
+  paygEligibility?: Pick<BillingPaygEligibilityService, "getEligibility"> | undefined;
+  billingService?: Pick<BillingService, "getBillingState"> | undefined;
+  tenantStatusRepository?: Pick<PostgresTenantStatusRepository, "getStatus"> | undefined;
+  commercialModeResolver?: Pick<TrustedCallCommercialModeResolver, "resolve"> | undefined;
 } = {}) {
   const incrementalRepository = new InMemoryTelephonyIncrementalRepository();
   const stateRepository = new FileTelephonyStateRepository(
     join(tmpdir(), "zara-telephony-tests", randomUUID()),
   );
-  const moduleRef = await Test.createTestingModule({
+  const moduleBuilder = Test.createTestingModule({
     imports: [ComplianceModule],
   })
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
@@ -99,7 +112,32 @@ export async function createTestingApp(input: {
     })
     .overrideProvider(BILLING_POLAR_CLIENT)
     .useValue(createPolarClient())
-    .compile();
+    .overrideProvider(ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE)
+    .useValue(true)
+    .overrideProvider(TrustedBillingUsageProducer)
+    .useValue({
+      async recordTerminalCall() {},
+      async recordRuntimeSession() {},
+    })
+    .overrideProvider(TrustedPaygTelephonyCallStartService)
+    .useValue(input.paygCallStart)
+    .overrideProvider(BillingPaygEligibilityService)
+    .useValue(input.paygEligibility)
+    .overrideProvider(PostgresTenantStatusRepository)
+    .useValue(input.tenantStatusRepository ?? {
+      async getStatus() { return { outcome: "found" as const, status: "active" as const }; },
+    })
+    .overrideProvider(TrustedCallCommercialModeResolver)
+    .useValue(input.commercialModeResolver ?? {
+      async resolve() {
+        return { mode: "subscription" as const, subscriptionId: "test-subscription",
+          catalogId: "test-catalog", planSlug: "growth", premiumAllowed: true };
+      },
+    });
+  if (input.billingService !== undefined) {
+    moduleBuilder.overrideProvider(BillingService).useValue(input.billingService);
+  }
+  const moduleRef = await moduleBuilder.compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
   configureCors(app);
@@ -107,6 +145,9 @@ export async function createTestingApp(input: {
     installTestTenantAuth(app);
   }
   await app.init();
+  if (input.installTenantAuth !== false && input.skipTestBillingPlan !== true) {
+    await ensureTestBillingPlan(app, "tenant-west-africa");
+  }
 
   return app;
 }
@@ -332,6 +373,14 @@ export function createPolarClient(): BillingPolarClient {
         providerEventId: "polar_usage_event_1",
       };
     },
+    async getCustomerState(input) {
+      return {
+        customerId: `polar-customer:${input.externalCustomerId}`,
+        externalCustomerId: input.externalCustomerId,
+        activeSubscriptions: [],
+        grantedBenefits: [],
+      };
+    },
   };
 }
 
@@ -341,9 +390,13 @@ export async function activateRouteWithOverride(input: {
   phoneNumberId: string;
   actorUserId?: string | undefined;
   now?: string | undefined;
+  skipBillingPlan?: boolean | undefined;
 }) {
   const organizationId = input.organizationId ?? "tenant-west-africa";
   const actorUserId = input.actorUserId ?? "user-ops-lead";
+  if (input.skipBillingPlan !== true) {
+    await ensureTestBillingPlan(input.app, organizationId, actorUserId);
+  }
   const response = await withTestTenantAuth(
     request(input.app.getHttpServer())
       .post(`/organizations/${organizationId}/telephony/numbers/${input.phoneNumberId}/live-route/activate`),
@@ -364,6 +417,69 @@ export async function activateRouteWithOverride(input: {
   });
 
   return response;
+}
+
+export async function ensureTestBillingPlan(
+  app: INestApplication,
+  organizationId: string,
+  actorUserId = "user-ops-lead",
+) {
+  const stateResponse = await withTestTenantAuth(
+    request(app.getHttpServer()).get(`/organizations/${organizationId}/billing/state`),
+    { organizationId, userId: actorUserId },
+  );
+  expect(stateResponse.status).toBe(200);
+  if (stateResponse.body.billing.plan !== null) {
+    return;
+  }
+
+  const checkoutResponse = await withTestTenantAuth(
+    request(app.getHttpServer()).post(`/organizations/${organizationId}/billing/checkout`),
+    { organizationId, userId: actorUserId },
+  ).send({
+    actorUserId,
+    actorRole: "admin",
+    planSlug: "growth",
+    successUrl: "http://127.0.0.1:4173/billing/success",
+  });
+  expect(checkoutResponse.status).toBe(201);
+
+  const webhookResponse = await request(app.getHttpServer())
+    .post("/billing/polar/webhooks")
+    .set("polar-webhook-id", `test-subscription-active-${organizationId}`)
+    .set("polar-webhook-signature", "test-signature")
+    .send({
+      type: "customer.state_changed",
+      data: {
+        customer: {
+          id: `polar-customer-${organizationId}`,
+          externalId: organizationId,
+        },
+        activeSubscriptions: [
+          {
+            id: `polar-subscription-${organizationId}`,
+            productId: "polar_product_growth",
+            status: "active",
+            currentPeriodEnd: "2026-09-09T00:00:00.000Z",
+            cancelAtPeriodEnd: false,
+          },
+        ],
+        grantedBenefits: [
+          {
+            id: "benefit-premium-runtime",
+            type: "custom",
+            properties: { key: "premium-realtime" },
+          },
+        ],
+      },
+  });
+  expect(webhookResponse.status).toBe(201);
+
+  const activeStateResponse = await withTestTenantAuth(
+    request(app.getHttpServer()).get(`/organizations/${organizationId}/billing/state`),
+    { organizationId, userId: actorUserId },
+  );
+  expect(activeStateResponse.body.billing.subscription.status).toBe("active");
 }
 
 export function resolveActivationBlocks(body: {

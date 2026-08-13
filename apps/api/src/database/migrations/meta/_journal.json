@@ -113,6 +113,153 @@
       "when": 1785091867581,
       "tag": "0015_telephony_premium_owner_lease",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786289592139,
+      "tag": "0016_panoramic_hobgoblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786324187180,
+      "tag": "0017_sparkling_blackheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786396518824,
+      "tag": "0018_dear_pretty_boy",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786397052784,
+      "tag": "0019_curly_ego",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786397756508,
+      "tag": "0020_secret_dreadnoughts",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786400184946,
+      "tag": "0021_ambiguous_trauma",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786454295092,
+      "tag": "0022_billing_reservation_catalog_pin",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786458976092,
+      "tag": "0023_subscription_reservations",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786463762375,
+      "tag": "0024_billing_reservation_charge_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786471313620,
+      "tag": "0025_subscription_payg_pins",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786480009496,
+      "tag": "0026_terminal_billing_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786489870423,
+      "tag": "0027_lowly_maginty",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1786491262197,
+      "tag": "0028_living_the_enforcers",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786492190814,
+      "tag": "0029_short_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1786493418249,
+      "tag": "0030_billing_release_evidence_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786494011463,
+      "tag": "0031_billing_adjustment_evidence_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786552126538,
+      "tag": "0032_provider_evidence_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786619082391,
+      "tag": "0033_provider_billing_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786619857937,
+      "tag": "0034_provider_scope_tenant_isolation",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786620519866,
+      "tag": "0035_provider_scope_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786624014941,
+      "tag": "0036_billing_cycles_utc_days",
+      "breakpoints": true
     }
   ]
 }

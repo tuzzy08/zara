@@ -3,6 +3,17 @@ import { describe, expect, it } from "vitest";
 import { createDefaultSandboxPublishedWorkflow } from "./defaultSandboxWorkflow";
 
 describe("default sandbox workflow", () => {
+  it("does not seed an operational monthly budget without production billing context", () => {
+    const workflow = createDefaultSandboxPublishedWorkflow("workspace-customer-success");
+
+    expect(workflow.manifestPreview.budget).toEqual({
+      monthlyCapUsd: 0,
+      currentSpendUsd: 0,
+      projectedCostPerMinuteUsd: 0,
+      blockOnLimit: false,
+    });
+  });
+
   it("uses a concrete agent route policy instead of seeded legacy handoff nodes", () => {
     const workflow = createDefaultSandboxPublishedWorkflow("workspace-customer-success");
 

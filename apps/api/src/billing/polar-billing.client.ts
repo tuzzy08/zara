@@ -24,6 +24,27 @@ export interface BillingPolarUsageInput {
   metadata?: Record<string, string | number | boolean> | undefined;
 }
 
+export interface BillingPolarCustomerState {
+  customerId: string;
+  externalCustomerId: string;
+  activeSubscriptions: Array<{
+    id: string;
+    productId: string;
+    status: string;
+    currentPeriodEnd: string;
+    cancelAtPeriodEnd: boolean;
+    createdAt: string;
+    modifiedAt: string;
+  }>;
+  grantedBenefits: Array<{
+    id: string;
+    benefitId: string;
+    benefitType: string;
+    createdAt: string;
+    modifiedAt: string;
+  }>;
+}
+
 export interface BillingPolarClient {
   createdCheckouts: BillingPolarCheckoutInput[];
   createdCustomerSessions: BillingPolarPortalInput[];
@@ -38,6 +59,7 @@ export interface BillingPolarClient {
   ingestUsageEvent: (input: BillingPolarUsageInput) => Promise<{
     providerEventId: string;
   }>;
+  getCustomerState: (input: { externalCustomerId: string }) => Promise<BillingPolarCustomerState>;
 }
 
 export interface PolarBillingClientConfig {
@@ -109,6 +131,89 @@ export class PolarSdkBillingClient implements BillingPolarClient {
     return {
       providerEventId: input.externalId,
     };
+  }
+
+  async getCustomerState(input: { externalCustomerId: string }) {
+    const state = await this.client.customers.getStateExternal({
+      externalId: input.externalCustomerId,
+    });
+    return {
+      customerId: state.id,
+      externalCustomerId: state.externalId ?? input.externalCustomerId,
+      activeSubscriptions: state.activeSubscriptions.map((subscription) => ({
+        id: subscription.id,
+        productId: subscription.productId,
+        status: subscription.status,
+        currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        createdAt: subscription.createdAt.toISOString(),
+        modifiedAt: (subscription.modifiedAt ?? subscription.createdAt).toISOString(),
+      })),
+      grantedBenefits: state.grantedBenefits.map((benefit) => ({
+        id: benefit.id,
+        benefitId: benefit.benefitId,
+        benefitType: benefit.benefitType,
+        createdAt: benefit.createdAt.toISOString(),
+        modifiedAt: (benefit.modifiedAt ?? benefit.createdAt).toISOString(),
+      })),
+    };
+  }
+
+  async getMeterQuantity(input: {
+    meterId: string;
+    externalCustomerId: string;
+    startTimestamp: string;
+    endTimestamp: string;
+  }) {
+    const quantities = await this.client.meters.quantities({
+      id: input.meterId,
+      startTimestamp: new Date(input.startTimestamp),
+      endTimestamp: new Date(input.endTimestamp),
+      interval: "day",
+      timezone: "UTC",
+      externalCustomerId: input.externalCustomerId,
+    });
+    return { total: quantities.total };
+  }
+
+  async getCustomerMeterBalance(input: {
+    externalCustomerId: string;
+    meterId: string;
+  }) {
+    const state = await this.client.customers.getStateExternal({
+      externalId: input.externalCustomerId,
+    });
+    const meter = state.activeMeters.find((candidate) => candidate.meterId === input.meterId);
+    return meter === undefined ? null : { balance: meter.balance };
+  }
+
+  async listCycleOrders(input: {
+    organizationId: string;
+    cycleStartsAt: string;
+    cycleEndsAt: string;
+  }) {
+    const iterator = await this.client.orders.list({
+      externalCustomerId: input.organizationId,
+      limit: 100,
+    });
+    const orders = [];
+    for await (const page of iterator) {
+      for (const order of page.result.items) {
+        const occurredAt = order.modifiedAt ?? order.createdAt;
+        if (
+          occurredAt >= new Date(input.cycleStartsAt)
+          && occurredAt < new Date(input.cycleEndsAt)
+        ) {
+          orders.push({
+            id: order.id,
+            totalAmount: order.totalAmount,
+            currency: order.currency,
+            createdAt: order.createdAt.toISOString(),
+          });
+        }
+      }
+    }
+    return orders;
   }
 }
 

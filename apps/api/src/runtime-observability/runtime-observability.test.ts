@@ -394,6 +394,10 @@ describe("runtime observability", () => {
         pstnEvent("barge_in.clear", "2026-05-27T10:00:01.700Z", {
           reason: "caller_speech",
         }),
+        pstnEvent("premium.policy_stop_failed", "2026-05-27T10:00:07.500Z", {
+          reason: "billing_policy_terminalization_failed",
+          code: "billing_policy_terminalization_failed",
+        }),
         pstnEvent("call.ended", "2026-05-27T10:00:08.000Z", {
           stopReason: "caller_hangup",
           successfulPhoneTest: true,
@@ -412,6 +416,7 @@ describe("runtime observability", () => {
       "pstn.tts.first_byte",
       "pstn.media.first_outbound_frame",
       "pstn.barge_in.clear",
+      "pstn.premium.policy_stop_failed",
       "pstn.call.ended",
     ]);
     expect(exportPlan.spans[0]?.attributes).toMatchObject({
@@ -605,6 +610,10 @@ describe("runtime observability", () => {
       playbackClearCount: 1,
       handoffDurationMs: 300,
       cleanupCount: 1,
+    });
+    expect(exportPlan.spans.find((span) => span.name === "pstn.premium.policy_stop_failed")?.attributes).toMatchObject({
+      "zara.reason": "billing_policy_terminalization_failed",
+      "zara.code": "billing_policy_terminalization_failed",
     });
     expect(exportPlan.spans.map((span) => span.name)).toEqual(expect.arrayContaining([
       "pstn.premium.readiness", "pstn.premium.pressure", "pstn.premium.playback",

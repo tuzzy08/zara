@@ -19,12 +19,7 @@ import { fetchTelephonyState, type TelephonyStateResponse } from "./telephonyApi
 import { DashboardMetricCard } from "./DashboardMetricCard";
 import { DashboardSignal } from "./DashboardSignal";
 import { loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
-
-const dashboardUsdFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2,
-});
+import { formatMoneyMinor, formatUsageCost } from "./tenantPageFormatting";
 
 export function DashboardScreen({
   organizationId,
@@ -73,9 +68,14 @@ export function DashboardScreen({
   const pendingMemoryDrafts = summary.memory?.drafts.filter((draft) => draft.status === "draft").length ?? 0;
   const activeKnowledge = summary.memory?.knowledge.filter((record) => record.status === "active").length ?? 0;
   const latestPublishedWorkflow = publishedWorkflows.at(-1);
-  const budgetLimit = summary.billing?.plan.budgetLimitUsd ?? 0;
-  const budgetUsed = summary.billing?.plan.budgetUsedUsd ?? 0;
-  const budgetPercent = budgetLimit > 0 ? Math.round((budgetUsed / budgetLimit) * 100) : 0;
+  const budgetLimit = summary.billing?.budgetPolicy?.monthlyBudgetMinor;
+  const budgetUsed = summary.billing?.usage.reduce(
+    (total, usage) => usage.disposition === "posted"
+      ? total + (usage.costMinor ?? (usage.costUsd === null ? 0 : Math.round(usage.costUsd * 100)))
+      : total,
+    0,
+  ) ?? 0;
+  const budgetPercent = budgetLimit !== undefined && budgetLimit > 0 ? Math.round((budgetUsed / budgetLimit) * 100) : null;
   const primaryUsage = summary.billing?.usage.slice(0, 3) ?? [];
   const latestDispatch = summary.telephony?.dispatches[0];
 
@@ -144,8 +144,18 @@ export function DashboardScreen({
         <DashboardMetricCard
           icon={CreditCard}
           label="Budget used"
-          value={summary.billing === undefined ? "--" : formatDashboardUsd(budgetUsed)}
-          detail={summary.billing === undefined ? "Billing state unavailable" : `${budgetPercent}% of ${formatDashboardUsd(budgetLimit)} workspace budget`}
+          value={summary.billing === undefined
+            ? "--"
+            : summary.billing.plan === null
+              ? formatMoneyMinor(summary.billing.payg.remainingCreditMinor, summary.billing.currency)
+              : formatMoneyMinor(budgetUsed, summary.billing.currency)}
+          detail={summary.billing === undefined
+            ? "Billing state unavailable"
+            : summary.billing.plan === null
+              ? `${formatMoneyMinor(summary.billing.payg.reservedCreditMinor, summary.billing.currency)} PAYG credit reserved`
+              : budgetPercent === null || budgetLimit === undefined
+                ? "No billing limit is set"
+                : `${budgetPercent}% of ${formatMoneyMinor(budgetLimit, summary.billing.currency)} billing limit`}
         />
         <DashboardMetricCard
           icon={MemoryStick}
@@ -220,15 +230,17 @@ export function DashboardScreen({
           <div className="dashboard-panel-body">
             <DashboardSignal
               label="Plan"
-              value={summary.billing?.plan.name ?? "Unavailable"}
-              detail={summary.billing === undefined ? undefined : formatDashboardStatus(summary.billing.plan.status)}
+              value={summary.billing?.plan?.name ?? "No billing plan"}
+              detail={summary.billing?.plan === null || summary.billing === undefined
+                ? undefined
+                : formatDashboardStatus(summary.billing.plan.status)}
             />
             {primaryUsage.map((usage) => (
               <DashboardSignal
                 key={usage.id}
                 label={usage.label}
                 value={`${usage.used.toLocaleString()} ${usage.unit}`}
-                detail={`${formatDashboardUsd(usage.costUsd)} metered cost`}
+                detail={formatUsageCost(usage, summary.billing?.currency ?? "usd")}
               />
             ))}
           </div>
@@ -275,10 +287,6 @@ function isAuthFailure(reason: unknown) {
   }
 
   return reason instanceof Error && /auth|session|sign in/i.test(reason.message);
-}
-
-function formatDashboardUsd(value: number) {
-  return dashboardUsdFormatter.format(value);
 }
 
 function formatDashboardStatus(value: string) {

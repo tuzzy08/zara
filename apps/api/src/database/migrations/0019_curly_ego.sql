@@ -1,0 +1,2 @@
+ALTER TABLE "billing_charge_reservations" DROP CONSTRAINT "billing_charge_reservations_status_check";--> statement-breakpoint
+ALTER TABLE "billing_charge_reservations" ADD CONSTRAINT "billing_charge_reservations_status_check" CHECK ("billing_charge_reservations"."status" in ('active', 'expired'));

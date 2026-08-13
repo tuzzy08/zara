@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { BillingRuntimeFundingModule } from "../billing/billing-runtime-funding.module";
 import { PostgresPoolService } from "../database/postgres-pool.service";
 import { PremiumRealtimeConversationPolicyModule } from "../premium-realtime-policy/premium-realtime-conversation-policy.module";
 import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
@@ -88,6 +89,7 @@ const PSTN_REALTIME_WORKER_PROCESS_METRICS = Symbol(
 
 @Module({
   imports: [
+    BillingRuntimeFundingModule,
     PremiumRealtimeRuntimeModule,
     PstnAdmissionModule,
     PremiumRealtimeConversationPolicyModule,
@@ -95,7 +97,6 @@ const PSTN_REALTIME_WORKER_PROCESS_METRICS = Symbol(
   ],
   controllers: [PstnRealtimeWorkerHealthController],
   providers: [
-    PostgresPoolService,
     TelephonyService,
     PremiumPstnDispatchSnapshotResolver,
     PstnPremiumCallExecution,

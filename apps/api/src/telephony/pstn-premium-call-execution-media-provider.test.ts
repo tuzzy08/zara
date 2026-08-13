@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
 import { PstnPremiumCallExecution, type PstnPremiumCallOutput } from "./pstn-premium-call-execution";
 import { createPremiumDispatchSnapshot, createPremiumManifest, createPremiumCallRuntimeContext, createMinimalExecutionHarness, premiumInboundFrame, openAiPstnProviderConfig, waitFor, deferred } from "./pstn-premium-call-execution.test-support";
@@ -63,6 +63,9 @@ describe("PstnPremiumCallExecution media-provider", () => {
               outcome: "applied" as const,
               context: createPremiumCallRuntimeContext(),
             };
+          },
+          async applyCallRuntimePolicy() {
+            return { session: { status: "active" as const } };
           },
         } as never,
         {
@@ -291,6 +294,7 @@ describe("PstnPremiumCallExecution media-provider", () => {
           close() {},
         },
       });
+
       await execution.appendInboundFrame({
         callSessionId: "CA-premium:telephony",
         frame: {
@@ -326,6 +330,142 @@ describe("PstnPremiumCallExecution media-provider", () => {
         },
       });
     });
+
+  it("applies the durable call policy at the Gemini completed-turn boundary", async () => {
+    const policyInputs: Array<{ organizationId: string; callSessionId: string }> = [];
+    const harness = createMinimalExecutionHarness("gemini-live", {
+      async applyRuntimePolicy(input) {
+        policyInputs.push(input);
+      },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    harness.emitProviderMessage(JSON.stringify({
+      serverContent: { turnComplete: true },
+    }));
+    await waitFor(() => policyInputs.length === 1);
+
+    expect(policyInputs).toEqual([{
+      organizationId: "tenant-west-africa",
+      callSessionId: "CA-premium:telephony",
+    }]);
+  });
+
+  it("applies the durable call policy at the OpenAI completed-audio boundary", async () => {
+    const policyInputs: Array<{ organizationId: string; callSessionId: string }> = [];
+    const harness = createMinimalExecutionHarness("openai-realtime", {
+      async applyRuntimePolicy(input) {
+        policyInputs.push(input);
+      },
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+
+    harness.emitProviderMessage(JSON.stringify({
+      type: "response.created",
+      response: { id: "response-policy", status: "in_progress" },
+    }));
+    harness.emitProviderMessage(JSON.stringify({
+      type: "response.output_audio.done",
+      response_id: "response-policy",
+    }));
+    await waitFor(() => policyInputs.length === 1);
+
+    expect(policyInputs).toEqual([{
+      organizationId: "tenant-west-africa",
+      callSessionId: "CA-premium:telephony",
+    }]);
+  });
+
+  it.each(["closeout-pending", "terminated"] as const)(
+    "stops the premium execution when the completed-turn policy is %s",
+    async (status) => {
+      const providerCloses: string[] = [];
+      const terminatedSessions: string[] = [];
+      const harness = createMinimalExecutionHarness("gemini-live", {
+        async applyRuntimePolicy() {
+          return { session: { status } };
+        },
+        onProviderClose: (reason) => providerCloses.push(reason),
+        onTerminate: (sessionId) => terminatedSessions.push(sessionId),
+      });
+      await harness.execution.start({
+        organizationId: "tenant-west-africa",
+        dispatchId: "dispatch-premium-1",
+        callSessionId: "CA-premium:telephony",
+        streamSid: "MZ-premium-1",
+        ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+        output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+      });
+
+      harness.emitProviderMessage(JSON.stringify({
+        serverContent: { turnComplete: true },
+      }));
+      await waitFor(() => terminatedSessions.length === 1);
+
+      await expect(harness.execution.appendInboundFrame({
+        callSessionId: "CA-premium:telephony",
+        frame: premiumInboundFrame(1),
+      })).resolves.toEqual({ accepted: false, reason: "terminal" });
+      expect(providerCloses).toEqual([
+        status === "terminated"
+          ? "runtime_policy_terminated"
+          : "billing_policy_closeout",
+      ]);
+      expect(terminatedSessions).toEqual(["premium-session-minimal"]);
+    },
+  );
+
+  it("fails the execution and records a policy-stop failure when completed-turn closeout cannot stop", async () => {
+    const observed: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const harness = createMinimalExecutionHarness("gemini-live", {
+      async applyRuntimePolicy() {
+        return { session: { status: "closeout-pending" } };
+      },
+      onObservedEvent: (event) => observed.push(event),
+    });
+    await harness.execution.start({
+      organizationId: "tenant-west-africa",
+      dispatchId: "dispatch-premium-1",
+      callSessionId: "CA-premium:telephony",
+      streamSid: "MZ-premium-1",
+      ownership: { workerId: "premium-worker-a", ownerEpoch: 1 },
+      output: { sendMedia() {}, clearAudio() {}, sendMark() {}, close() {} },
+    });
+    vi.spyOn(harness.execution, "stop").mockRejectedValueOnce(new Error("drain failed"));
+
+    harness.emitProviderMessage(JSON.stringify({
+      serverContent: { turnComplete: true },
+    }));
+    await waitFor(() => harness.lifecycleStages.includes("failed"));
+
+    await expect(harness.execution.appendInboundFrame({
+      callSessionId: "CA-premium:telephony",
+      frame: premiumInboundFrame(1),
+    })).resolves.toEqual({ accepted: false, reason: "terminal" });
+    expect(observed).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "premium.policy_stop_failed",
+        payload: expect.objectContaining({
+          reason: "billing_policy_closeout",
+          code: "billing_policy_terminalization_failed",
+        }),
+      }),
+    ]));
+  });
 
   it("fails closed instead of using a fallback when the initial agent identity is unavailable", async () => {
       const callerCloses: string[] = [];

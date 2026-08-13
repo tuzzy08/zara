@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "billing_provider_tenant_scopes_provider_external_scope_unique_idx" ON "billing_provider_tenant_scopes" USING btree ("provider","external_scope_id");

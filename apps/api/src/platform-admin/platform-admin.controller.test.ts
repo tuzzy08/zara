@@ -6,6 +6,8 @@ import request from "supertest";
 import { AppModule } from "../app.module";
 import { PlatformAdminModule } from "./platform-admin.module";
 import { TELEPHONY_STATE_REPOSITORY } from "../telephony/telephony-state.repository";
+import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
+import { PostgresPlatformBillingReadRepository } from "./platform-billing-read.repository";
 
 describe("PlatformAdminController", () => {
   it("rejects tenant admins and allows platform staff to load the dashboard", async () => {
@@ -49,7 +51,10 @@ describe("PlatformAdminController", () => {
     const previousStaffRoles = process.env.ZARA_PLATFORM_STAFF_ROLES;
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(PostgresPlatformBillingReadRepository)
+      .useValue(createTestPlatformBillingReadRepository())
+      .compile();
     const app: INestApplication = moduleRef.createNestApplication();
     await app.init();
 
@@ -138,7 +143,10 @@ describe("PlatformAdminController", () => {
     const previousStaffRoles = process.env.ZARA_PLATFORM_STAFF_ROLES;
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(PostgresTenantStatusRepository)
+      .useValue(createTestTenantStatusRepository())
+      .compile();
     const app: INestApplication = moduleRef.createNestApplication();
     await app.init();
 
@@ -200,9 +208,9 @@ describe("PlatformAdminController", () => {
     expect(organizationsResponse.body.organizations[0]).toMatchObject({
       id: "tenant-west-africa",
       status: "active",
-      plan: "scale",
+      plan: "growth",
     });
-    expect(organizationsResponse.body.organizations[0].usage.monthToDateUsd).toBeGreaterThan(0);
+    expect(organizationsResponse.body.organizations[0].usage.shadowEstimateMinor).toBeGreaterThan(0);
     expect(organizationsResponse.body.organizations[0].telephony.connectionModes).toContain("byo_provider_account");
     expect(organizationsResponse.body.organizations[0].integrations.connectedProviders).toContain("hubspot");
     expect(JSON.stringify(organizationsResponse.body)).not.toMatch(/secret|token|credential/i);
@@ -385,9 +393,8 @@ describe("PlatformAdminController", () => {
       .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ monthlyBudgetUsd: 900, premiumRealtimeEnabled: false });
 
-    expect(billing.status).toBe(200);
-    expect(billing.body.billingControls.monthlyBudgetUsd).toBe(900);
-    expect(billing.body.audit.action).toBe("platform.billing_controls.updated");
+    expect(billing.status).toBe(503);
+    expect(billing.body.message).toContain("disabled until a durable billing budget writer");
 
     const impersonation = await request(server)
       .post("/platform-admin/organizations/tenant-west-africa/impersonation-sessions")
@@ -1112,6 +1119,10 @@ async function createPlatformAdminApp() {
   const moduleRef = await Test.createTestingModule({
     imports: [PlatformAdminModule],
   })
+    .overrideProvider(PostgresPlatformBillingReadRepository)
+    .useValue(createTestPlatformBillingReadRepository())
+    .overrideProvider(PostgresTenantStatusRepository)
+    .useValue(createTestTenantStatusRepository())
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
     .useValue({
       listOrganizationIds: () => [],
@@ -1127,6 +1138,65 @@ async function createPlatformAdminApp() {
     app,
     close: async () => {
       await app.close();
+    },
+  };
+}
+
+function createTestTenantStatusRepository() {
+  return {
+    async getStatus() {
+      return { outcome: "found" as const, status: "active" as const };
+    },
+    async listAuditLogs() {
+      return [];
+    },
+    async updateStatusWithAudit(input: { status: "active" | "suspended" | "archived" }) {
+      return { outcome: "updated" as const, status: input.status };
+    },
+  };
+}
+
+function createTestPlatformBillingReadRepository() {
+  return {
+    async read() {
+      return {
+        currency: "USD" as const,
+        shadowEstimateMinor: 725,
+        premiumShadowEstimateMinor: 225,
+        deliveredChargeMinor: null,
+        incompleteUsageCount: 0,
+        blockedUsageCount: 0,
+        tenantsOverBudget: 0,
+        organizations: [
+          {
+            organizationId: "tenant-west-africa",
+            organizationName: "Tuzzy Labs",
+            hasBillingData: true,
+            subscription: { status: "active", planSlug: "growth" },
+            usage: {
+              currency: "USD" as const,
+              shadowEstimateMinor: 725,
+              premiumShadowEstimateMinor: 225,
+              deliveredChargeMinor: null,
+              incompleteUsageCount: 0,
+              blockedUsageCount: 0,
+              callSeconds: 180,
+              premiumRuntimeSeconds: 90,
+            },
+            budget: { currency: "USD" as const, overageLimitMinor: 1000, overBudget: false },
+            payg: null,
+          },
+          {
+            organizationId: "tenant-healthdesk",
+            organizationName: "Healthdesk Reception",
+            hasBillingData: false,
+            subscription: null,
+            usage: null,
+            budget: null,
+            payg: null,
+          },
+        ],
+      };
     },
   };
 }

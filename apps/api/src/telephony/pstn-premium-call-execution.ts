@@ -222,6 +222,7 @@ export class PstnPremiumCallExecution {
       TelephonyService,
       | "recordPstnPhoneTestCheckpoint"
       | "recordPstnCallLifecycle"
+      | "applyCallRuntimePolicy"
     >,
     @Inject(TELEPHONY_INCREMENTAL_REPOSITORY)
     private readonly premiumDispatchRepository: Pick<
@@ -1396,6 +1397,7 @@ export class PstnPremiumCallExecution {
           throw new Error("premium_playback_response_unregistered");
         }
       }
+      await this.enforceCompletedTurnPolicy(execution);
       return;
     }
 
@@ -1447,6 +1449,7 @@ export class PstnPremiumCallExecution {
       if (!result.accepted && result.reason === "response_unregistered") {
         throw new Error("premium_playback_response_unregistered");
       }
+      await this.enforceCompletedTurnPolicy(execution);
       return;
     }
 
@@ -1531,6 +1534,72 @@ export class PstnPremiumCallExecution {
         droppedFrames: state.droppedFrameCount,
       },
     });
+  }
+
+  private async enforceCompletedTurnPolicy(execution: ActivePremiumCallExecution) {
+    const result = await this.telephonyService.applyCallRuntimePolicy({
+      organizationId: execution.organizationId,
+      callSessionId: execution.callSessionId,
+    });
+    if (result.session.status === "closeout-pending") {
+      queueMicrotask(() => {
+        void this.stop({
+          callSessionId: execution.callSessionId,
+          reasonCode: "billing_policy_closeout",
+        }).catch((error: unknown) => {
+          this.forceCompletedTurnPolicyTerminal(
+            execution,
+            "billing_policy_closeout",
+            error,
+          );
+        });
+      });
+    } else if (result.session.status === "terminated") {
+      queueMicrotask(() => {
+        void this.stop({
+          callSessionId: execution.callSessionId,
+          outcome: "failed",
+          reasonCode: "runtime_policy_terminated",
+        }).catch((error: unknown) => {
+          this.forceCompletedTurnPolicyTerminal(
+            execution,
+            "runtime_policy_terminated",
+            error,
+          );
+        });
+      });
+    }
+  }
+
+  private forceCompletedTurnPolicyTerminal(
+    execution: ActivePremiumCallExecution,
+    reasonCode: "billing_policy_closeout" | "runtime_policy_terminated",
+    error: unknown,
+  ) {
+    const failureCode = "billing_policy_terminalization_failed";
+    this.logger.error(`[twilio-pstn] premium_policy_stop_failed ${JSON.stringify({
+      organizationId: execution.organizationId,
+      dispatchId: execution.dispatchId,
+      callSessionId: execution.callSessionId,
+      reasonCode,
+      failureCode,
+      error: error instanceof Error ? error.message : "unknown",
+    })}`);
+    this.recordPremiumEvent(execution, {
+      type: "premium.policy_stop_failed",
+      at: new Date().toISOString(),
+      payload: {
+        reason: reasonCode,
+        code: failureCode,
+      },
+    });
+    if (execution.terminalLifecycle !== undefined) return;
+
+    execution.terminalFailureCode = failureCode;
+    execution.actor.fail(failureCode);
+    if (execution.terminalLifecycle === undefined) {
+      void this.beginTerminalLifecycle(execution, "failed", failureCode).catch(() => undefined);
+    }
   }
 
   private recordCleanup(execution: ActivePremiumCallExecution, reason: string) {

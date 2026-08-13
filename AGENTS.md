@@ -2,6 +2,10 @@
 
 This repository is a strict TDD project. Every agent must use the docs as operating context before doing work. The required implementation cycle for production code is RED/GREEN/REFACTOR.
 
+## User-Facing Language
+
+Always use **Simplified Technical English (STE)**, formally known as **ASD-STE100**, when you talk to the user. Use short, direct sentences. Use one term for one meaning. Explain technical terms in plain language when they are necessary.
+
 ## Required Reading Before Each Pass
 
 Start here:

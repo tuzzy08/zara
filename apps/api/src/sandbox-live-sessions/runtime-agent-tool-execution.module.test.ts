@@ -1,7 +1,7 @@
 import { MODULE_METADATA } from "@nestjs/common/constants";
 import { describe, expect, it } from "vitest";
 
-import { IntegrationsModule } from "../integrations/integrations.module";
+import { IntegrationsRuntimeModule } from "../integrations/integrations-runtime.module";
 import { RuntimeAgentToolExecutorService } from "./runtime-agent-tool-executor.service";
 import { RuntimeAgentToolExecutionModule } from "./runtime-agent-tool-execution.module";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
@@ -29,12 +29,12 @@ describe("RuntimeAgentToolExecutionModule", () => {
     expect(sandboxExports).not.toContain(RuntimeAgentToolExecutorService);
   });
 
-  it("imports integration controls and runtime grants for sandbox tools", () => {
+  it("imports runtime integrations for sandbox-owned grant checks", () => {
     const sandboxImports = Reflect.getMetadata(
       MODULE_METADATA.IMPORTS,
       SandboxLiveSessionsModule,
     );
 
-    expect(sandboxImports).toContain(IntegrationsModule);
+    expect(sandboxImports).toContain(IntegrationsRuntimeModule);
   });
 });

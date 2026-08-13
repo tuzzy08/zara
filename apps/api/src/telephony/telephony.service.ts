@@ -60,8 +60,15 @@ import {
 } from "@zara/core";
 
 import { BillingService } from "../billing/billing.service";
-import type { TenantBillingStateResponse } from "../billing/billing.models";
+import { TrustedBillingUsageProducer } from "../billing/trusted-billing-usage-producer";
+import { TrustedPaygTerminalFinalizationService } from "../billing/trusted-payg-terminal-finalization.service";
+import { BillingPaygEligibilityService } from "../billing/billing-payg-eligibility.service";
+import { TrustedPaygActiveCallFundingService } from "../billing/trusted-payg-active-call-funding.service";
+import { TrustedSubscriptionCallLifecycleService } from "../billing/trusted-subscription-call-lifecycle.service";
+import { TrustedCallCommercialModeResolver } from "../billing/trusted-call-commercial-mode-resolver";
+import { TrustedTerminalBillingRecoveryService } from "../billing/trusted-terminal-billing-recovery.service";
 import { AuditLogService } from "../compliance/audit-log.service";
+import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
 import {
   pstnCallObservabilityRecorderToken,
   type PstnCallObservabilityRecorder,
@@ -93,6 +100,7 @@ import {
 } from "./telephony-state.repository";
 import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
 import { PremiumPstnDispatchSnapshotResolver } from "./premium-pstn-dispatch-snapshot-resolver";
+import { resolvePaygOutboundRouteIdentity, TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-call-start.service";
 import { resolvePremiumPstnRequiredProviders } from "./premium-pstn-worker-requirements";
 import {
   PSTN_PREMIUM_WORKER_AVAILABILITY,
@@ -140,6 +148,24 @@ const safeTakeoverMessage =
 const safeCallbackMessage =
   "A specialist is not available on this line right now. We will call you back at the number we have for this call.";
 
+type DeniedPstnAdmission = Extract<
+  Awaited<ReturnType<PstnAdmissionCoordinator["reserve"]>>,
+  { outcome: "denied" }
+>;
+
+class PaygProviderStartDeniedError extends Error {
+  constructor(readonly admission: DeniedPstnAdmission) {
+    super(`PSTN admission denied: ${admission.reasonCode}`);
+  }
+}
+
+class PaygOutboundCommandDeniedError extends Error {
+  constructor() {
+    super("Outbound provider command was blocked by durable policy.");
+  }
+}
+
+
 @Injectable()
 export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   private readonly stateByOrganizationId = new Map<string, TelephonyStateStore>();
@@ -173,6 +199,24 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(PSTN_PREMIUM_WORKER_AVAILABILITY)
     private readonly premiumWorkerAvailability?: PstnPremiumWorkerAvailability,
+    @Optional()
+    private readonly trustedBillingUsageProducer?: TrustedBillingUsageProducer,
+    @Optional()
+    private readonly trustedPaygCallStart?: TrustedPaygTelephonyCallStartService,
+    @Optional()
+    private readonly trustedPaygTerminalFinalizer?: TrustedPaygTerminalFinalizationService,
+    @Optional()
+    private readonly billingPaygEligibility?: BillingPaygEligibilityService,
+    private readonly trustedPaygActiveCallFunding?: TrustedPaygActiveCallFundingService,
+    @Optional()
+    private readonly trustedSubscriptionLifecycle?: TrustedSubscriptionCallLifecycleService,
+    @Optional()
+    @Inject(PostgresTenantStatusRepository)
+    private readonly tenantStatusRepository?: Pick<PostgresTenantStatusRepository, "getStatus">,
+    @Optional()
+    private readonly trustedCommercialModeResolver?: TrustedCallCommercialModeResolver,
+    @Optional()
+    private readonly trustedTerminalBillingRecovery?: TrustedTerminalBillingRecoveryService,
   ) {}
 
   onModuleInit() {
@@ -784,7 +828,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     numberId: string;
     actorUserId: string;
     now?: string | undefined;
-    tenantStatus?: TelephonyTenantPosture | undefined;
     override?: Omit<TelephonyLiveRouteActivationOverride, "createdAt"> | undefined;
   }) {
     const state = await this.getOrCreateState(input.organizationId);
@@ -793,7 +836,11 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     const now = input.now ?? new Date().toISOString();
     const policy = await this.resolveLiveRoutePolicyPosture({
       organizationId: input.organizationId,
-      tenantStatus: input.tenantStatus,
+      ownershipMode: connection.ownershipMode,
+      meterClass: phoneNumber.liveRoute?.runtimeProfile === "premium-realtime"
+        ? "premium"
+        : "standard",
+      now,
     });
     const activationPhoneNumbers = await this.projectLatestSuccessfulPhoneTest({
       organizationId: input.organizationId,
@@ -897,7 +944,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     numberId: string;
     actorUserId: string;
     now?: string | undefined;
-    tenantStatus?: TelephonyTenantPosture | undefined;
     override?: Omit<TelephonyLiveRouteActivationOverride, "createdAt"> | undefined;
   }) {
     const state = await this.getOrCreateState(input.organizationId);
@@ -906,13 +952,32 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     const now = input.now ?? new Date().toISOString();
     const policy = await this.resolveLiveRoutePolicyPosture({
       organizationId: input.organizationId,
-      tenantStatus: input.tenantStatus,
+      ownershipMode: connection.ownershipMode,
+      meterClass: phoneNumber.liveRoute?.runtimeProfile === "premium-realtime"
+        ? "premium"
+        : "standard",
+      now,
     });
     const activationPhoneNumbers = await this.projectLatestSuccessfulPhoneTest({
       organizationId: input.organizationId,
       phoneNumbers: state.phoneNumbers,
       phoneNumber,
     });
+    const evaluation = evaluateTelephonyLiveRouteActivation({
+      phoneNumbers: activationPhoneNumbers,
+      numberId: input.numberId,
+      connection,
+      now,
+      policy,
+      override: input.override,
+    });
+    if (!evaluation.allowed) {
+      throw new ConflictException({
+        message: "Live route resume blocked.",
+        blocks: evaluation.blocks,
+        summary: evaluation.summary,
+      });
+    }
     const activation = resumeTelephonyLiveRoute({
       phoneNumbers: activationPhoneNumbers,
       numberId: input.numberId,
@@ -1032,8 +1097,23 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     }
     const previousPhoneNumbers = currentState.phoneNumbers.map(clonePhoneNumber);
     const now = input.now ?? new Date().toISOString();
+    const routedNumber = state.phoneNumbers.find(
+      (phoneNumber) =>
+        normalizeServicePhoneNumber(phoneNumber.phoneNumber)
+        === normalizeServicePhoneNumber(input.toPhoneNumber),
+    );
+    const routedConnection = routedNumber === undefined
+      ? undefined
+      : state.connections.find(
+          (connection) => connection.id === routedNumber.connectionId,
+        );
     const liveCallPolicy = await this.resolveLiveRoutePolicyPosture({
       organizationId: input.organizationId,
+      ownershipMode: routedConnection?.ownershipMode,
+      meterClass: routedNumber?.liveRoute?.runtimeProfile === "premium-realtime"
+        ? "premium"
+        : "standard",
+      now,
     });
     const premiumRealtimePolicy = await this.resolvePstnPremiumRealtimePolicyPosture({
       organizationId: input.organizationId,
@@ -1161,8 +1241,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     workflowLabel: string;
     workspaceId: string;
     consentGranted: boolean;
-    budgetRemainingUsd: number;
-    estimatedCostUsd: number;
+    budgetRemainingUsd?: number | undefined;
+    estimatedCostUsd?: number | undefined;
     localHour: number;
     callingWindow: { startHour: number; endHour: number };
     actorUserId?: string | undefined;
@@ -1172,6 +1252,19 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   }) {
     const state = await this.getOrCreateState(input.organizationId);
     const now = input.now ?? new Date().toISOString();
+    const commercial = await this.trustedCommercialModeResolver?.resolve(
+      input.organizationId,
+      now,
+      "standard",
+    ) ?? { mode: "unavailable" as const };
+    const commercialMode = commercial.mode;
+    const isPaygCall = commercialMode === "payg";
+    const paygEligibility = isPaygCall && this.billingPaygEligibility !== undefined
+      ? await this.billingPaygEligibility.getEligibility({
+          organizationId: input.organizationId,
+          now,
+        })
+      : undefined;
     const abuseEvaluation = evaluateOutboundAbusePolicy({
       state,
       now,
@@ -1192,8 +1285,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       workflowLabel: input.workflowLabel,
       workspaceId: input.workspaceId,
       consentGranted: input.consentGranted,
-      budgetRemainingUsd: input.budgetRemainingUsd,
-      estimatedCostUsd: input.estimatedCostUsd,
+      budgetAllowed: commercial.available === true,
+      budgetDetail: commercial.available === true
+        ? "Durable billing allowance is available."
+        : "Durable billing allowance is unavailable.",
       localHour: input.localHour,
       callingWindow: input.callingWindow,
       abuseAllowed: abuseEvaluation.allowed,
@@ -1205,13 +1300,36 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       timezoneBlockedReason: complianceEvaluation.timezoneBlockedReason,
       callingWindowOverrideAllowed: complianceEvaluation.overrideAllowed,
     });
-    const dispatch = buildOutboundDispatchRecord({
+    let dispatch = buildOutboundDispatchRecord({
       organizationId: input.organizationId,
       resolution,
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
       now,
     });
+    if (
+      (commercialMode === "unavailable" || commercial.available !== true)
+      && dispatch.disposition === "queued"
+    ) {
+      dispatch = {
+        ...dispatch,
+        disposition: "blocked",
+        reason: "Outbound billing state is unavailable or inactive.",
+        callSessionId: undefined,
+      };
+    }
+    if (
+      isPaygCall
+      && dispatch.disposition === "queued"
+      && paygEligibility?.eligible !== true
+    ) {
+      dispatch = {
+        ...dispatch,
+        disposition: "blocked",
+        reason: "Outbound PAYG requires current paid available credit.",
+        callSessionId: undefined,
+      };
+    }
     const execution = buildExecutionArtifacts({
       state,
       organizationId: input.organizationId,
@@ -1235,19 +1353,92 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         throw new ConflictException("Outbound call dispatch conflicts with an existing call.");
       }
     } else {
-      const outcome = await this.incrementalRepository.createCallExecution({
-        dispatch,
-        executionSession: requireLifecycleState(execution.session),
-        executionCommands: execution.commands,
-      });
-      if (outcome.outcome === "conflict") {
-        throw new ConflictException("Outbound call execution conflicts with an existing call.");
+      const createDurableProviderCommand = async () => {
+        const outcome = await this.incrementalRepository.createCallExecution({
+          dispatch,
+          executionSession: requireLifecycleState(execution.session),
+          executionCommands: execution.commands,
+        });
+        if (outcome.outcome === "conflict") {
+          throw new ConflictException("Outbound call execution conflicts with an existing call.");
+        }
+        if (outcome.outcome === "blocked") {
+          throw new PaygOutboundCommandDeniedError();
+        }
+        return outcome;
+      };
+      let outcome: Awaited<ReturnType<typeof createDurableProviderCommand>> | {
+        outcome: "blocked";
+        reason?: "insufficient_payg_credit" | "outbound_command_blocked" | "subscription_allowance_unavailable" | "unsupported_payg_runtime";
+      };
+      if (isPaygCall) {
+        outcome = { outcome: "blocked", reason: "unsupported_payg_runtime" };
+      } else {
+        if (this.trustedSubscriptionLifecycle === undefined) {
+          outcome = { outcome: "blocked", reason: "subscription_allowance_unavailable" };
+        } else {
+          const ttlSeconds = requirePositiveEnvironmentInteger("PAYG_RESERVATION_TTL_SECONDS");
+          const maximumRuntimeSeconds = requirePositiveEnvironmentInteger("PAYG_MAXIMUM_CALL_SECONDS");
+          const billingMode = execution.session.ownershipMode === "platform_managed"
+            ? "platform_managed" as const : "byo" as const;
+          const routeIdentity = resolvePaygOutboundRouteIdentity({
+            ownershipMode: billingMode === "platform_managed" ? "platform-managed" : "byo",
+            provider: execution.session.provider,
+            fromPhoneNumber: execution.session.fromPhoneNumber,
+            toPhoneNumber: execution.session.toPhoneNumber,
+            effectiveAt: now,
+          });
+          const reservationKey = execution.session.callSessionId;
+          const reserved = await this.trustedSubscriptionLifecycle.start({
+            organizationId: input.organizationId,
+            reservationKey,
+            meterClass: "standard",
+            billingMode,
+            provider: execution.session.provider,
+            direction: "outbound",
+            ...(routeIdentity === undefined ? {} : { routeIdentity }),
+            maximumRuntimeSeconds,
+            expiresAt: new Date(Date.parse(now) + ttlSeconds * 1_000).toISOString(),
+            now,
+          });
+          if (reserved.outcome === "denied") {
+            outcome = { outcome: "blocked", reason: "subscription_allowance_unavailable" };
+          } else {
+            try {
+              outcome = await createDurableProviderCommand();
+            } catch (error) {
+              await this.trustedSubscriptionLifecycle.releaseByReservationKey({
+                organizationId: input.organizationId,
+                reservationKey,
+                now,
+              });
+              if (error instanceof PaygOutboundCommandDeniedError) {
+                outcome = { outcome: "blocked", reason: "outbound_command_blocked" };
+              } else {
+                throw error;
+              }
+            }
+            if (outcome.outcome === "blocked") {
+              await this.trustedSubscriptionLifecycle.releaseByReservationKey({
+                organizationId: input.organizationId,
+                reservationKey,
+                now,
+              });
+            }
+          }
+        }
       }
       if (outcome.outcome === "blocked") {
         committedDispatch = {
           ...dispatch,
           disposition: "blocked",
-          reason: "Outbound calling is paused pending abuse review.",
+          reason: outcome.reason === "insufficient_payg_credit"
+            ? "Outbound PAYG requires enough paid available credit for the reservation."
+            : outcome.reason === "subscription_allowance_unavailable"
+              ? "Outbound subscription allowance is unavailable."
+            : outcome.reason === "unsupported_payg_runtime"
+              ? "Outbound PAYG requires an available production runtime."
+            : "Outbound calling is paused pending abuse review.",
           callSessionId: undefined,
         };
         committedExecution = null;
@@ -1805,6 +1996,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         const current = context.lifecycleState;
         if (isTerminalPstnLifecycleStage(current.stage)) {
           releaseAdmission = terminal;
+          if (terminal) {
+            await this.recordTrustedTerminalUsage(context, current);
+          }
           return { outcome: "ignored", context };
         }
         if (
@@ -1815,13 +2009,21 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           return { outcome: "ignored", context };
         }
 
+        const providerConnectedAt = current.providerConnectedAt
+          ?? (input.nextState.stage === "active"
+            ? input.nextState.observedAt
+            : undefined);
+        const nextState: TelephonyCallLifecycleState = {
+          ...input.nextState,
+          ...(providerConnectedAt === undefined ? {} : { providerConnectedAt }),
+        };
         const transition =
           await this.incrementalRepository.transitionCallLifecycle({
             tenantId: input.organizationId,
             callSessionId: input.callSessionId,
             expectedVersion: context.version,
             expectedStage: current.stage,
-            nextState: input.nextState,
+            nextState,
             nextStatus: input.nextStatus,
             ...(input.ownership === undefined
               ? {}
@@ -1832,6 +2034,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           transition.outcome === "existing"
         ) {
           releaseAdmission = terminal;
+          if (terminal) {
+            await this.recordTrustedTerminalUsage(context, nextState);
+          }
           return { outcome: "applied", context };
         }
         if (transition.outcome === "not_found") {
@@ -1860,6 +2065,121 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           .catch(() => undefined);
       }
     }
+  }
+
+  private async recordTrustedTerminalUsage(
+    context: TelephonyCallRuntimeContext,
+    terminalState: TelephonyCallLifecycleState,
+  ) {
+    if (this.trustedTerminalBillingRecovery === undefined) {
+      throw new Error("Trusted terminal billing recovery is unavailable.");
+    }
+    const state = await this.getOrCreateState(context.tenantId);
+    const session = state.executionSessions.find(
+      (candidate) => candidate.callSessionId === context.callSessionId,
+    );
+    const connection = state.connections.find(
+      (candidate) => candidate.id === context.connectionId,
+    );
+    if (session === undefined || connection === undefined) {
+      throw new Error(
+        `Trusted billing ownership was not found for call ${context.callSessionId}.`,
+      );
+    }
+    if (this.trustedPaygTerminalFinalizer === undefined) {
+      throw new Error("Trusted call billing mode resolution is unavailable.");
+    }
+    const resolvedPaygMode = await this.trustedPaygTerminalFinalizer.resolveCallBillingMode({
+      organizationId: context.tenantId,
+      callSessionId: context.callSessionId,
+    });
+    const [subscriptionReservation, paygChargeContext] = await Promise.all([
+      this.trustedSubscriptionLifecycle?.getReservationByKey(context.tenantId, context.callSessionId)
+        ?? Promise.resolve(null),
+      this.trustedPaygTerminalFinalizer.getPinnedCallChargeContext({
+        organizationId: context.tenantId,
+        callSessionId: context.callSessionId,
+      }),
+    ]);
+    if ((subscriptionReservation === null) === (paygChargeContext === null)) {
+      throw new Error(`Call ${context.callSessionId} has no single durable billing reservation.`);
+    }
+    const commercialMode = paygChargeContext === null ? "subscription" as const : "payg" as const;
+    if (resolvedPaygMode !== commercialMode) {
+      throw new Error(`Call ${context.callSessionId} has conflicting durable billing mode.`);
+    }
+    const connectedAt = terminalState.providerConnectedAt;
+    const providerConnectedSeconds = connectedAt === undefined
+      ? 0
+      : elapsedWholeSeconds(connectedAt, terminalState.observedAt);
+    const outcome = terminalState.stage === "failed" || terminalState.stage === "expired"
+      ? "failed"
+      : subscriptionReservation?.terminalOutcome ?? paygChargeContext?.terminalOutcome
+        ?? (context.lifecycleState.stage === "handoff"
+        ? "transferred"
+        : "completed");
+
+    const trustedFact = {
+      organizationId: context.tenantId,
+      ...(context.workspaceId === undefined ? {} : { workspaceId: context.workspaceId }),
+      callSessionId: context.callSessionId,
+      providerConnectionId: context.connectionId,
+      provider: subscriptionReservation?.provider ?? paygChargeContext?.provider ?? connection.provider,
+      direction: subscriptionReservation?.direction ?? paygChargeContext?.direction ?? session.direction,
+      ownershipMode: subscriptionReservation === null
+        ? paygChargeContext?.ownershipMode ?? (connection.ownershipMode === "platform_managed" ? "platform-managed" : "byo")
+        : subscriptionReservation.billingMode === "platform_managed" ? "platform-managed" : "byo",
+      routeMode: context.routeMode === "test_route" ? "test_route" : "live_route",
+      runtimePath: subscriptionReservation === null
+        ? paygChargeContext?.runtimePath ?? context.runtimePath
+        : subscriptionReservation.meterClass === "standard" ? "pstn-sandwich" : "pstn-premium-realtime",
+      outcome,
+      commercialMode,
+      catalogId: subscriptionReservation?.catalogId ?? paygChargeContext?.catalogId,
+      ...(subscriptionReservation === null ? {} : { planSlug: subscriptionReservation.planSlug }),
+      ...((subscriptionReservation?.routeIdentity ?? paygChargeContext?.routeIdentity) === undefined
+        ? {} : { routeIdentity: subscriptionReservation?.routeIdentity ?? paygChargeContext?.routeIdentity }),
+      runtimeSeconds: providerConnectedSeconds,
+      providerConnectedSeconds,
+      occurredAt: terminalState.observedAt,
+    } as const;
+    const identity = `terminal-billing:${trustedFact.callSessionId}`;
+    const settlement = trustedFact.commercialMode === "payg"
+      ? { commercialMode: "payg" as const, fact: {
+        organizationId: trustedFact.organizationId,
+        reservationId: `payg-call-reservation:${trustedFact.callSessionId}`,
+        callSessionId: trustedFact.callSessionId,
+        runtimePath: trustedFact.runtimePath,
+        outcome: trustedFact.outcome,
+        runtimeSeconds: trustedFact.runtimeSeconds,
+        ownershipMode: trustedFact.ownershipMode,
+        provider: trustedFact.provider,
+        direction: trustedFact.direction,
+        providerConnectedSeconds: trustedFact.providerConnectedSeconds,
+        occurredAt: trustedFact.occurredAt,
+      } }
+      : { commercialMode: "subscription" as const, fact: {
+        organizationId: trustedFact.organizationId,
+        reservationKey: trustedFact.callSessionId,
+        sessionId: trustedFact.callSessionId,
+        actualSeconds: trustedFact.runtimeSeconds,
+        outcome: trustedFact.outcome,
+        providerConnectedSeconds: trustedFact.providerConnectedSeconds,
+        runtimePath: trustedFact.runtimePath,
+        ownershipMode: trustedFact.ownershipMode,
+        provider: trustedFact.provider,
+        direction: trustedFact.direction,
+        catalogId: subscriptionReservation!.catalogId,
+        planSlug: subscriptionReservation!.planSlug,
+        now: trustedFact.occurredAt,
+      } };
+    await this.trustedTerminalBillingRecovery.submit({
+      id: identity,
+      idempotencyKey: identity,
+      usageFact: trustedFact,
+      settlement,
+      now: trustedFact.occurredAt,
+    });
   }
 
   async recordCallControlEvent(input: {
@@ -1993,18 +2313,11 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     tenantStatus?: TelephonyTenantPosture | undefined;
     budgetAction?: TelephonyBudgetPosture | undefined;
     budgetReasons?: string[] | undefined;
+    providerState?: "available" | "failed" | undefined;
+    providerFailureAction?: "safe_closeout" | "terminate" | undefined;
   }) {
-    const defaultPolicy = await this.resolveLiveRoutePolicyPosture({
-      organizationId: input.organizationId,
-      tenantStatus: input.tenantStatus,
-    });
-    const policy: TelephonyLiveRoutePolicyPosture = {
-      subscriptionStatus: input.subscriptionStatus ?? defaultPolicy.subscriptionStatus,
-      tenantStatus: input.tenantStatus ?? defaultPolicy.tenantStatus,
-      budgetAction: input.budgetAction ?? defaultPolicy.budgetAction,
-      budgetReasons: input.budgetReasons ?? defaultPolicy.budgetReasons,
-    };
     const now = input.now ?? new Date().toISOString();
+    let policy: TelephonyLiveRoutePolicyPosture | undefined;
 
     for (let attempt = 0; attempt < pstnLifecycleTransitionMaxAttempts; attempt += 1) {
       const loaded = await this.incrementalRepository.loadCallMutationContext({
@@ -2028,6 +2341,63 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           state: cloneState(state),
           session: cloneExecutionSession(session),
         };
+      }
+      if (policy === undefined) {
+        const defaultPolicy = await this.resolveLiveRoutePolicyPosture({
+          organizationId: input.organizationId,
+          ownershipMode: session.ownershipMode,
+          meterClass: loaded.context.dispatch.runtimePath === "pstn-premium-realtime"
+            ? "premium"
+            : "standard",
+          now,
+        });
+        let billingAccessMode: "payg" | undefined;
+        let paygNextSafeSegment: "funded" | "unfunded" | undefined;
+        const lifecycle = session.lifecycleState;
+        const nextSafeSegmentSeconds = readPositiveEnvironmentInteger(
+          "PAYG_NEXT_SAFE_SEGMENT_SECONDS",
+        );
+        if (this.trustedPaygActiveCallFunding === undefined) {
+          throw new Error("Trusted PAYG active-call funding is unavailable.");
+        }
+        const cumulativeSeconds = lifecycle?.providerConnectedAt === undefined
+          ? undefined
+          : elapsedWholeSeconds(lifecycle.providerConnectedAt, now);
+        const funding = await this.trustedPaygActiveCallFunding
+          .evaluateNextSafeSegment({
+            organizationId: input.organizationId,
+            callSessionId: input.callSessionId,
+            runtimeSeconds: cumulativeSeconds,
+            ...(session.ownershipMode === "platform_managed"
+              ? { providerConnectedSeconds: cumulativeSeconds }
+              : {}),
+            nextSafeSegmentSeconds,
+            now,
+          });
+        if (funding.billingAccessMode === "payg") {
+          billingAccessMode = "payg";
+          paygNextSafeSegment = funding.outcome;
+        }
+        const activeReservationFunded = funding.billingAccessMode === "subscription"
+          || (funding.billingAccessMode === "payg" && funding.outcome === "funded");
+        policy = {
+          subscriptionStatus: input.subscriptionStatus ?? defaultPolicy.subscriptionStatus,
+          subscriptionAccessAllowed: input.subscriptionStatus === undefined
+            ? activeReservationFunded || defaultPolicy.subscriptionAccessAllowed
+            : undefined,
+          tenantStatus: defaultPolicy.tenantStatus,
+          budgetAction: input.budgetAction
+            ?? (activeReservationFunded ? "allow" : defaultPolicy.budgetAction),
+          budgetReasons: input.budgetReasons
+            ?? (activeReservationFunded ? [] : defaultPolicy.budgetReasons),
+          billingAccessMode,
+          paygNextSafeSegment,
+          providerState: input.providerState,
+          providerFailureAction: input.providerFailureAction,
+        };
+      }
+      if (policy === undefined) {
+        throw new Error("Trusted active-call policy posture is unavailable.");
       }
       const updatedSession = applyTelephonyActiveCallPolicy({
         session,
@@ -2801,8 +3171,66 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         let admission: Awaited<
           ReturnType<PstnAdmissionCoordinator["reserve"]>
         >;
+        const commercial = await this.trustedCommercialModeResolver?.resolve(
+          organizationId,
+          authoritativeReceivedAt,
+          runtimePath === "pstn-premium-realtime" ? "premium" : "standard",
+        ) ?? { mode: "unavailable" as const };
+        const commercialMode = commercial.mode;
+        if (commercialMode === "unavailable" || commercial.available !== true) {
+          return this.failTwilioAdmission({ organizationId, connectionId: connection.id,
+            callSid: payload.CallSid, eventSid, callSessionId,
+            reasonCode: "billing_reservation_unavailable", limitingDimension: "tenant" });
+        }
+        const isPaygCall = commercialMode === "payg";
+        if (connection.ownershipMode === "platform_managed") {
+          return this.failTwilioAdmission({ organizationId, connectionId: connection.id,
+            callSid: payload.CallSid, eventSid, callSessionId,
+            reasonCode: "unsupported_platform_managed_inbound_route",
+            limitingDimension: "route" });
+        }
+        if (isPaygCall && runtimePath === "pstn-sandwich") {
+          return this.failTwilioAdmission({ organizationId, connectionId: connection.id,
+            callSid: payload.CallSid, eventSid, callSessionId,
+            reasonCode: "unsupported_payg_runtime", limitingDimension: "runtime" });
+        }
+        let subscriptionReservationActive = false;
+        let paygReservationActive = false;
+        if (!isPaygCall) {
+          if (this.trustedSubscriptionLifecycle === undefined) {
+            return this.failTwilioAdmission({ organizationId, connectionId: connection.id,
+              callSid: payload.CallSid, eventSid, callSessionId,
+              reasonCode: "billing_reservation_unavailable", limitingDimension: "tenant" });
+          }
+          const ttlSeconds = requirePositiveEnvironmentInteger("PAYG_RESERVATION_TTL_SECONDS");
+          const reserved = await this.trustedSubscriptionLifecycle.start({
+            organizationId,
+            reservationKey: callSessionId,
+            meterClass: runtimePath === "pstn-sandwich" ? "standard" : "premium",
+            billingMode: "byo",
+            provider: connection.provider,
+            direction: "inbound",
+            maximumRuntimeSeconds: requirePositiveEnvironmentInteger("PAYG_MAXIMUM_CALL_SECONDS"),
+            expiresAt: new Date(Date.parse(authoritativeReceivedAt) + ttlSeconds * 1_000).toISOString(),
+            now: authoritativeReceivedAt,
+          });
+          if (reserved.outcome === "denied") {
+            return this.failTwilioAdmission({ organizationId, connectionId: connection.id,
+              callSid: payload.CallSid, eventSid, callSessionId,
+              reasonCode: "billing_reservation_unavailable", limitingDimension: "tenant" });
+          }
+          subscriptionReservationActive = true;
+        }
+        const releaseSubscriptionReservation = async () => {
+          if (!subscriptionReservationActive || this.trustedSubscriptionLifecycle === undefined) return;
+          await this.trustedSubscriptionLifecycle.releaseByReservationKey({
+            organizationId, reservationKey: callSessionId, now: authoritativeReceivedAt,
+          });
+          subscriptionReservationActive = false;
+        };
         while (true) {
-          admission = await this.pstnAdmissionCoordinator.reserve({
+          const reserveAdmission = async () => {
+            const result = await this.pstnAdmissionCoordinator.reserve({
             tenantId: organizationId,
             callSessionId,
             provider: connection.provider,
@@ -2818,7 +3246,95 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
               durableConnection.posture.status !== "disabled" &&
               (durableConnection.posture.healthStatus !== "failed" ||
                 !durableConnection.posture.blockRoutingOnHealthFailure),
-          });
+            });
+            if (result.outcome !== "admitted") {
+              throw new PaygProviderStartDeniedError(result);
+            }
+            return result;
+          };
+          if (isPaygCall) {
+            if (this.trustedPaygCallStart === undefined) {
+              return this.failTwilioAdmission({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                callSessionId,
+                reasonCode: "billing_reservation_unavailable",
+                limitingDimension: "tenant",
+              });
+            }
+            try {
+              const ttlSeconds = requirePositiveEnvironmentInteger(
+                "PAYG_RESERVATION_TTL_SECONDS",
+              );
+              const started = await this.trustedPaygCallStart.start({
+                organizationId,
+                callSessionId,
+                effectiveAt: authoritativeReceivedAt,
+                maximumCallSeconds: requirePositiveEnvironmentInteger(
+                  "PAYG_MAXIMUM_CALL_SECONDS",
+                ),
+                runtimePath,
+                ownershipMode: "byo",
+                provider: connection.provider,
+                direction: "inbound",
+                reservationExpiresAt: new Date(
+                  Date.parse(authoritativeReceivedAt) + ttlSeconds * 1_000,
+                ).toISOString(),
+                startProvider: reserveAdmission,
+              });
+              if (started.outcome === "blocked") {
+                return this.failTwilioAdmission({
+                  organizationId,
+                  connectionId: connection.id,
+                  callSid: payload.CallSid,
+                  eventSid,
+                  callSessionId,
+                  reasonCode: started.reason,
+                  limitingDimension: "tenant",
+                });
+              }
+              admission = started.providerResult;
+              paygReservationActive = true;
+            } catch (error) {
+              if (!(error instanceof PaygProviderStartDeniedError)) {
+                return this.failTwilioAdmission({
+                  organizationId,
+                  connectionId: connection.id,
+                  callSid: payload.CallSid,
+                  eventSid,
+                  callSessionId,
+                  reasonCode: "billing_reservation_unavailable",
+                  limitingDimension: "tenant",
+                });
+              }
+              return this.failTwilioAdmission({
+                organizationId,
+                connectionId: connection.id,
+                callSid: payload.CallSid,
+                eventSid,
+                callSessionId,
+                reasonCode: error.admission.reasonCode,
+                limitingDimension: error.admission.limitingDimension,
+              });
+            }
+          } else {
+            try {
+              admission = await this.pstnAdmissionCoordinator.reserve({
+                tenantId: organizationId, callSessionId, provider: connection.provider,
+                providerAccountId, runtime: runtimePath,
+                ...(premiumWorkerTarget === undefined ? {} : { workerId: premiumWorkerTarget.workerId,
+                  workerReleaseId: premiumWorkerTarget.releaseId }),
+                providerAvailable: durableConnection.posture.status !== "disabled" &&
+                  (durableConnection.posture.healthStatus !== "failed" ||
+                    !durableConnection.posture.blockRoutingOnHealthFailure),
+              });
+            } catch (error) {
+              await releaseSubscriptionReservation();
+              throw error;
+            }
+          }
           if (admission.outcome === "admitted") {
             break;
           }
@@ -2832,6 +3348,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
               excludedWorkerIds.length
               >= pstnPremiumWorkerReselectionMaxAttempts
             ) {
+              await releaseSubscriptionReservation();
               return this.failTwilioAdmission({
                 organizationId,
                 connectionId: connection.id,
@@ -2864,6 +3381,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
               continue;
             }
           }
+          await releaseSubscriptionReservation();
           return this.failTwilioAdmission({
             organizationId,
             connectionId: connection.id,
@@ -3117,6 +3635,15 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           });
         } finally {
           if (!callSetupPersisted) {
+            await releaseSubscriptionReservation();
+            if (paygReservationActive) {
+              await this.trustedPaygCallStart?.releaseStartedCall({
+                organizationId,
+                callSessionId,
+                now: authoritativeReceivedAt,
+              });
+              paygReservationActive = false;
+            }
             logTwilioPstnDiagnostic(
               this.logger,
               "webhook_admission_claim_retained",
@@ -3439,16 +3966,36 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
 
   private async resolveLiveRoutePolicyPosture(input: {
     organizationId: string;
-    tenantStatus?: TelephonyTenantPosture | undefined;
+    ownershipMode?: TelephonyConnectionOwnershipMode | undefined;
+    meterClass?: "standard" | "premium" | undefined;
+    now?: string | undefined;
   }): Promise<TelephonyLiveRoutePolicyPosture> {
-    const billing = await this.billingService?.getBillingState(input.organizationId);
-    const budget = resolveBillingBudgetPosture(billing);
-
+    const commercial = await this.trustedCommercialModeResolver?.resolve(
+      input.organizationId,
+      input.now ?? new Date().toISOString(),
+      input.meterClass ?? "standard",
+    ) ?? { mode: "unavailable" as const };
+    let tenantStatus: TelephonyTenantPosture = "suspended";
+    try {
+      const durableTenant = await this.tenantStatusRepository?.getStatus(input.organizationId);
+      if (durableTenant?.outcome === "found" && durableTenant.status === "active") {
+        tenantStatus = "active";
+      }
+    } catch {
+      tenantStatus = "suspended";
+    }
     return {
-      subscriptionStatus: normalizeBillingSubscriptionStatus(billing?.subscription.status),
-      tenantStatus: input.tenantStatus ?? "active",
-      budgetAction: budget.action,
-      budgetReasons: budget.reasons,
+      subscriptionStatus: commercial.mode === "subscription" ? "active"
+        : commercial.mode === "payg" ? "none" : "canceled",
+      subscriptionAccessAllowed:
+        commercial.mode !== "unavailable" && commercial.available === true,
+      tenantStatus,
+      budgetAction: commercial.mode !== "unavailable" && commercial.available === true
+        ? "allow"
+        : "block",
+      budgetReasons: commercial.mode !== "unavailable" && commercial.available === true
+        ? []
+        : ["Durable billing allowance is unavailable or exhausted."],
     };
   }
 
@@ -3668,14 +4215,18 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   private async resolvePstnPremiumRealtimePolicyPosture(input: {
     organizationId: string;
   }): Promise<PstnPremiumRealtimeCallStartPolicy> {
-    const billing = await this.billingService?.getBillingState(input.organizationId);
-    const budget = resolveBillingBudgetPosture(billing);
-    const entitlementGranted =
-      billing?.entitlements.some(
-        (entitlement) =>
-          entitlement.id === "benefit-premium-runtime" &&
-          entitlement.status === "granted",
-      ) ?? false;
+    const commercial = await this.trustedCommercialModeResolver?.resolve(
+      input.organizationId,
+      new Date().toISOString(),
+      "premium",
+    ) ?? { mode: "unavailable" as const };
+    const trustedPaygCandidate = commercial.mode === "payg"
+      && commercial.available === true
+      && this.trustedPaygCallStart !== undefined;
+    const entitlementGranted = trustedPaygCandidate
+      || (commercial.mode === "subscription"
+        && commercial.available === true
+        && commercial.premiumAllowed);
 
     return {
       provider: "openai-realtime",
@@ -3691,7 +4242,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         enabled: entitlementGranted,
         ...(entitlementGranted ? {} : { reason: "Premium realtime PSTN entitlement is not granted for this tenant." }),
       },
-      budgetAction: budget.action,
+      budgetAction: commercial.mode !== "unavailable" && commercial.available === true
+        ? "allow"
+        : "block",
       fallbackPolicy: "block",
     };
   }
@@ -3764,60 +4317,6 @@ function resolveSecret(input: {
   }
 
   return sharedSecret;
-}
-
-function normalizeBillingSubscriptionStatus(
-  status: TenantBillingStateResponse["subscription"]["status"] | undefined,
-): TelephonySubscriptionPosture {
-  switch (status) {
-    case "active":
-    case "trialing":
-    case "none":
-    case "past_due":
-    case "canceled":
-      return status;
-    default:
-      return "active";
-  }
-}
-
-function resolveBillingBudgetPosture(
-  billing: TenantBillingStateResponse | undefined,
-): { action: TelephonyBudgetPosture; reasons: string[] } {
-  if (billing === undefined) {
-    return { action: "allow", reasons: [] };
-  }
-
-  const reasons: string[] = [];
-  const totalTelephonyMinutes = billing.telephonyMinuteAggregates.reduce(
-    (total, aggregate) => total + aggregate.billableMinutes,
-    0,
-  );
-  const premiumRuntimeUsage = billing.usage.find((usage) =>
-    usage.id.includes("premium-realtime"),
-  );
-
-  if (billing.plan.budgetUsedUsd >= billing.budgetPolicy.monthlyBudgetUsd) {
-    reasons.push("monthly_budget_exceeded");
-  }
-  if (totalTelephonyMinutes >= billing.budgetPolicy.callMinuteLimit) {
-    reasons.push("call_minute_limit_exceeded");
-  }
-  if (
-    premiumRuntimeUsage !== undefined &&
-    premiumRuntimeUsage.used >= billing.budgetPolicy.premiumRuntimeMinuteLimit
-  ) {
-    reasons.push("premium_runtime_limit_exceeded");
-  }
-
-  if (reasons.length === 0) {
-    return { action: "allow", reasons };
-  }
-
-  return {
-    action: billing.budgetPolicy.overBudgetBehavior === "block" ? "block" : "warn",
-    reasons,
-  };
 }
 
 function evaluateConnectionHealth(input: {
@@ -5012,6 +5511,15 @@ function isTerminalPstnLifecycleStage(stage: TelephonyCallLifecycleStage) {
   return stage === "completed" || stage === "failed" || stage === "expired";
 }
 
+function elapsedWholeSeconds(startedAt: string, endedAt: string) {
+  const startedAtMs = Date.parse(startedAt);
+  const endedAtMs = Date.parse(endedAt);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs) || endedAtMs < startedAtMs) {
+    throw new Error("Trusted billing lifecycle timestamps are invalid.");
+  }
+  return Math.floor((endedAtMs - startedAtMs) / 1_000);
+}
+
 function isStalePstnLifecycleObservation(
   current: TelephonyCallLifecycleState,
   next: TelephonyCallLifecycleState,
@@ -5054,6 +5562,27 @@ function canTransitionPstnLifecycle(
     expired: [],
   };
   return allowed[current].includes(next);
+}
+
+function requireEnvironmentText(name: string) {
+  const value = process.env[name]?.trim();
+  if (value === undefined || value.length === 0) {
+    throw new Error(`${name} is required for PAYG live calls.`);
+  }
+  return value;
+}
+
+function requirePositiveEnvironmentInteger(name: string) {
+  const value = Number(requireEnvironmentText(name));
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive safe integer.`);
+  }
+  return value;
+}
+
+function readPositiveEnvironmentInteger(name: string) {
+  const value = Number(process.env[name]?.trim());
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function normalizeServicePhoneNumber(value: string) {

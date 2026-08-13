@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useReducer } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
 import {
   Clock3,
@@ -311,7 +311,6 @@ function useSandboxScreenModel({
     },
   });
   const availableTools = manifest.toolBindings;
-  const budgetRemainingUsd = Math.max(0, manifest.budget.monthlyCapUsd - manifest.budget.currentSpendUsd);
   const lastEvent = liveSession.events.at(-1);
   const selectedWorkflowOptionId = getSandboxWorkflowVersionOptionId(selectedPublishedWorkflow);
   const inspectedMonitorSession = useMemo(
@@ -698,7 +697,6 @@ function useSandboxScreenModel({
     activeWorkspace,
     allowedCallerNumber,
     availableTools,
-    budgetRemainingUsd,
     declineEscalation,
     endPhoneTest,
     escalations,
@@ -759,7 +757,10 @@ function SandboxScreenView({ model }: { model: SandboxScreenModel }) {
       ) : null}
       <SandboxToolbar model={model} />
       <div className="sandbox-grid">
-        {model.sandboxMode === "phone-test" ? <SandboxPhoneTestPanel model={model} /> : <SandboxBrowserSurface model={model} />}
+        <div className="sandbox-primary-column">
+          {model.sandboxMode === "phone-test" ? <SandboxPhoneTestPanel model={model} /> : <SandboxBrowserSurface model={model} />}
+          <SandboxUtilities model={model} />
+        </div>
         <SandboxSideColumn model={model} />
       </div>
     </div>
@@ -1027,11 +1028,13 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
   );
 }
 
-function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
+type SandboxUtility = "escalations" | "monitor" | "replay" | "routing" | "tools" | "manifest";
+
+function SandboxUtilities({ model }: { model: SandboxScreenModel }) {
+  const [activeUtility, setActiveUtility] = useState<SandboxUtility>("monitor");
   const {
     acceptEscalation,
     availableTools,
-    budgetRemainingUsd,
     declineEscalation,
     escalations,
     escalationsError,
@@ -1054,8 +1057,24 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
   const entryAgentModelTier = getRuntimeManifestEntryModelTier(manifest);
 
   return (
-    <aside className="sandbox-side-column">
-      <Card className="surface-card sandbox-side-card">
+    <section className="sandbox-utilities">
+      <div className="sandbox-utility-tabs" role="tablist" aria-label="Sandbox utilities">
+        {([
+          ["escalations", "Escalations", String(escalations.filter((item) => item.status === "pending").length)],
+          ["monitor", "Monitor", `${monitorSessions.filter((item) => item.status === "active").length} live`],
+          ["replay", "Replay", ""],
+          ["routing", "Routing", ""],
+          ["tools", "Tools", String(availableTools.length)],
+          ["manifest", "Manifest", ""],
+        ] as const).map(([id, label, count]) => (
+          <Button key={id} aria-label={label} aria-selected={activeUtility === id} className={activeUtility === id ? "sandbox-utility-tab sandbox-utility-tab-active" : "sandbox-utility-tab"} role="tab" type="button" variant="ghost" onClick={() => setActiveUtility(id)}>
+            <span>{label}</span>
+            {count !== "" ? <span className="sandbox-utility-count">{count}</span> : null}
+          </Button>
+        ))}
+      </div>
+      <div className="sandbox-utility-content" role="tabpanel">
+      {activeUtility === "escalations" ? <Card className="surface-card sandbox-utility-panel">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Escalations</div>
@@ -1102,9 +1121,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             </div>
           ))}
         </div>
-      </Card>
+      </Card> : null}
 
-      <Card className="surface-card sandbox-side-card">
+      {activeUtility === "monitor" ? <Card className="surface-card sandbox-utility-panel">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Monitor</div>
@@ -1142,9 +1161,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             </div>
           ))}
         </div>
-      </Card>
+      </Card> : null}
 
-      <Card className="surface-card sandbox-side-card">
+      {activeUtility === "replay" ? <Card className="surface-card sandbox-utility-panel">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Replay</div>
@@ -1190,12 +1209,11 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             </div>
           ) : null}
         </div>
-      </Card>
+      </Card> : null}
 
-      <Card className="surface-card sandbox-side-card">
+      {activeUtility === "routing" ? <Card className="surface-card sandbox-utility-panel">
         <div className="sandbox-side-header">
           <div>
-            <div className="eyebrow-copy">Runtime decision</div>
             <div className="workflow-panel-title">Current routing</div>
           </div>
           <StatusPill tone={liveSession.lastRoutingDecision?.tier === "standard" ? "blue" : liveSession.lastRoutingDecision?.tier === "sota" ? "red" : "neutral"}>
@@ -1207,25 +1225,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Rule" value={liveSession.lastRoutingDecision?.matchedRuleId ?? "default"} />
           <div className="body-copy">{liveSession.lastRoutingDecision?.reason ?? "Start a live turn to inspect the selected routing path."}</div>
         </div>
-      </Card>
+      </Card> : null}
 
-      <Card className="surface-card sandbox-side-card">
-        <div className="sandbox-side-header">
-          <div>
-            <div className="eyebrow-copy">Live cost</div>
-            <div className="workflow-panel-title">Budget posture</div>
-          </div>
-          <div className="metric-value">${budgetRemainingUsd.toFixed(0)}</div>
-        </div>
-        <div className="sandbox-side-stack">
-          <MetricPair label="Budget remaining" value={`$${budgetRemainingUsd.toFixed(2)}`} />
-          <MetricPair label="Projected per minute" value={`$${manifest.budget.projectedCostPerMinuteUsd.toFixed(2)}`} />
-          <MetricPair label="Runtime profile" value={formatRuntimeProfile(manifest.runtimeProfile)} />
-          <div className="body-copy">The control plane is running the live browser sandbox on the current published budget policy for this workflow.</div>
-        </div>
-      </Card>
-
-      <Card className="surface-card sandbox-side-card">
+      {activeUtility === "tools" ? <Card className="surface-card sandbox-utility-panel">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Available tools</div>
@@ -1246,29 +1248,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             </div>
           ))}
         </div>
-      </Card>
+      </Card> : null}
 
-      <Card className="surface-card sandbox-side-card">
-        <div className="sandbox-side-header">
-          <div>
-            <div className="eyebrow-copy">Session metrics</div>
-            <div className="workflow-panel-title">Operational view</div>
-          </div>
-          <Mic size={16} />
-        </div>
-        <div className="sandbox-stat-grid">
-          <MetricCard label="Turn count" value={String(liveSession.metrics.turnCount)} detail="conversation turns" />
-          <MetricCard label="Events" value={String(liveSession.metrics.eventCount)} detail="transport updates" />
-          <MetricCard label="Input mode" value="Voice" detail="active caller channel" />
-          <MetricCard
-            label="Latency"
-            value={liveSession.metrics.lastCallLatencyMs !== undefined ? `${liveSession.metrics.lastCallLatencyMs}ms` : "--"}
-            detail="caller turn to first audio"
-          />
-        </div>
-      </Card>
-
-      <Card className="surface-card sandbox-side-card">
+      {activeUtility === "manifest" ? <Card className="surface-card sandbox-utility-panel">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Manifest</div>
@@ -1289,6 +1271,49 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             })}
           />
           <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
+        </div>
+      </Card> : null}
+      </div>
+    </section>
+  );
+}
+
+function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
+  const { liveSession, manifest } = model;
+  const projectedCostPerMinute = manifest.budget.projectedCostPerMinuteUsd > 0
+    ? `$${manifest.budget.projectedCostPerMinuteUsd.toFixed(2)}/min`
+    : "Estimate unavailable";
+
+  return (
+    <aside className="sandbox-side-column">
+      <Card className="surface-card sandbox-side-card">
+        <div className="sandbox-side-header">
+          <div>
+            <div className="eyebrow-copy">Non-billable estimate</div>
+            <div className="workflow-panel-title">Sandbox cost</div>
+          </div>
+          <div className="metric-value">{projectedCostPerMinute}</div>
+        </div>
+        <div className="sandbox-side-stack">
+          <MetricPair label="Published estimate" value={projectedCostPerMinute} />
+          <MetricPair label="Runtime profile" value={formatRuntimeProfile(manifest.runtimeProfile)} />
+          <div className="body-copy">Browser sandbox use is not billed. Production charges use the active billing account.</div>
+        </div>
+      </Card>
+
+      <Card className="surface-card sandbox-side-card">
+        <div className="sandbox-side-header">
+          <div>
+            <div className="eyebrow-copy">Session metrics</div>
+            <div className="workflow-panel-title">Operational view</div>
+          </div>
+          <Mic size={16} />
+        </div>
+        <div className="sandbox-stat-grid">
+          <MetricCard label="Turn count" value={String(liveSession.metrics.turnCount)} detail="conversation turns" />
+          <MetricCard label="Events" value={String(liveSession.metrics.eventCount)} detail="transport updates" />
+          <MetricCard label="Input mode" value="Voice" detail="active caller channel" />
+          <MetricCard label="Latency" value={liveSession.metrics.lastCallLatencyMs !== undefined ? `${liveSession.metrics.lastCallLatencyMs}ms` : "--"} detail="caller turn to first audio" />
         </div>
       </Card>
     </aside>

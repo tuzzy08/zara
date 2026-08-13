@@ -72,6 +72,9 @@ billing:
 - [ ] Runtime cost rates are known or missing-rate alerts are documented.
 - [ ] Telephony minute accounting is preserved across rollout and rollback.
 - [ ] Tenant budget warning/block behavior is verified for billing changes.
+- [ ] Charge delivery requires the explicit feature flag and current persisted approval, internal-tenant canary, selected-tenant canary, reconciliation, and drill evidence for the exact catalog and release.
+- [ ] A tested charge-stop control blocks new delivery without deleting ledger or outbox facts.
+- [ ] Only explicitly selected outbox rows promoted for the exact release ID can deliver; historical and new shadow rows remain non-chargeable.
 
 observability:
 

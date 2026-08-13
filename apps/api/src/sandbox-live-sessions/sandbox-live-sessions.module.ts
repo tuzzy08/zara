@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 
-import { IntegrationsModule } from "../integrations/integrations.module";
+import { IntegrationsRuntimeModule } from "../integrations/integrations-runtime.module";
 import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
@@ -34,7 +34,7 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
 
 @Module({
   imports: [
-    IntegrationsModule,
+    IntegrationsRuntimeModule,
     RuntimeAgentToolExecutionModule,
     RuntimePromptPolicyModule,
     VoiceLibraryModule,

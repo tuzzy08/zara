@@ -71,6 +71,7 @@
 .signal-nav a, .signal-header-actions a { transition: color 180ms var(--signal-ease); }
 .signal-nav a:hover, .signal-header-actions a:hover { color: white; }
 .signal-header-actions { display: flex; align-items: center; justify-self: end; gap: 22px; font-size: 11px; text-transform: uppercase; }
+.signal-mobile-pricing { display: none; }
 .signal-header-cta { border: 1px solid #bdbdb7; padding: 10px 13px; }
 
 .signal-hero {
@@ -288,6 +289,39 @@
 .signal-status-sequence i { width: 28px; height: 2px; background: #111; animation: signal-status 2.4s steps(2) infinite; }
 .signal-status-sequence i:nth-child(2){animation-delay:-.6s}.signal-status-sequence i:nth-child(3){animation-delay:-1.2s}.signal-status-sequence i:nth-child(4){animation-delay:-1.8s}
 
+.signal-pricing { align-content: start; min-height: 980px; border-bottom: 1px solid var(--signal-line-dark); padding-bottom: 90px; }
+.signal-pricing-heading { grid-column: 3 / 10; padding: 110px var(--signal-pad) 70px; }
+.signal-pricing-heading > p:last-child { max-width: 600px; color: #999; line-height: 1.6; }
+.signal-pricing-plans { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--signal-line-dark); border-bottom: 1px solid var(--signal-line-dark); }
+.signal-pricing-plans article { position: relative; display: flex; min-height: 560px; flex-direction: column; border-right: 1px solid var(--signal-line-dark); padding: 30px; }
+.signal-pricing-plans article:last-child { border-right: 0; }
+.signal-pricing-plans article.is-featured { background: var(--signal-paper); color: var(--signal-ink); }
+.signal-pricing-plan-head { display: flex; min-height: 22px; align-items: center; justify-content: space-between; font-family: "Courier New", monospace; font-size: 8px; letter-spacing: .13em; }
+.signal-pricing-plan-head small { border: 1px solid currentColor; padding: 5px 7px; font-size: 7px; }
+.signal-pricing-plans h3, .signal-pricing-payg h3 { margin: 70px 0 18px; font-size: clamp(32px, 3.2vw, 54px); font-weight: 400; letter-spacing: -.05em; }
+.signal-pricing-price { display: flex; align-items: baseline; gap: 9px; margin: 0 0 46px; }
+.signal-pricing-price strong { font-size: clamp(50px, 5vw, 82px); font-weight: 400; letter-spacing: -.07em; }
+.signal-pricing-price span { color: #888; font-size: 12px; }
+.signal-pricing dl { margin: 0; }
+.signal-pricing dl div { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid currentColor; font-size: 11px; }
+.signal-pricing dt { color: #888; }
+.signal-pricing dd { margin: 0; font-family: "Courier New", monospace; font-size: 10px; }
+.signal-pricing-plans article > a, .signal-pricing-payg > a { display: flex; align-items: center; justify-content: space-between; margin-top: auto; border-top: 1px solid currentColor; padding-top: 22px; font-family: "Courier New", monospace; font-size: 10px; text-transform: uppercase; }
+.signal-pricing-plans article > a span, .signal-pricing-payg > a span { transition: transform 180ms var(--signal-ease); }
+.signal-pricing-plans article > a:hover span, .signal-pricing-payg > a:hover span { transform: translate(3px, -3px); }
+.signal-pricing-payg { grid-column: 1 / -1; display: grid; grid-template-columns: 4fr 2fr 3fr 2fr; min-height: 245px; align-items: stretch; border-bottom: 1px solid var(--signal-line-dark); }
+.signal-pricing-payg > * { display: flex; flex-direction: column; justify-content: center; border-right: 1px solid var(--signal-line-dark); padding: 28px 30px; }
+.signal-pricing-payg > *:last-child { border-right: 0; }
+.signal-pricing-payg > div:first-child > span { font-family: "Courier New", monospace; font-size: 8px; letter-spacing: .13em; }
+.signal-pricing-payg h3 { margin: 32px 0 8px; font-size: 34px; }
+.signal-pricing-payg p { margin: 0; color: #888; font-size: 12px; }
+.signal-pricing-credit { gap: 10px; }
+.signal-pricing-credit strong { font-size: 25px; font-weight: 400; }
+.signal-pricing-credit span { color: #888; font-size: 10px; text-transform: uppercase; }
+.signal-pricing-payg dl { align-self: center; width: 100%; }
+.signal-pricing-payg > a { margin: 0; }
+.signal-pricing-note { grid-column: 1 / -1; margin: 0; padding: 20px 30px 0; color: #777; font-family: "Courier New", monospace; font-size: 8px; line-height: 1.6; text-transform: uppercase; }
+
 .signal-notes { min-height: 790px; align-content: start; }
 .signal-feature-note { grid-column: 1 / 7; margin: 0 0 90px var(--signal-pad); background: #121212; color: white !important; }
 .signal-principle-orbit { position: relative; display: grid; min-height: 380px; place-items: center; overflow: hidden; background: radial-gradient(circle, #6a6a66, #121212 58%); }
@@ -349,6 +383,7 @@
 
 @media (max-width: 1100px) {
   .signal-nav { display: none; }
+  .signal-mobile-pricing { display: inline; }
   .signal-header { grid-template-columns: 1fr 1fr; }
   .signal-hero-copy { grid-column: 1 / 8; }
   .signal-control-surface { grid-column: 7 / 13; margin-right: 22px; }
@@ -383,6 +418,12 @@
   .signal-feature-panel { grid-column: 1 / 5; }.signal-tabs { grid-template-columns: 1fr 1fr; }.signal-feature-content { grid-template-columns: 1fr; }.signal-feature-machine { min-height: 430px; }
   .signal-integration-grid { grid-column: 1 / 5; grid-template-columns: repeat(3, 1fr); }
   .signal-proof-grid { grid-column: 1 / 5; grid-template-columns: 1fr 1fr; }.signal-proof-grid article { grid-column: span 1; }
+  .signal-pricing-heading { grid-column: 1 / 5; padding: 80px 22px 55px; }
+  .signal-pricing-plans { grid-column: 1 / 5; grid-template-columns: 1fr; }
+  .signal-pricing-plans article { min-height: 510px; border-right: 0; border-bottom: 1px solid var(--signal-line-dark); padding: 28px 22px; }
+  .signal-pricing-payg { grid-column: 1 / 5; grid-template-columns: 1fr 1fr; }
+  .signal-pricing-payg > * { min-height: 170px; border-bottom: 1px solid var(--signal-line-dark); padding: 24px 22px; }
+  .signal-pricing-note { grid-column: 1 / 5; }
   .signal-feature-note, .signal-note-list { grid-column: 1 / 5; margin: 0 16px 45px; }
   .signal-faq-heading, .signal-faq-list { grid-column: 1 / 5; }.signal-faq-heading { min-height: 510px; }.signal-faq-list { border-left: 0; }
   .signal-closing > div { grid-column: 1 / 5; padding: 90px 22px; }
@@ -400,6 +441,8 @@
   .signal-feature-machine { grid-template-columns: 1fr; }.signal-machine-bars { height: 120px; }
   .signal-integration-grid { grid-template-columns: 1fr 1fr; }
   .signal-proof-grid { grid-template-columns: 1fr; }.signal-proof-grid article { min-height: 320px; }
+  .signal-pricing-payg { grid-template-columns: 1fr; }
+  .signal-pricing-payg > * { min-height: 140px; border-right: 0; }
   .signal-faq-list summary { grid-template-columns: 65px 1fr 18px; padding: 0 14px; }.signal-faq-list details p { margin: 0 24px 26px 96px; }
 }
 

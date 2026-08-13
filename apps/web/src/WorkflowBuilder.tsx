@@ -259,11 +259,11 @@ const workflowId = "workflow-inbound-support-triage";
 const environment = "production";
 const workflowBuilderSessionDraftStoragePrefix = "zara.web.workflow-builder-session-draft.v1";
 const draftSandboxTelephonyProvider: TelephonyProvider = "browser-webrtc";
-const temporaryWorkflowBudgetPolicy: RuntimeManifestPreview["budget"] = {
-  monthlyCapUsd: 80,
+const noProductionBillingContextBudgetPolicy: RuntimeManifestPreview["budget"] = {
+  monthlyCapUsd: 0,
   currentSpendUsd: 0,
-  projectedCostPerMinuteUsd: 0.18,
-  blockOnLimit: true,
+  projectedCostPerMinuteUsd: 0,
+  blockOnLimit: false,
 };
 
 function comparePublishedWorkflowVersions(a: PublishedWorkflowVersion, b: PublishedWorkflowVersion) {
@@ -910,7 +910,7 @@ function useWorkflowBuilderScreenModel({
           retrievalScopes: ["session", "caller", "account"],
           approvalRequired: true,
         },
-        budget: temporaryWorkflowBudgetPolicy,
+        budget: noProductionBillingContextBudgetPolicy,
       }),
     [currentWorkflowId, resolvedOrganizationId, workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );

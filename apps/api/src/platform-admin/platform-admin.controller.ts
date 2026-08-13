@@ -48,23 +48,30 @@ export class PlatformAdminController {
   constructor(private readonly platformAdminService: PlatformAdminService) {}
 
   @Get("dashboard")
-  getDashboard() {
+  async getDashboard() {
     return {
-      dashboard: this.platformAdminService.getDashboard(),
+      dashboard: await this.platformAdminService.getDashboard(),
+    };
+  }
+
+  @Get("billing")
+  async getBilling() {
+    return {
+      billing: await this.platformAdminService.getBilling(),
     };
   }
 
   @Get("organizations")
-  listOrganizations() {
+  async listOrganizations() {
     return {
-      organizations: this.platformAdminService.listOrganizations(),
+      organizations: await this.platformAdminService.listOrganizations(),
     };
   }
 
   @Get("organizations/:organizationId")
-  getOrganization(@Param("organizationId") organizationId: string) {
+  async getOrganization(@Param("organizationId") organizationId: string) {
     return {
-      organization: this.platformAdminService.getOrganization(organizationId),
+      organization: await this.platformAdminService.getOrganization(organizationId),
     };
   }
 
@@ -236,13 +243,13 @@ export class PlatformAdminController {
   }
 
   @Get("audit-logs")
-  listAuditLogs(
+  async listAuditLogs(
     @Query("actorUserId") actorUserId?: string,
     @Query("tenantId") tenantId?: string,
     @Query("action") action?: string,
   ) {
     return {
-      auditLogs: this.platformAdminService.listAuditLogs({
+      auditLogs: await this.platformAdminService.listAuditLogs({
         actorUserId,
         tenantId,
         action,

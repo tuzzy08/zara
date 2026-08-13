@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Inject, NotFoundException, Param, Patch, Post, Res, UseGuards } from "@nestjs/common";
 
 import {
   TenantAuth,
@@ -11,6 +11,7 @@ import type {
   CreateBillingCheckoutRequest,
   CreateBudgetCheckRequest,
   CreateCustomerPortalRequest,
+  CreatePaygCheckoutRequest,
   CreateRuntimeCostEventRequest,
   CreateTelephonyMinuteEventRequest,
   CreateUsageBillingEventRequest,
@@ -18,9 +19,17 @@ import type {
   UpdateBudgetPolicyRequest,
 } from "./billing.models";
 
+export const ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE = Symbol(
+  "ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE",
+);
+
 @Controller()
 export class BillingController {
-  constructor(private readonly billingService: BillingService) {}
+  constructor(
+    private readonly billingService: BillingService,
+    @Inject(ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE)
+    private readonly allowLegacyUsageTestFixture: boolean,
+  ) {}
 
   @Get("organizations/:organizationId/billing/state")
   @UseGuards(TenantOrganizationGuard)
@@ -51,6 +60,21 @@ export class BillingController {
   ) {
     return {
       portal: await this.billingService.createCustomerPortal(organizationId, withTenantActor(body, tenantAuth)),
+    };
+  }
+
+  @Post("organizations/:organizationId/billing/payg-checkout")
+  @UseGuards(TenantOrganizationGuard)
+  async createPaygCheckout(
+    @Param("organizationId") organizationId: string,
+    @Body() body: CreatePaygCheckoutRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
+  ) {
+    return {
+      checkout: await this.billingService.createPaygCheckout(
+        organizationId,
+        withTenantActor(body, tenantAuth),
+      ),
     };
   }
 
@@ -89,6 +113,7 @@ export class BillingController {
     @Res({ passthrough: true }) response: { status: (statusCode: number) => void },
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
+    this.assertLegacyUsageTestFixture();
     const usageEvent = await this.billingService.createUsageBillingEvent(
       organizationId,
       withTenantActor(body, tenantAuth),
@@ -108,6 +133,7 @@ export class BillingController {
     @Res({ passthrough: true }) response: { status: (statusCode: number) => void },
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
+    this.assertLegacyUsageTestFixture();
     const telephonyMinuteEvent = await this.billingService.createTelephonyMinuteEvent(
       organizationId,
       withTenantActor(body, tenantAuth),
@@ -127,6 +153,7 @@ export class BillingController {
     @Res({ passthrough: true }) response: { status: (statusCode: number) => void },
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
+    this.assertLegacyUsageTestFixture();
     const runtimeCostEvent = await this.billingService.createRuntimeCostEvent(
       organizationId,
       withTenantActor(body, tenantAuth),
@@ -157,5 +184,11 @@ export class BillingController {
     return {
       webhook,
     };
+  }
+
+  private assertLegacyUsageTestFixture() {
+    if (!this.allowLegacyUsageTestFixture) {
+      throw new NotFoundException("Billing usage mutations are server-owned.");
+    }
   }
 }

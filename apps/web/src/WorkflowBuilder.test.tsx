@@ -345,6 +345,12 @@ describe("WorkflowBuilderScreen", () => {
 
       expect(storedVersions).toHaveLength(1);
       expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
+      expect(storedVersions[0]?.manifestPreview.budget).toEqual({
+        monthlyCapUsd: 0,
+        currentSpendUsd: 0,
+        projectedCostPerMinuteUsd: 0,
+        blockOnLimit: false,
+      });
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));

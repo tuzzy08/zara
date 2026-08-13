@@ -3191,7 +3191,7 @@ Edge cases:
 
 Acceptance criteria:
 - Signed-out visitors on `/` see the voice-agent agency landing page instead of the tenant auth form
-- Landing page includes product-positioned SEO copy, voice-system capabilities, workflow-builder proof, operational telemetry, results, FAQ, final CTA, and footer
+- Landing page includes product-positioned SEO copy, voice-system capabilities, workflow-builder proof, operational telemetry, results, approved subscription and PAYG pricing, FAQ, final CTA, and footer
 - `/login` and `/signup` render dedicated auth pages for tenant access
 - Authenticated users who visit `/login` or `/signup` are returned to the tenant app
 
@@ -5480,3 +5480,173 @@ Acceptance criteria:
 - Frontend/admin and DOM test totals meet the approved ranges or a safer variance is explicitly justified.
 - Complete ordinary layers, affected typecheck/lint/build gates, and applicable runtime/PSTN evals pass.
 - Final counts, lines, timing, pass/fail evidence, statuses, handovers, and roadmap summary are reconciled.
+
+### ISSUE-241: Production billing model and versioned price catalog
+
+- Priority: P0
+- Area: Billing / Architecture / Security
+- Milestone: Production Billing
+- Labels: billing, architecture, backend, security, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-241-production-billing-model.md](../docs/Handovers/ISSUE-241-production-billing-model.md)
+- External: [Linear ZAR-262](https://linear.app/zara-voice/issue/ZAR-262/specify-the-production-billing-model-and-versioned-price-catalog)
+
+Acceptance criteria:
+- One approved charge model defines each subscription and PAYG fixed charge, credit pack, included unit, customer meter, overage, trial, grace period, refund, adjustment, tax rule, and billing currency.
+- BYO provider charges and platform-managed provider charges are separate and explicit.
+- Supplier cost and customer price use separate fields and accounting rules.
+- Price catalog versions are immutable after use and have effective dates.
+- Polar product, meter, benefit, and price mappings are configuration data, not source-code placeholders.
+- Each hardcoded billing value found in the audit has a removal or explicit demo-only disposition.
+- ISSUE-242 through ISSUE-248 are fully specified for TDD implementation.
+
+### ISSUE-242: Tenant-safe Postgres billing ledger and price-catalog persistence
+
+- Priority: P0
+- Area: Billing / API / Data / Security
+- Milestone: Production Billing
+- Labels: billing, backend, architecture, security, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-241
+- Handover: [docs/Handovers/ISSUE-242-postgres-billing-ledger.md](../docs/Handovers/ISSUE-242-postgres-billing-ledger.md)
+- External: [Linear ZAR-263](https://linear.app/zara-voice/issue/ZAR-263/build-the-tenant-safe-postgres-billing-ledger-and-price-catalog)
+
+Acceptance criteria:
+- Production billing state uses Postgres and no new tenant receives a fake subscription, balance, invoice, entitlement, usage record, or plan.
+- Money uses integer minor units or fixed decimal storage.
+- Ledger, webhook, outbox, subscription, invoice, adjustment, budget, and price rows have tenant ownership and required idempotency constraints.
+- Used price versions and append-only charge entries cannot be rewritten.
+- Supplier cost and customer charge remain separate.
+- Paid PAYG orders, credit grants, credit consumption, remaining balances, and their idempotency rules use durable tenant-owned records.
+- Rolling migration, rollback, concurrency, corruption, persistence, and tenant-isolation tests pass.
+
+### ISSUE-243: Trusted runtime and telephony billing usage producers
+
+- Priority: P1
+- Area: Billing / Runtime / Telephony
+- Milestone: Production Billing
+- Labels: billing, backend, runtime, telephony, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-241, ISSUE-242
+- Handover: [docs/Handovers/ISSUE-243-trusted-billing-usage.md](../docs/Handovers/ISSUE-243-trusted-billing-usage.md)
+- External: [Linear ZAR-264](https://linear.app/zara-voice/issue/ZAR-264/connect-trusted-runtime-and-telephony-usage-to-the-billing-ledger)
+
+Acceptance criteria:
+- Trusted server runtime and terminal call events create standard runtime, premium realtime, and platform-managed telephony usage exactly once.
+- BYO and platform-managed provider usage are classified separately.
+- The same trusted usage facts support subscription charges and PAYG credit debits without accepting a client-supplied price or amount.
+- Browser sandbox and phone-test usage are explicitly non-billable or use a separate class.
+- Tenant request bodies cannot create billable facts.
+- Missing rate or provider usage data produces an incomplete record and never a silent zero or estimated charge.
+- Duplicate, delayed, out-of-order, lifecycle, concurrency, and tenant-isolation tests pass.
+
+### ISSUE-244: Durable Polar billing outbox and reconciliation
+
+- Priority: P0
+- Area: Billing / Integrations / Infrastructure
+- Milestone: Production Billing
+- Labels: billing, backend, integrations, devops, security, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-241, ISSUE-242, ISSUE-243
+- Handover: [docs/Handovers/ISSUE-244-polar-outbox-reconciliation.md](../docs/Handovers/ISSUE-244-polar-outbox-reconciliation.md)
+- External: [Linear ZAR-265](https://linear.app/zara-voice/issue/ZAR-265/deliver-billing-events-through-a-durable-polar-outbox-and)
+
+Acceptance criteria:
+- Ledger commit and outbox enqueue occur in one database transaction.
+- Polar outages do not lose usage or block call finalization.
+- Retry, replay, and crash recovery use stable external event IDs and cannot create duplicate charges.
+- Startup validates production Polar credentials, server mode, and product/meter mappings.
+- Reconciliation identifies missing, duplicate, late, and mismatched usage by tenant and cycle.
+- Credits-only PAYG debit events use stable IDs and reconcile against the related Zara session debit and Polar meter balance.
+- Late and dead-letter events emit low-cardinality metrics and alert signals.
+- Outbox worker, retry, dead-letter, replay, config, reconciliation, and tenant-isolation tests pass.
+
+### ISSUE-245: Polar subscription, invoice, refund, and payment-state synchronization
+
+- Priority: P0
+- Area: Billing / Integrations / Security
+- Milestone: Production Billing
+- Labels: billing, backend, integrations, security, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-241, ISSUE-242, ISSUE-244
+- Handover: [docs/Handovers/ISSUE-245-polar-payment-state-sync.md](../docs/Handovers/ISSUE-245-polar-payment-state-sync.md)
+- External: [Linear ZAR-266](https://linear.app/zara-voice/issue/ZAR-266/harden-polar-subscription-invoice-refund-and-payment-state)
+
+Acceptance criteria:
+- Unknown provider states never default to active.
+- Webhook signature verification fails closed in production.
+- Replay, out-of-order delivery, multiple subscriptions, and missed webhooks produce one correct final state.
+- Refunds, adjustments, payment failures, cancellations, entitlements, and grace periods update local access posture.
+- One-time PAYG credit-pack orders, grants, refunds, and reversals produce one correct durable credit balance.
+- Currency and provider amounts are validated before storage.
+- Scheduled customer-state reconciliation repairs missed webhook state and records an audit entry.
+
+### ISSUE-246: Live budget reservations and charge finalization
+
+- Priority: P0
+- Area: Billing / Runtime / Telephony
+- Milestone: Production Billing
+- Labels: billing, backend, runtime, telephony, security, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-241, ISSUE-242, ISSUE-243, ISSUE-245
+- Handover: [docs/Handovers/ISSUE-246-budget-reservations.md](../docs/Handovers/ISSUE-246-budget-reservations.md)
+- External: [Linear ZAR-267](https://linear.app/zara-voice/issue/ZAR-267/enforce-live-budgets-with-charge-reservations-and-finalization)
+
+Acceptance criteria:
+- Atomic reservations prevent concurrent calls from exceeding the effective tenant allowance.
+- PAYG reservations cannot exceed paid available credit and cannot create an unpaid overage.
+- Abandoned reservations expire and recover safely.
+- Finalization is idempotent, applies actual usage, and releases unused value.
+- Subscription, credit, entitlement, budget, and tenant posture come from current durable state.
+- Polar downtime does not weaken Zara access control.
+- Mid-call subscription, budget, provider, and security transitions follow documented closeout rules.
+
+### ISSUE-247: Production billing data for tenant and platform displays
+
+- Priority: P1
+- Area: Billing / Frontend / Platform Admin
+- Milestone: Production Billing
+- Labels: billing, frontend, platform-admin, backend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-241, ISSUE-242, ISSUE-243, ISSUE-245, ISSUE-246
+- Handover: [docs/Handovers/ISSUE-247-production-billing-ui-data.md](../docs/Handovers/ISSUE-247-production-billing-ui-data.md)
+- External: [Linear ZAR-268](https://linear.app/zara-voice/issue/ZAR-268/replace-hardcoded-tenant-and-platform-billing-displays-with-production)
+
+Acceptance criteria:
+- Operational UI has no hardcoded spend, balance, plan, invoice, included-unit, or budget values.
+- New tenants see an honest no-subscription and no-usage state.
+- Workflow publish does not use the temporary USD 80 budget.
+- Sandbox values are clearly non-billable estimates unless a production charge context is selected.
+- Platform billing views use guarded production APIs and readonly staff cannot mutate controls.
+- Currency-aware formatting and explicit demo states replace USD-only and production-looking sample data.
+- PAYG users see paid credit, reserved credit, remaining credit, per-session debits, top-up actions, and no-subscription state from production read models.
+
+### ISSUE-248: Shadow billing qualification and controlled charge release
+
+- Priority: P0
+- Area: Billing / Deployment / Observability
+- Milestone: Production Billing
+- Labels: billing, devops, observability, testing, security, tdd-required
+- Status: Blocked
+- Blocked by: ISSUE-241, ISSUE-242, ISSUE-243, ISSUE-244, ISSUE-245, ISSUE-246, ISSUE-247
+- External blocker: real completed-cycle runtime provider reports, controlled Polar and tenant canaries, and billing/security/release approvals
+- Handover: [docs/Handovers/ISSUE-248-shadow-billing-release.md](../docs/Handovers/ISSUE-248-shadow-billing-release.md)
+- External: [Linear ZAR-269](https://linear.app/zara-voice/issue/ZAR-269/run-shadow-billing-reconcile-draft-invoices-and-release-real-charges)
+
+Acceptance criteria:
+- Shadow mode records all usage but creates no customer charge.
+- Daily reports compare Zara ledger, provider usage, Polar meters, credits, and draft invoice totals by tenant and cycle.
+- Shadow checks cover PAYG top-up orders, credit grants, reservations, session debits, refunds, and zero-balance stops.
+- Each mismatch class has an owner, correction rule, and audit record.
+- Zara can stop charge delivery without losing usage facts.
+- Internal and selected-tenant canaries complete with approved evidence.
+- Refund, adjustment, late-event, duplicate-event, invoice-dispute, rollback, and charge-stop drills pass.
+- Real charges require a recorded go/no-go approval.
+
+Implementation status:
+- Local release controls, reconciliation, drill execution, promotion, rollback, and evidence-integrity checks are implemented and independently reviewed.
+- Provider-native Cartesia, OpenAI, and Gemini facts are reconciled without converting provider units to Zara runtime seconds. Subscription cycles are restricted to full UTC days in the database and all billing access paths.
+- Charge delivery remains disabled.
+- Completion is blocked on deployed runtime report credentials and real completed-cycle provider reports, Polar sandbox evidence, internal and selected-tenant canaries, and the required billing, security, and release approvals. Twilio evidence is connected through existing encrypted tenant credentials.
+- Linear has no Blocked workflow state. ZAR-269 remains In Progress with the `ready-for-human` label and a blocker comment.

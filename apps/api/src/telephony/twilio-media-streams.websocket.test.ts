@@ -13,6 +13,12 @@ import {
 import WebSocket, { type RawData } from "ws";
 
 import { ComplianceModule } from "../compliance/compliance.module";
+import { BILLING_POLAR_CLIENT } from "../billing/polar-billing.client";
+import { TrustedBillingUsageProducer } from "../billing/trusted-billing-usage-producer";
+import {
+  BILLING_STATE_REPOSITORY,
+  FileBillingStateRepository,
+} from "../billing/billing-state.repository";
 import { configureCors } from "../config/cors";
 import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import {
@@ -42,6 +48,10 @@ import {
   type PstnCallAdmission,
 } from "./pstn-call-admission";
 import { TelephonyService } from "./telephony.service";
+import {
+  createPolarClient,
+  ensureTestBillingPlan,
+} from "./telephony.controller.test-support";
 import {
   PSTN_MEDIA_PROCESS_ROLE,
   PSTN_MEDIA_WORKER_READINESS,
@@ -2486,6 +2496,19 @@ async function createRoutedTwilioApp(options?: {
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
+    .overrideProvider(BILLING_STATE_REPOSITORY)
+    .useValue(
+      new FileBillingStateRepository(
+        join(tmpdir(), "zara-telephony-websocket-billing-tests", randomUUID()),
+      ),
+    )
+    .overrideProvider(BILLING_POLAR_CLIENT)
+    .useValue(createPolarClient())
+    .overrideProvider(TrustedBillingUsageProducer)
+    .useValue({
+      async recordTerminalCall() {},
+      async recordRuntimeSession() {},
+    })
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
     .useValue(
       new FileTelephonyStateRepository(
@@ -2594,6 +2617,7 @@ async function createRoutedTwilioApp(options?: {
   configureCors(app);
   installTestTenantAuth(app);
   await app.listen(0);
+  await ensureTestBillingPlan(app, "tenant-west-africa");
 
   const authToken = "twilio-auth-token-1234567890";
   const connectResponse = await request(app.getHttpServer())

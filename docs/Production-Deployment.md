@@ -41,6 +41,8 @@ Production-critical environment variables:
 - a unique `PSTN_WORKER_ID` in each worker application and the same deployed artifact identifier in `PSTN_WORKER_RELEASE_ID`
 - worker heartbeat, drain, resource, WebSocket, and concurrency limits from `deploy/coolify.env.example`
 - Provider secrets for AssemblyAI, Cartesia, OpenAI, Twilio, OAuth connectors, Polar, and webhook signing
+- `ZARA_RELEASE_ID` with the exact immutable API release candidate ID
+- `BILLING_CHARGE_DELIVERY_ENABLED=false` unless the persisted ISSUE-248 gate passes for the same catalog and release
 
 ## Release Process
 
@@ -143,6 +145,8 @@ Provider rollback:
 - [ ] Provider webhook URLs target `https://api.zara.ai`.
 - [ ] Telephony credential key version and legacy keys are reviewed.
 - [ ] Polar is set to production mode with production webhook secret.
+- [ ] Real charge delivery is disabled, or the persisted approval, internal and selected-tenant canaries, reconciliation, and drills are current and match `POLAR_BILLING_CATALOG_ID` and `ZARA_RELEASE_ID`.
+- [ ] The emergency charge-stop procedure in `docs/Runbooks/billing-charge-release-gate.md` is ready and preserves ledger and outbox facts.
 - [ ] Migration plan and rollback owner are recorded.
 - [ ] `docs/Observability-Dashboards.md` has been reviewed for current dashboard coverage, alert thresholds, and trace correlation.
 - [ ] Platform-admin AI runtime observability has a passing LangSmith trace check or a recorded LangSmith outage override with local deterministic eval pass and owner signoff.

@@ -54,7 +54,7 @@ Workflow drafts, workflow versions, runtime manifests, sandbox sessions, monitor
 
 ## Telephony
 
-Telephony connections include ownership mode, provider, region, status, credential reference, inbound mapping, outbound caller ID policy, recording policy, failover settings, and health status.
+Telephony connections include ownership mode, provider, region, status, credential reference, inbound mapping, outbound caller ID policy, recording policy, failover settings, and health status. Call lifecycle state keeps the first trusted provider connection time through terminal persistence so billing can calculate connected seconds without a client-supplied duration.
 
 ## Integrations
 
@@ -63,6 +63,12 @@ Integration connections include provider, OAuth app ownership, scopes, encrypted
 ## Memory
 
 Memory records include scope, subject reference, source call/transcript/tool, text/fact payload, embedding, confidence, approval state, retention state, and audit metadata.
+
+## Billing
+
+The approved price catalog is global, versioned, and immutable. Tenant-owned billing customers, subscriptions, cycles, budget policies, entitlements, invoices, ledger entries, adjustments, PAYG orders, PAYG credit entries, reservation accounts, charge reservations, webhook receipts, and outbox records use Postgres.
+
+Money uses integer USD minor units. Ledger entries keep customer charges and supplier costs in separate fields. Trusted runtime facts keep raw seconds. Platform-managed carrier facts keep route-rounded minutes. Non-billable and incomplete facts remain explicit. Tenant-qualified idempotency keys prevent duplicate usage charges and duplicate PAYG credit changes. PAYG debit entries store the related `session_id`, and their outbox events use the credits-only `payg_charge_minor` meter. A tenant reservation-account row serializes concurrent reservation, finalization, and release updates. Charge reservations use tenant-qualified keys and cannot increase the active reserved amount above current paid PAYG credit. A finalized reservation stores its actual amount, session ID, and finalization time. Its actual amount cannot exceed its reserved amount. A failed-start release stores its release time, returns its full claim, and creates no debit. `billing_tenant_states` is a non-authoritative public read-model cache; it is not financial history.
 
 ## Invariants
 
@@ -75,3 +81,5 @@ Memory records include scope, subject reference, source call/transcript/tool, te
 - Every secret is stored as an encrypted credential reference.
 - Every durable memory record is visible and deletable through tenant policy.
 - Every usage event is idempotent and attributable.
+- Every durable billing fact is tenant-owned, except the global approved catalog and provider mapping configuration.
+- Published catalog, ledger, adjustment, and PAYG credit rows are append-only.

@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import type { PlatformRole } from "@zara/core";
+import { Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { platformRoles, type PlatformRole } from "@zara/core";
+import { randomUUID } from "node:crypto";
 
 import { AuditLogService } from "../compliance/audit-log.service";
 import { runtimeObservabilityMetricsStore } from "../runtime-observability/runtime-observability";
@@ -16,6 +17,7 @@ import { PremiumRealtimeConversationPolicyService } from "../premium-realtime-po
 import type { UpdateRuntimeRoutePolicyInput } from "../runtime-route-policy/runtime-route-policy.models";
 import { RuntimeRoutePolicyService } from "../runtime-route-policy/runtime-route-policy.service";
 import { TelephonyService } from "../telephony/telephony.service";
+import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
 import type {
   PlatformAbuseComplianceReview,
   PlatformAdminAuditEntry,
@@ -24,6 +26,7 @@ import type {
   PlatformBillingControls,
   PlatformImpersonationSession,
   PlatformIntegrationConnection,
+  PlatformOrganizationBillingReadModel,
   PlatformOrganizationStatus,
   PlatformOrganizationSummary,
   PlatformRuntimeProviderHealth,
@@ -32,6 +35,7 @@ import type {
   PlatformTelephonyConnection,
 } from "./platform-admin.models";
 import type { PlatformAdminRequestContext } from "./platform-admin.guard";
+import { PostgresPlatformBillingReadRepository } from "./platform-billing-read.repository";
 
 @Injectable()
 export class PlatformAdminService {
@@ -52,9 +56,13 @@ export class PlatformAdminService {
     private readonly runtimeRoutePolicyService: RuntimeRoutePolicyService,
     private readonly telephonyService: TelephonyService,
     private readonly pstnCapacityObservability: PstnCapacityObservability,
+    private readonly tenantStatusRepository: PostgresTenantStatusRepository,
+    @Optional()
+    private readonly platformBillingReadRepository?: PostgresPlatformBillingReadRepository,
   ) {}
 
-  getDashboard(): PlatformAdminDashboard {
+  async getDashboard(): Promise<PlatformAdminDashboard> {
+    const billing = await this.getBilling();
     return {
       systemHealth: {
         status: "operational",
@@ -79,9 +87,13 @@ export class PlatformAdminService {
         modelProvider: "openai",
       },
       spend: {
-        monthToDateUsd: 1842.55,
-        premiumRealtimeUsd: 318.2,
-        tenantsOverBudget: 1,
+        currency: billing.currency,
+        shadowEstimateMinor: billing.shadowEstimateMinor,
+        premiumShadowEstimateMinor: billing.premiumShadowEstimateMinor,
+        deliveredChargeMinor: billing.deliveredChargeMinor,
+        incompleteUsageCount: billing.incompleteUsageCount,
+        blockedUsageCount: billing.blockedUsageCount,
+        tenantsOverBudget: billing.tenantsOverBudget,
       },
       queues: {
         abuseReviewCount: 2,
@@ -91,35 +103,71 @@ export class PlatformAdminService {
     };
   }
 
-  listOrganizations() {
-    return clone(this.organizations);
+  async listOrganizations() {
+    const billing = this.platformBillingReadRepository === undefined
+      ? null
+      : await this.getBilling();
+    return Promise.all(this.organizations.map((organization) =>
+      this.resolveDurableOrganization(
+        organization,
+        billing?.organizations.find((item) => item.organizationId === organization.id) ?? null,
+      )));
   }
 
-  getOrganization(organizationId: string) {
-    return clone(this.findOrganization(organizationId));
+  async getOrganization(organizationId: string) {
+    const billing = this.platformBillingReadRepository === undefined
+      ? null
+      : await this.getBilling();
+    return this.resolveDurableOrganization(
+      this.findOrganization(organizationId),
+      billing?.organizations.find((item) => item.organizationId === organizationId) ?? null,
+    );
   }
 
-  updateOrganizationStatus(
+  async updateOrganizationStatus(
     context: PlatformAdminRequestContext,
     organizationId: string,
     input: { status: PlatformOrganizationStatus; reason: string },
   ) {
     const organization = this.findOrganization(organizationId);
+    const audit = this.createAuditEntry(context, {
+      tenantId: organization.id,
+      targetType: "organization",
+      targetId: organization.id,
+      action: "platform.organization.status_updated",
+      metadata: {
+        status: input.status,
+        reason: input.reason,
+      },
+    });
+    const persisted = await this.tenantStatusRepository.updateStatusWithAudit({
+      tenantId: organizationId,
+      status: input.status === "suspended" ? "suspended" : "active",
+      audit: {
+        id: audit.id,
+        actorType: "user",
+        actorId: audit.actorUserId,
+        action: audit.action,
+        targetType: audit.targetType,
+        targetId: audit.targetId,
+        metadata: {
+          ...audit.metadata,
+          actorRole: audit.actorRole,
+          outcome: audit.outcome,
+        },
+        occurredAt: audit.occurredAt,
+      },
+    });
+    if (persisted.outcome === "missing") {
+      throw new NotFoundException(`Organization '${organizationId}' was not found.`);
+    }
 
     organization.status = input.status;
+    this.auditLogs.push(audit);
 
     return {
       organization: clone(organization),
-      audit: this.recordAudit(context, {
-        tenantId: organization.id,
-        targetType: "organization",
-        targetId: organization.id,
-        action: "platform.organization.status_updated",
-        metadata: {
-          status: input.status,
-          reason: input.reason,
-        },
-      }),
+      audit: clone(audit),
     };
   }
 
@@ -200,6 +248,13 @@ export class PlatformAdminService {
         },
       }),
     };
+  }
+
+  async getBilling() {
+    if (this.platformBillingReadRepository === undefined) {
+      throw new ServiceUnavailableException("Platform billing read storage is unavailable.");
+    }
+    return this.platformBillingReadRepository.read();
   }
 
   listIntegrationConnections() {
@@ -342,26 +397,12 @@ export class PlatformAdminService {
     organizationId: string,
     input: Partial<PlatformBillingControls>,
   ) {
-    const organization = this.findOrganization(organizationId);
-
-    organization.billingControls = {
-      ...organization.billingControls,
-      ...input,
-    };
-
-    return {
-      billingControls: clone(organization.billingControls),
-      audit: this.recordAudit(context, {
-        tenantId: organization.id,
-        targetType: "billing_controls",
-        targetId: organization.id,
-        action: "platform.billing_controls.updated",
-        metadata: {
-          monthlyBudgetUsd: organization.billingControls.monthlyBudgetUsd,
-          premiumRealtimeEnabled: organization.billingControls.premiumRealtimeEnabled,
-        },
-      }),
-    };
+    void context;
+    void organizationId;
+    void input;
+    throw new ServiceUnavailableException(
+      "Platform billing-control mutation is disabled until a durable billing budget writer is available.",
+    );
   }
 
   async createImpersonationSession(
@@ -502,12 +543,15 @@ export class PlatformAdminService {
     };
   }
 
-  listAuditLogs(filters: {
+  async listAuditLogs(filters: {
     actorUserId?: string | undefined;
     tenantId?: string | undefined;
     action?: string | undefined;
   }) {
-    return clone(this.auditLogs.filter((entry) => {
+    const durable = (await this.tenantStatusRepository.listAuditLogs(filters))
+      .map(mapDurablePlatformAudit);
+    const durableIds = new Set(durable.map((entry) => entry.id));
+    const inMemory = this.auditLogs.filter((entry) => {
       if (filters.actorUserId !== undefined && entry.actorUserId !== filters.actorUserId) {
         return false;
       }
@@ -516,8 +560,10 @@ export class PlatformAdminService {
         return false;
       }
 
-      return !(filters.action !== undefined && entry.action !== filters.action);
-    }));
+      return !durableIds.has(entry.id)
+        && !(filters.action !== undefined && entry.action !== filters.action);
+    });
+    return clone([...durable, ...inMemory]);
   }
 
   private findOrganization(organizationId: string) {
@@ -528,6 +574,36 @@ export class PlatformAdminService {
     }
 
     return organization;
+  }
+
+  private async resolveDurableOrganization(
+    organization: PlatformOrganizationSummary,
+    billing: PlatformOrganizationBillingReadModel | null,
+  ) {
+    const result = await this.tenantStatusRepository.getStatus(organization.id);
+    if (
+      result.outcome === "missing"
+      || (result.status !== "active" && result.status !== "suspended")
+    ) {
+      throw new ServiceUnavailableException("Durable tenant status is unavailable.");
+    }
+    return {
+      ...clone(organization),
+      status: result.status,
+      plan: billing?.subscription?.planSlug ?? null,
+      usage: billing?.usage === null || billing?.usage === undefined
+        ? null
+        : {
+            ...billing.usage,
+            overBudget: billing.budget?.overBudget ?? false,
+          },
+      billingControls: billing?.budget === null || billing?.budget === undefined
+        ? null
+        : {
+            currency: billing.budget.currency,
+            overageLimitMinor: billing.budget.overageLimitMinor,
+          },
+    };
   }
 
   private recordAudit(
@@ -541,8 +617,24 @@ export class PlatformAdminService {
       impersonationSessionId?: string | undefined;
     },
   ) {
+    const entry = this.createAuditEntry(context, input);
+    this.auditLogs.push(entry);
+    return clone(entry);
+  }
+
+  private createAuditEntry(
+    context: PlatformAdminRequestContext,
+    input: {
+      tenantId?: string | undefined;
+      targetType: string;
+      targetId: string;
+      action: string;
+      metadata: Record<string, string | number | boolean>;
+      impersonationSessionId?: string | undefined;
+    },
+  ) {
     const entry: PlatformAdminAuditEntry = {
-      id: `platform_audit_${this.auditLogs.length + 1}`,
+      id: `platform_audit_${randomUUID()}`,
       actorUserId: context.actorUserId,
       actorRole: context.platformRole,
       tenantId: input.tenantId,
@@ -559,9 +651,7 @@ export class PlatformAdminService {
       occurredAt: "2026-05-24T09:00:00.000Z",
     };
 
-    this.auditLogs.push(entry);
-
-    return clone(entry);
+    return entry;
   }
 }
 
@@ -579,13 +669,8 @@ function seedOrganizations(): PlatformOrganizationSummary[] {
       id: "tenant-west-africa",
       name: "Tuzzy Labs",
       status: "active",
-      plan: "scale",
-      usage: {
-        monthToDateUsd: 1260.42,
-        callMinutes: 8432,
-        premiumRealtimeMinutes: 82,
-        overBudget: false,
-      },
+      plan: null,
+      usage: null,
       telephony: {
         connectionModes: ["platform_managed", "byo_sip_trunk", "byo_provider_account"],
         failingRoutes: 1,
@@ -597,22 +682,14 @@ function seedOrganizations(): PlatformOrganizationSummary[] {
         revokedConnections: 0,
       },
       riskFlags: ["prompt_injection_flag", "outbound_velocity_watch"],
-      billingControls: {
-        monthlyBudgetUsd: 1500,
-        premiumRealtimeEnabled: true,
-      },
+      billingControls: null,
     },
     {
       id: "tenant-healthdesk",
       name: "Healthdesk Reception",
       status: "trialing",
-      plan: "starter",
-      usage: {
-        monthToDateUsd: 248.1,
-        callMinutes: 982,
-        premiumRealtimeMinutes: 12,
-        overBudget: false,
-      },
+      plan: null,
+      usage: null,
       telephony: {
         connectionModes: ["platform_managed"],
         failingRoutes: 0,
@@ -624,10 +701,7 @@ function seedOrganizations(): PlatformOrganizationSummary[] {
         revokedConnections: 1,
       },
       riskFlags: ["data_residency_gap"],
-      billingControls: {
-        monthlyBudgetUsd: 500,
-        premiumRealtimeEnabled: false,
-      },
+      billingControls: null,
     },
   ];
 }
@@ -858,4 +932,33 @@ function review(
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function mapDurablePlatformAudit(
+  record: Awaited<ReturnType<PostgresTenantStatusRepository["listAuditLogs"]>>[number],
+): PlatformAdminAuditEntry {
+  const actorRole = record.metadata["actorRole"];
+  const outcome = record.metadata["outcome"];
+  if (
+    record.actorType !== "user"
+    || !platformRoles.includes(actorRole as PlatformRole)
+    || (outcome !== "succeeded" && outcome !== "failed")
+  ) {
+    throw new Error("Canonical platform audit metadata is invalid.");
+  }
+  const metadata = { ...record.metadata };
+  delete metadata.actorRole;
+  delete metadata.outcome;
+  return {
+    id: record.id,
+    actorUserId: record.actorId,
+    actorRole: actorRole as PlatformRole,
+    tenantId: record.tenantId,
+    targetType: record.targetType,
+    targetId: record.targetId ?? "",
+    action: record.action,
+    outcome,
+    metadata,
+    occurredAt: record.occurredAt,
+  };
 }

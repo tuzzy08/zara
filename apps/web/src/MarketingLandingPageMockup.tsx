@@ -103,6 +103,12 @@ const proofItems: Array<[string, string, GlyphName]> = [
   ["Support", "Uses approved knowledge and tools before escalating with context.", "handoff"],
 ];
 
+const subscriptionPlans = [
+  { name: "Starter", price: "$49", standard: "200 min", premium: "0 min included", standardOverage: "$0.15/min", premiumOverage: "$0.40/min" },
+  { name: "Growth", price: "$149", standard: "1,000 min", premium: "50 min", standardOverage: "$0.12/min", premiumOverage: "$0.35/min" },
+  { name: "Scale", price: "$499", standard: "3,000 min", premium: "200 min", standardOverage: "$0.10/min", premiumOverage: "$0.30/min" },
+] as const;
+
 const questions = [
   ["Product", "How does Zara handle call routing?", "A published workflow resolves the active agent, route policy, available tools, and safe fallback for every turn."],
   ["Security", "How is caller and tenant data protected?", "Tenant-scoped access, encrypted secrets, auditable actions, and explicit retention controls are part of the platform model."],
@@ -195,8 +201,8 @@ export function MarketingLandingPageMockup() {
     <main className="signal-page">
       <header className="signal-header" role="banner">
         <NavLink className="signal-brand" to="/" aria-label="Zara home"><SignalMark compact /><span>ZARA</span></NavLink>
-        <nav className="signal-nav" aria-label="Primary"><a href="#capabilities">Capabilities</a><a href="#product">Product</a><a href="#proof">Use cases</a></nav>
-        <div className="signal-header-actions"><NavLink to="/login">Sign in</NavLink><NavLink className="signal-header-cta" to="/signup">Build a workflow</NavLink></div>
+        <nav className="signal-nav" aria-label="Primary"><a href="#capabilities">Capabilities</a><a href="#product">Product</a><a href="#proof">Use cases</a><a href="#pricing">Pricing</a></nav>
+        <div className="signal-header-actions"><a className="signal-mobile-pricing" href="#pricing">Pricing</a><NavLink to="/login">Sign in</NavLink><NavLink className="signal-header-cta" to="/signup">Build a workflow</NavLink></div>
       </header>
 
       <section className="signal-hero signal-grid" aria-labelledby="signal-hero-title">
@@ -292,6 +298,26 @@ export function MarketingLandingPageMockup() {
         <div className="signal-proof-grid">{proofItems.map(([title, copy, glyph], index) => <article key={title} className={`signal-proof-card-${index}`}><div><span>0{index + 1}</span><SignalGlyph name={glyph} /></div><h3>{title}</h3><div className="signal-status-sequence"><i /><i /><i /><i /></div><small>OPERATIONAL SIGNAL</small><p>{copy}</p></article>)}</div>
       </section>
 
+      <section id="pricing" className="signal-pricing signal-grid" aria-labelledby="pricing-title">
+        <div className="signal-pricing-heading"><p className="signal-kicker">PRICING</p><h2 id="pricing-title">Pricing that follows the work</h2><p>Start with a 14-day trial that includes 30 standard sandbox minutes. The trial has no premium runtime or live platform telephony. Then choose a plan or buy prepaid credit.</p></div>
+        <div className="signal-pricing-plans">
+          {subscriptionPlans.map((plan, index) => <article key={plan.name} className={plan.name === "Growth" ? "is-featured" : undefined}>
+            <div className="signal-pricing-plan-head"><span>0{index + 1} / SUBSCRIPTION</span>{plan.name === "Growth" && <small>MOST POPULAR</small>}</div>
+            <h3>{plan.name}</h3>
+            <p className="signal-pricing-price"><strong>{plan.price}</strong><span>/ month</span></p>
+            <dl><div><dt>Standard runtime</dt><dd>{plan.standard}</dd></div><div><dt>Premium runtime</dt><dd>{plan.premium}</dd></div><div><dt>Standard overage</dt><dd>{plan.standardOverage}</dd></div><div><dt>Premium overage</dt><dd>{plan.premiumOverage}</dd></div></dl>
+            <NavLink to="/signup">Create workspace <span>↗</span></NavLink>
+          </article>)}
+        </div>
+        <article className="signal-pricing-payg">
+          <div><span>04 / PREPAID</span><h3>Pay as you go</h3><p>For individual use without a monthly subscription.</p></div>
+          <div className="signal-pricing-credit"><strong>$5 credit pack</strong><span>$0 monthly fee</span></div>
+          <dl><div><dt>Standard runtime</dt><dd>$0.18/min</dd></div><div><dt>Premium runtime</dt><dd>$0.45/min</dd></div></dl>
+          <NavLink to="/signup">Create workspace <span>↗</span></NavLink>
+        </article>
+        <p className="signal-pricing-note">Overage is off by default. Prices exclude tax. Platform-managed Nigeria outbound telephony is $0.35/min plus runtime. PAYG stops when credit reaches zero. Included runtime resets each billing period.</p>
+      </section>
+
       <section id="principles" className="signal-notes signal-grid" aria-labelledby="notes-title">
         <div className="signal-section-intro"><p className="signal-kicker">OPERATING PRINCIPLES</p><h2 id="notes-title">Control before complexity</h2></div>
         <article className="signal-feature-note"><div className="signal-principle-orbit"><SignalGlyph name="policy" /><i /><i /><i /></div><h3>Design workflows around clear outcomes, safe boundaries, and visible decisions.</h3><small>PRINCIPLE 01 / SYSTEM DESIGN</small></article>
@@ -305,7 +331,7 @@ export function MarketingLandingPageMockup() {
 
       <section id="start" className="signal-closing signal-grid" aria-labelledby="closing-title"><div><SignalGlyph name="signal" /><p className="signal-kicker">GET STARTED</p><h2 id="closing-title">Make the next call work better</h2><p>Build the workflow, test the conversation, and see every operational signal.</p><NavLink className="signal-button signal-button-light" to="/signup">Build a workflow <span>↗</span></NavLink></div></section>
 
-      <footer className="signal-footer signal-grid"><div className="signal-footer-mark"><SignalMark /><p>Voice operations,<br />designed end to end.</p></div><nav aria-label="Footer product"><strong>PRODUCT</strong><a href="#product">Workflows</a><a href="#telemetry">Monitoring</a><a href="#integrations">Integrations</a><NavLink to="/login">Sign in</NavLink></nav><nav aria-label="Footer company"><strong>EXPLORE</strong><a href="#proof">Use cases</a><a href="#principles">Principles</a><a href="#faq">FAQ</a><NavLink to="/signup">Contact</NavLink></nav><nav aria-label="Footer access"><strong>ACCESS</strong><NavLink to="/login">Sign in</NavLink><NavLink to="/signup">Create workspace</NavLink><a href="#start">Get started</a></nav><div className="signal-footer-word" aria-hidden="true">zara</div><small>©2026 Zara Technologies. Voice operations, designed end to end.</small></footer>
+      <footer className="signal-footer signal-grid"><div className="signal-footer-mark"><SignalMark /><p>Voice operations,<br />designed end to end.</p></div><nav aria-label="Footer product"><strong>PRODUCT</strong><a href="#product">Workflows</a><a href="#telemetry">Monitoring</a><a href="#integrations">Integrations</a><a href="#pricing">Pricing</a><NavLink to="/login">Sign in</NavLink></nav><nav aria-label="Footer company"><strong>EXPLORE</strong><a href="#proof">Use cases</a><a href="#principles">Principles</a><a href="#faq">FAQ</a><NavLink to="/signup">Contact</NavLink></nav><nav aria-label="Footer access"><strong>ACCESS</strong><NavLink to="/login">Sign in</NavLink><NavLink to="/signup">Create workspace</NavLink><a href="#start">Get started</a></nav><div className="signal-footer-word" aria-hidden="true">zara</div><small>©2026 Zara Technologies. Voice operations, designed end to end.</small></footer>
     </main>
   );
 }

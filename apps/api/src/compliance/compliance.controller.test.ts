@@ -6,11 +6,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
 
+import { BILLING_POLAR_CLIENT } from "../billing/polar-billing.client";
+import {
+  BILLING_STATE_REPOSITORY,
+  FileBillingStateRepository,
+} from "../billing/billing-state.repository";
 import { MemoryModule } from "../memory/memory.module";
 import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import { TelephonyModule } from "../telephony/telephony.module";
 import { TELEPHONY_INCREMENTAL_REPOSITORY } from "../telephony/telephony-incremental.repository";
 import { InMemoryTelephonyIncrementalRepository } from "../telephony/telephony-incremental.repository.test-helper";
+import {
+  createPolarClient,
+  ensureTestBillingPlan,
+} from "../telephony/telephony.controller.test-support";
 import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
@@ -302,6 +311,10 @@ async function createTestingApp(): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({
     imports: [MemoryModule, TelephonyModule, ComplianceModule],
   })
+    .overrideProvider(BILLING_STATE_REPOSITORY)
+    .useValue(new FileBillingStateRepository(join(stateRoot, "billing")))
+    .overrideProvider(BILLING_POLAR_CLIENT)
+    .useValue(createPolarClient())
     .overrideProvider(TELEPHONY_STATE_REPOSITORY)
     .useValue({
       listOrganizationIds: () => stateRepository.listOrganizationIds(),
@@ -325,6 +338,7 @@ async function createTestingApp(): Promise<INestApplication> {
   const app = moduleRef.createNestApplication();
   installTestTenantAuth(app);
   await app.init();
+  await ensureTestBillingPlan(app, "tenant-west-africa");
 
   return app;
 }

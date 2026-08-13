@@ -480,8 +480,6 @@ export async function dispatchOutboundTelephonyCallViaApi(input: {
   workflowLabel: string;
   workspaceId: string;
   consentGranted: boolean;
-  budgetRemainingUsd: number;
-  estimatedCostUsd: number;
   localHour: number;
   callingWindow: { startHour: number; endHour: number };
 }) {
@@ -497,8 +495,6 @@ export async function dispatchOutboundTelephonyCallViaApi(input: {
         workflowLabel: input.workflowLabel,
         workspaceId: input.workspaceId,
         consentGranted: input.consentGranted,
-        budgetRemainingUsd: input.budgetRemainingUsd,
-        estimatedCostUsd: input.estimatedCostUsd,
         localHour: input.localHour,
         callingWindow: input.callingWindow,
       }),

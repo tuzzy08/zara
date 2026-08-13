@@ -11,6 +11,7 @@ import type {
   TelephonyMinuteEventResponse,
   UsageBillingEventResponse,
 } from "./billing.models";
+import type { Pool, PoolClient } from "pg";
 import {
   createTenantJsonStateRepository,
   type TenantJsonStateRepository,
@@ -23,7 +24,7 @@ export interface PersistedBillingStateRecord {
   organizationId: string;
   customerExternalId: string;
   providerCustomerId?: string | undefined;
-  plan: BillingPlanResponse;
+  plan: BillingPlanResponse | null;
   subscription: BillingSubscriptionResponse;
   usage: BillingUsageMetricResponse[];
   budgetPolicy: BillingBudgetPolicyResponse;
@@ -78,10 +79,59 @@ export class FileBillingStateRepository implements BillingStateRepository {
   }
 }
 
+export class PostgresBillingStateRepository implements BillingStateRepository {
+  constructor(private readonly database: Pick<Pool, "connect">) {}
+
+  async load(organizationId: string) {
+    const client = await this.database.connect();
+    try {
+      const result = await client.query<{ state: unknown }>(
+        `select state
+         from billing_tenant_states
+         where tenant_id = $1`,
+        [organizationId],
+      );
+      const state = result.rows[0]?.state;
+      if (state === undefined) {
+        return null;
+      }
+      if (!isPersistedBillingStateRecord(state, organizationId)) {
+        throw new Error(`Stored billing state for ${organizationId} is invalid.`);
+      }
+
+      return cloneState(normalizePersistedBillingStateRecord(state));
+    } finally {
+      client.release();
+    }
+  }
+
+  async save(state: PersistedBillingStateRecord) {
+    const client = await this.database.connect();
+    try {
+      await client.query("begin");
+      await ensureTenantShell(client, state.organizationId);
+      await client.query(
+        `insert into billing_tenant_states (tenant_id, state, updated_at)
+         values ($1, $2::jsonb, $3)
+         on conflict (tenant_id) do update set
+           state = excluded.state,
+           updated_at = excluded.updated_at`,
+        [state.organizationId, JSON.stringify(state), state.updatedAt],
+      );
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
 function cloneState(state: PersistedBillingStateRecord): PersistedBillingStateRecord {
   return {
     ...state,
-    plan: { ...state.plan },
+    plan: state.plan === null ? null : { ...state.plan },
     subscription: { ...state.subscription },
     usage: state.usage.map((usage) => ({ ...usage })),
     budgetPolicy: { ...state.budgetPolicy },
@@ -146,4 +196,13 @@ function normalizePersistedBillingStateRecord(
     runtimeCostEvents: record.runtimeCostEvents ?? [],
     processedWebhookIds: record.processedWebhookIds ?? [],
   };
+}
+
+async function ensureTenantShell(client: PoolClient, organizationId: string) {
+  await client.query(
+    `insert into tenants (id, slug, name)
+     values ($1, $1, $1)
+     on conflict (id) do nothing`,
+    [organizationId],
+  );
 }

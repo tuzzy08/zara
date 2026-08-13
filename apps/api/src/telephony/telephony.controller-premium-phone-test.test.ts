@@ -4,7 +4,12 @@ import { computeTwilioWebhookSignature } from "@zara/core";
 import { TELEPHONY_INCREMENTAL_REPOSITORY } from "./telephony-incremental.repository";
 import { InMemoryTelephonyIncrementalRepository } from "./telephony-incremental.repository.test-helper";
 import { PstnAdmissionCoordinator } from "./pstn-admission-coordinator";
-import { createTestingApp, activateRouteWithOverride, resolveActivationBlocks } from "./telephony.controller.test-support";
+import {
+  activateRouteWithOverride,
+  createTestingApp,
+  ensureTestBillingPlan,
+  resolveActivationBlocks,
+} from "./telephony.controller.test-support";
 
 describe("TelephonyController premium-phone-test", () => {
   afterEach(() => {
@@ -833,8 +838,22 @@ describe("TelephonyController premium-phone-test", () => {
       await app.close();
     }, 30_000);
 
-  it("enforces live activation policy gates, pause/resume, and mid-call runtime policy", async () => {
+  it("does not expose tenant-authoritative mid-call runtime policy", async () => {
       const app = await createTestingApp();
+      await ensureTestBillingPlan(app, "tenant-west-africa");
+      await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/billing/runtime-cost-events")
+        .send({
+          actorUserId: "user-ops-lead",
+          actorRole: "admin",
+          runtimeEventId: "telephony-budget-runtime-cost",
+          sessionId: "telephony-budget-session",
+          occurredAt: "2026-05-20T09:59:00.000Z",
+          modelTier: "standard",
+          rateVersion: "runtime-rates-2026-05",
+          providers: { stt: "assemblyai-streaming" },
+          usage: { sttMinutes: 500_000 },
+        });
 
       const connectionResponse = await request(app.getHttpServer())
         .post("/organizations/tenant-west-africa/telephony/connections")
@@ -1045,50 +1064,29 @@ describe("TelephonyController premium-phone-test", () => {
           callSid: "CA-live-runtime-policy",
         });
       const callSessionId = liveDispatch.body.dispatch.callSessionId as string;
+      const stateBefore = await request(app.getHttpServer())
+        .get("/organizations/tenant-west-africa/telephony/state");
+      const sessionBefore = stateBefore.body.executionSessions.find(
+        (session: { callSessionId: string }) => session.callSessionId === callSessionId,
+      );
 
-      const graceResponse = await request(app.getHttpServer())
+      const runtimePolicyResponse = await request(app.getHttpServer())
         .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/runtime-policy`)
         .send({
           subscriptionStatus: "past_due",
-          tenantStatus: "active",
-          budgetAction: "allow",
+          tenantStatus: "suspended",
+          budgetAction: "block",
+          budgetReasons: ["monthly_budget_exceeded"],
           now: "2026-05-20T10:07:00.000Z",
           graceUntil: "2026-05-20T10:37:00.000Z",
         });
-      expect(graceResponse.body.session).toMatchObject({
-        status: "grace-active",
-        policyState: {
-          state: "subscription_grace",
-          graceUntil: "2026-05-20T10:37:00.000Z",
-        },
-      });
+      expect(runtimePolicyResponse.status).toBe(404);
 
-      const closeoutResponse = await request(app.getHttpServer())
-        .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/runtime-policy`)
-        .send({
-          subscriptionStatus: "active",
-          tenantStatus: "active",
-          budgetAction: "block",
-          budgetReasons: ["monthly_budget_exceeded"],
-          now: "2026-05-20T10:08:00.000Z",
-        });
-      expect(closeoutResponse.body.session.policyState.state).toBe("budget_closeout_after_turn");
-      expect(closeoutResponse.body.session.status).toBe("closeout-pending");
-
-      const terminatedResponse = await request(app.getHttpServer())
-        .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/runtime-policy`)
-        .send({
-          subscriptionStatus: "active",
-          tenantStatus: "suspended",
-          budgetAction: "allow",
-          now: "2026-05-20T10:09:00.000Z",
-        });
-      expect(terminatedResponse.body.session).toMatchObject({
-        status: "terminated",
-        policyState: {
-          state: "terminated_for_suspension",
-        },
-      });
+      const stateAfter = await request(app.getHttpServer())
+        .get("/organizations/tenant-west-africa/telephony/state");
+      expect(stateAfter.body.executionSessions.find(
+        (session: { callSessionId: string }) => session.callSessionId === callSessionId,
+      )).toEqual(sessionBefore);
 
       await app.close();
     }, 30_000);

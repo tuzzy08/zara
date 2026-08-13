@@ -2,6 +2,7 @@
   "files": [
     "apps/platform-admin/src/index.test.tsx",
     "apps/web/src/AppAgentsRoute.test.tsx",
+    "apps/web/src/MarketingLandingPageMockup.test.tsx",
     "apps/web/src/SandboxScreen.test.tsx",
     "apps/web/src/TelephonyScreen.test.tsx",
     "apps/web/src/TenantAgentsScreen.test.tsx",

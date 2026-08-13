@@ -191,9 +191,14 @@ export interface TelephonyLiveRouteActivationOverride {
 
 export interface TelephonyLiveRoutePolicyPosture {
   subscriptionStatus: TelephonySubscriptionPosture;
+  subscriptionAccessAllowed?: boolean | undefined;
   tenantStatus: TelephonyTenantPosture;
   budgetAction: TelephonyBudgetPosture;
   budgetReasons?: string[] | undefined;
+  billingAccessMode?: "payg" | "subscription" | undefined;
+  paygNextSafeSegment?: "funded" | "unfunded" | undefined;
+  providerState?: "available" | "failed" | undefined;
+  providerFailureAction?: "safe_closeout" | "terminate" | undefined;
 }
 
 export interface TelephonyLiveRouteActivationSummary {
@@ -270,6 +275,7 @@ export interface InboundCallPolicyChecks {
 
 export interface TelephonyLiveCallStartPolicy {
   subscriptionStatus?: TelephonySubscriptionPosture | undefined;
+  subscriptionAccessAllowed?: boolean | undefined;
   tenantStatus?: TelephonyTenantPosture | undefined;
   budgetAction?: TelephonyBudgetPosture | undefined;
   budgetReasons?: string[] | undefined;
@@ -400,6 +406,7 @@ export type TelephonyCallLifecycleStage = (typeof telephonyCallLifecycleStages)[
 export interface TelephonyCallLifecycleState {
   stage: TelephonyCallLifecycleStage;
   observedAt: string;
+  providerConnectedAt?: string | undefined;
   reasonCode?: string | undefined;
   providerSequence?: number | undefined;
 }
@@ -449,6 +456,9 @@ export interface TelephonyActiveCallPolicyState {
     | "normal"
     | "subscription_grace"
     | "budget_closeout_after_turn"
+    | "payg_closeout_after_turn"
+    | "provider_failure_closeout_after_turn"
+    | "terminated_for_provider_failure"
     | "terminated_for_suspension";
   reason: string;
   evaluatedAt: string;
@@ -975,7 +985,7 @@ export function evaluateTelephonyLiveRouteActivation(input: {
     });
   }
 
-  if (input.policy.subscriptionStatus !== "active" && input.policy.subscriptionStatus !== "trialing") {
+  if (!subscriptionAllowsLiveAccess(input.policy)) {
     blocks.push({
       code: "inactive_subscription",
       message: "Live activation requires an active subscription.",
@@ -1310,8 +1320,10 @@ export function resolveOutboundCall(input: {
   workflowLabel: string;
   workspaceId: ID;
   consentGranted: boolean;
-  budgetRemainingUsd: number;
-  estimatedCostUsd: number;
+  budgetRemainingUsd?: number | undefined;
+  estimatedCostUsd?: number | undefined;
+  budgetAllowed?: boolean | undefined;
+  budgetDetail?: string | undefined;
   localHour: number;
   callingWindow: { startHour: number; endHour: number };
   abuseAllowed?: boolean | undefined;
@@ -1323,6 +1335,18 @@ export function resolveOutboundCall(input: {
   timezoneBlockedReason?: string | undefined;
   callingWindowOverrideAllowed?: boolean | undefined;
 }): OutboundCallResolution {
+  const hasLegacyBudgetAmounts =
+    input.budgetRemainingUsd !== undefined && input.estimatedCostUsd !== undefined;
+  const budgetAllowed = input.budgetAllowed
+    ?? (hasLegacyBudgetAmounts && input.budgetRemainingUsd! >= input.estimatedCostUsd!);
+  const budgetPassedDetail = input.budgetDetail
+    ?? (hasLegacyBudgetAmounts
+      ? `Budget check passed with $${input.budgetRemainingUsd!.toFixed(2)} remaining.`
+      : "Durable billing posture is unavailable.");
+  const budgetBlockedDetail = input.budgetDetail
+    ?? (hasLegacyBudgetAmounts
+      ? `Estimated spend of $${input.estimatedCostUsd!.toFixed(2)} exceeds the remaining budget.`
+      : "Durable billing posture is unavailable.");
   const normalizedCallerId = normalizePhoneNumber(input.fromPhoneNumber);
   const routedNumber = input.phoneNumbers.find(
     (number) =>
@@ -1348,9 +1372,9 @@ export function resolveOutboundCall(input: {
       "Outbound calling requires customer consent before the session can start.",
     ),
     budget: buildPolicyCheck(
-      input.budgetRemainingUsd >= input.estimatedCostUsd,
-      `Budget check passed with $${input.budgetRemainingUsd.toFixed(2)} remaining.`,
-      `Estimated spend of $${input.estimatedCostUsd.toFixed(2)} exceeds the remaining budget.`,
+      budgetAllowed,
+      budgetPassedDetail,
+      budgetBlockedDetail,
     ),
     callingWindow: buildPolicyCheck(
       (input.callingWindowOverrideAllowed ?? false) ||
@@ -1720,6 +1744,63 @@ export function applyTelephonyActiveCallPolicy(input: {
     });
   }
 
+  if (
+    input.policy.providerState === "failed" &&
+    input.policy.providerFailureAction === "safe_closeout"
+  ) {
+    return withActiveCallPolicyState({
+      session: input.session,
+      status: "closeout-pending",
+      state: {
+        state: "provider_failure_closeout_after_turn",
+        reason: "Provider failure policy requires safe closeout after the current turn.",
+        evaluatedAt: input.now,
+      },
+    });
+  }
+
+  if (
+    input.policy.providerState === "failed" &&
+    input.policy.providerFailureAction === "terminate"
+  ) {
+    return withActiveCallPolicyState({
+      session: input.session,
+      status: "terminated",
+      state: {
+        state: "terminated_for_provider_failure",
+        reason: "Provider failure policy requires immediate termination.",
+        evaluatedAt: input.now,
+      },
+    });
+  }
+
+  if (input.policy.providerState === "failed") {
+    return withActiveCallPolicyState({
+      session: input.session,
+      status: "terminated",
+      state: {
+        state: "terminated_for_provider_failure",
+        reason: "Provider failure has no explicit closeout action; terminate to fail closed.",
+        evaluatedAt: input.now,
+      },
+    });
+  }
+
+  if (
+    input.policy.billingAccessMode === "payg" &&
+    input.policy.paygNextSafeSegment !== "funded"
+  ) {
+    return withActiveCallPolicyState({
+      session: input.session,
+      status: "closeout-pending",
+      state: {
+        state: "payg_closeout_after_turn",
+        reason: "PAYG credit cannot fund the next safe call segment; close out after the current turn.",
+        evaluatedAt: input.now,
+      },
+    });
+  }
+
   if (input.policy.budgetAction === "block") {
     return withActiveCallPolicyState({
       session: input.session,
@@ -1732,7 +1813,7 @@ export function applyTelephonyActiveCallPolicy(input: {
     });
   }
 
-  if (input.policy.subscriptionStatus !== "active" && input.policy.subscriptionStatus !== "trialing") {
+  if (!subscriptionAllowsLiveAccess(input.policy)) {
     return withActiveCallPolicyState({
       session: input.session,
       status: "grace-active",
@@ -1928,9 +2009,7 @@ function buildLiveRouteActivationSummary(input: {
     },
     subscriptionPosture: {
       status: input.policy.subscriptionStatus,
-      allowed:
-        input.policy.subscriptionStatus === "active" ||
-        input.policy.subscriptionStatus === "trialing",
+      allowed: subscriptionAllowsLiveAccess(input.policy),
     },
     budgetPosture: {
       action: input.policy.budgetAction,
@@ -1961,6 +2040,10 @@ function buildInboundCallPolicyChecks(input: {
   premiumRealtimeCheck?: InboundCallPolicyCheck | undefined;
 }): InboundCallPolicyChecks {
   const subscriptionStatus = input.liveCallPolicy?.subscriptionStatus ?? "active";
+  const subscriptionAccessAllowed = subscriptionAllowsLiveAccess({
+    subscriptionStatus,
+    subscriptionAccessAllowed: input.liveCallPolicy?.subscriptionAccessAllowed,
+  });
   const tenantStatus = input.liveCallPolicy?.tenantStatus ?? "active";
   const budgetAction = input.liveCallPolicy?.budgetAction ?? "allow";
   const budgetReasons = input.liveCallPolicy?.budgetReasons ?? [];
@@ -1978,12 +2061,9 @@ function buildInboundCallPolicyChecks(input: {
           : "Live route setup exists but answering is not active.",
     },
     subscription: {
-      status:
-        subscriptionStatus === "active" || subscriptionStatus === "trialing"
-          ? "passed"
-          : "blocked",
+      status: subscriptionAccessAllowed ? "passed" : "blocked",
       detail:
-        subscriptionStatus === "active" || subscriptionStatus === "trialing"
+        subscriptionAccessAllowed
           ? "Subscription allows new live calls."
           : "Live answering is unavailable because the subscription is inactive.",
     },
@@ -2007,6 +2087,17 @@ function buildInboundCallPolicyChecks(input: {
       ? {}
       : { premiumRealtime: input.premiumRealtimeCheck }),
   };
+}
+
+function subscriptionAllowsLiveAccess(input: {
+  subscriptionStatus: TelephonySubscriptionPosture;
+  subscriptionAccessAllowed?: boolean | undefined;
+}) {
+  return input.subscriptionAccessAllowed
+    ?? (
+      input.subscriptionStatus === "active"
+      || input.subscriptionStatus === "trialing"
+    );
 }
 
 function buildPstnPremiumRealtimePolicyCheck(input: {

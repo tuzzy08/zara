@@ -12,6 +12,17 @@ import { RuntimeSessionsModule } from "../runtime-sessions/runtime-sessions.modu
 import { WorkflowsModule } from "../workflows/workflows.module";
 import { PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY } from "../workflows/published-workflow-manifest.repository";
 import { AppModule } from "../app.module";
+import { BillingRuntimeFundingModule } from "../billing/billing-runtime-funding.module";
+import { BillingCustomerStateReconciliationScheduler } from "../billing/billing-customer-state-reconciliation.scheduler";
+import { BillingPolarOutboxScheduler } from "../billing/billing-polar-outbox.scheduler";
+import { TrustedPaygActiveCallFundingService } from "../billing/trusted-payg-active-call-funding.service";
+import { BillingService } from "../billing/billing.service";
+import { TrustedBillingUsageProducer } from "../billing/trusted-billing-usage-producer";
+import { TrustedPaygTerminalFinalizationService } from "../billing/trusted-payg-terminal-finalization.service";
+import { TrustedSubscriptionCallLifecycleService } from "../billing/trusted-subscription-call-lifecycle.service";
+import { TerminalBillingRecoveryRepository } from "../billing/terminal-billing-recovery.repository";
+import { TrustedTerminalBillingRecoveryService } from "../billing/trusted-terminal-billing-recovery.service";
+import { TerminalBillingRecoveryScheduler } from "../billing/terminal-billing-recovery.scheduler";
 import { PstnRealtimeWorkerHealthController } from "./pstn-realtime-worker-health.controller";
 import {
   createPstnRealtimeWorkerRegistry,
@@ -21,6 +32,8 @@ import {
 } from "./pstn-realtime-worker.module";
 import { PstnRealtimeWorkerRegistry } from "./pstn-realtime-worker-registry";
 import { PstnPremiumFinalizationReconciler } from "./pstn-premium-finalization-reconciler";
+import { TelephonyService } from "../telephony/telephony.service";
+import { PstnPremiumCallExecution } from "../telephony/pstn-premium-call-execution";
 
 describe("PstnRealtimeWorkerModule", () => {
   afterEach(() => {
@@ -35,6 +48,7 @@ describe("PstnRealtimeWorkerModule", () => {
       PstnAdmissionModule,
       PremiumRealtimeConversationPolicyModule,
       RuntimePromptPolicyModule,
+      BillingRuntimeFundingModule,
     ]));
     expect(imports).not.toEqual(expect.arrayContaining([
       AppModule,
@@ -83,6 +97,53 @@ describe("PstnRealtimeWorkerModule", () => {
     expect(moduleRef.get(PstnRealtimeWorkerRegistry)).toBeInstanceOf(
       PstnRealtimeWorkerRegistry,
     );
+    expect(moduleRef.get(TrustedPaygActiveCallFundingService)).toBeInstanceOf(
+      TrustedPaygActiveCallFundingService,
+    );
+    expect(moduleRef.get(BillingService)).toBeInstanceOf(BillingService);
+    expect(moduleRef.get(TrustedBillingUsageProducer)).toBeInstanceOf(
+      TrustedBillingUsageProducer,
+    );
+    expect(moduleRef.get(TrustedPaygTerminalFinalizationService)).toBeInstanceOf(
+      TrustedPaygTerminalFinalizationService,
+    );
+    expect(moduleRef.get(TrustedSubscriptionCallLifecycleService)).toBeInstanceOf(
+      TrustedSubscriptionCallLifecycleService,
+    );
+    expect(moduleRef.get(TerminalBillingRecoveryRepository)).toBeInstanceOf(
+      TerminalBillingRecoveryRepository,
+    );
+    expect(moduleRef.get(TrustedTerminalBillingRecoveryService)).toBeInstanceOf(
+      TrustedTerminalBillingRecoveryService,
+    );
+    const telephony = moduleRef.get(TelephonyService);
+    expect(telephony).toBeInstanceOf(TelephonyService);
+    const trustedBilling = telephony as unknown as {
+      trustedBillingUsageProducer?: unknown;
+      trustedPaygTerminalFinalizer?: unknown;
+      trustedSubscriptionLifecycle?: unknown;
+      trustedTerminalBillingRecovery?: unknown;
+    };
+    expect(trustedBilling.trustedBillingUsageProducer).toBeInstanceOf(
+      TrustedBillingUsageProducer,
+    );
+    expect(trustedBilling.trustedPaygTerminalFinalizer).toBeInstanceOf(
+      TrustedPaygTerminalFinalizationService,
+    );
+    expect(trustedBilling.trustedSubscriptionLifecycle).toBeInstanceOf(
+      TrustedSubscriptionCallLifecycleService,
+    );
+    expect(trustedBilling.trustedTerminalBillingRecovery).toBeInstanceOf(
+      TrustedTerminalBillingRecoveryService,
+    );
+    expect(moduleRef.get(PstnPremiumCallExecution)).toBeInstanceOf(
+      PstnPremiumCallExecution,
+    );
+    expect(() => moduleRef.get(BillingPolarOutboxScheduler, { strict: false })).toThrow();
+    expect(() => moduleRef.get(BillingCustomerStateReconciliationScheduler, {
+      strict: false,
+    })).toThrow();
+    expect(() => moduleRef.get(TerminalBillingRecoveryScheduler, { strict: false })).toThrow();
     await moduleRef.close();
   });
 });

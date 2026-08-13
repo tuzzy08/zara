@@ -402,3 +402,34 @@ Review the measurement section in the normal landing preview and adjust only its
 ### Next Recommended Step
 
 Review the corrected workflow graph in the normal landing preview. Change path routing only when the illustrated workflow model changes.
+
+## Approved Pricing Section (2026-08-13)
+
+### Work Completed
+
+- Added a primary and footer Pricing anchor.
+- Added an editorial rate sheet for Starter, Growth, Scale, and the $5 prepaid PAYG offer using the approved production billing values.
+- Added generic workspace-creation actions, a highlighted Growth plan, trial limits, overage terms, the approved Nigeria outbound telephony price, the PAYG zero-balance stop, and concise tax and reset notes.
+- Preserved the monochrome signal grid on desktop and changed the rate sheet to one readable column on mobile.
+
+### Tests Run
+
+- RED: the focused landing test failed because the Pricing link and section did not exist.
+- GREEN: the focused fork-pool landing suite passed, 4 tests.
+- Web type-check passed.
+- Focused landing ESLint passed.
+- Web production build passed with the existing large JavaScript chunk warning.
+- Browser review passed at 1440 × 1000 and 390 × 844. The pricing section had no horizontal overflow at either size.
+
+### Pending Work
+
+- No required pricing-section work remains.
+
+### Risks And Decisions
+
+- Keep pricing values synchronized with `docs/Production-Billing-Standard.md` and the active catalog.
+- Do not add discounts or package claims without commercial approval.
+
+### Next Recommended Step
+
+Use deployed catalog data when the public site gains a server-rendered marketing data path. Until then, update this rate sheet with every approved catalog change.

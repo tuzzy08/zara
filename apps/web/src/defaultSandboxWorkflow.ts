@@ -153,10 +153,10 @@ export function createDefaultSandboxPublishedWorkflow(workspaceId: string, organ
       approvalRequired: true,
     },
     budget: {
-      monthlyCapUsd: 80,
-      currentSpendUsd: 18,
-      projectedCostPerMinuteUsd: 0.22,
-      blockOnLimit: true,
+      monthlyCapUsd: 0,
+      currentSpendUsd: 0,
+      projectedCostPerMinuteUsd: 0,
+      blockOnLimit: false,
     },
   });
 }

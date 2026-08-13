@@ -1033,6 +1033,8 @@ describe("telephony domain", () => {
       consentGranted: true,
       budgetRemainingUsd: 4,
       estimatedCostUsd: 1.2,
+      budgetAllowed: true,
+      budgetDetail: "Durable billing allowance is available.",
       localHour: 14,
       callingWindow: {
         startHour: 8,
@@ -1042,6 +1044,10 @@ describe("telephony domain", () => {
 
     expect(queued.disposition).toBe("queued");
     expect(queued.policyChecks.callerId.status).toBe("passed");
+    expect(queued.policyChecks.budget).toEqual({
+      status: "passed",
+      detail: "Durable billing allowance is available.",
+    });
     expect(queued.callSessionId).toBe("CA-outbound-2:telephony");
   });
 
@@ -1154,6 +1160,30 @@ describe("telephony domain", () => {
     expect(dispatch.outageMode).toBe("provider-fallback");
     expect(dispatch.fallbackPhoneNumberId).toBe(fallbackNumber.id);
     expect(dispatch.reason).toContain("failed over");
+  });
+
+  it("allows a BYO live call when durable billing grants payment grace", () => {
+    const { connection, phoneNumbers } = createActivatedSupportRoute();
+
+    const dispatch = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-byo-payment-grace",
+      phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+      liveCallPolicy: {
+        subscriptionStatus: "past_due",
+        subscriptionAccessAllowed: true,
+        tenantStatus: "active",
+        budgetAction: "allow",
+      },
+    });
+
+    expect(dispatch).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+    });
   });
 
   it("creates provider-specific execution sessions and advances them when transfer failover happens", () => {

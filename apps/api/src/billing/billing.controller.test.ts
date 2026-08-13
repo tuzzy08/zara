@@ -4,6 +4,7 @@ import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
 import { BillingModule } from "./billing.module";
+import { ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE } from "./billing.controller";
 import {
   BILLING_STATE_REPOSITORY,
   InMemoryBillingStateRepository,
@@ -13,6 +14,8 @@ import {
   type BillingPolarClient,
 } from "./polar-billing.client";
 import { installTestTenantAuth } from "../testing/tenant-auth-request";
+import { BILLING_LEDGER_REPOSITORY } from "./postgres-billing-ledger.repository";
+import { BILLING_READ_MODEL_REPOSITORY } from "./billing-read-model.repository";
 
 describe("BillingController", () => {
   const originalNodeEnv = process.env.NODE_ENV;
@@ -49,9 +52,57 @@ describe("BillingController", () => {
     await app.close();
   }, 30_000);
 
+  it("returns an honest empty state for a new tenant", async () => {
+    const app = await createTestingApp(createPolarClient());
+
+    const response = await request(app.getHttpServer())
+      .get("/organizations/tenant-new/billing/state");
+
+    expect(response.status).toBe(200);
+    expect(response.body.billing).toMatchObject({
+      organizationId: "tenant-new",
+      customerExternalId: "tenant-new",
+      plan: null,
+      subscription: {
+        provider: "polar",
+        status: "none",
+        cancelAtPeriodEnd: false,
+      },
+      usage: [],
+      entitlements: [],
+      invoices: [],
+    });
+    expect(JSON.stringify(response.body)).not.toContain("pending");
+
+    await app.close();
+  }, 30_000);
+
+  it("rejects tenant-submitted billing usage facts in the production route graph", async () => {
+    const polarClient = createPolarClient();
+    const app = await createTestingApp(polarClient, { legacyUsageFixture: false });
+
+    const responses = await Promise.all([
+      request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/billing/usage-events")
+        .send({ idempotencyKey: "client-usage", units: 1 }),
+      request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/billing/telephony-minute-events")
+        .send({ callSessionId: "client-call", billableMinutes: 99 }),
+      request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/billing/runtime-cost-events")
+        .send({ runtimeEventId: "client-runtime", totalUsd: 99 }),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
+    expect(polarClient.ingestedUsageEvents).toEqual([]);
+
+    await app.close();
+  });
+
   it("creates organization-linked Polar checkout and customer portal sessions without exposing provider secrets", async () => {
     const polarClient = createPolarClient();
-    const app = await createTestingApp(polarClient);
+    const ledger = createWebhookReceiptRepository();
+    const app = await createTestingApp(polarClient, { billingLedgerRepository: ledger });
 
     const checkoutResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/billing/checkout")
@@ -72,12 +123,32 @@ describe("BillingController", () => {
     });
     expect(polarClient.createdCheckouts[0]).toMatchObject({
       externalCustomerId: "tenant-west-africa",
+      productId: "polar-catalog-growth-test",
       metadata: {
         organizationId: "tenant-west-africa",
         actorUserId: "user-ops-lead",
       },
     });
+    expect(ledger.tenantAccounts).toEqual([
+      expect.objectContaining({
+        organizationId: "tenant-west-africa",
+        provider: "polar",
+      }),
+    ]);
     expect(JSON.stringify(checkoutResponse.body)).not.toContain("polar-secret");
+
+    const stateResponse = await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/billing/state");
+    expect(stateResponse.body.billing.plan).toMatchObject({
+      slug: "growth",
+      monthlyBaseMinor: null,
+      includedStandardRuntimeSeconds: null,
+      includedPremiumRuntimeSeconds: null,
+    });
+    expect(stateResponse.body.billing.plan).not.toMatchObject({
+      monthlyBaseUsd: 149,
+      includedMinutes: 1000,
+    });
 
     const portalResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/billing/customer-portal")
@@ -98,7 +169,8 @@ describe("BillingController", () => {
 
   it("updates subscription, entitlement, order, and cancellation state from idempotent Polar webhooks", async () => {
     const polarClient = createPolarClient();
-    const app = await createTestingApp(polarClient);
+    const ledger = createWebhookReceiptRepository();
+    const app = await createTestingApp(polarClient, { billingLedgerRepository: ledger });
 
     const firstWebhookResponse = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
@@ -114,17 +186,23 @@ describe("BillingController", () => {
           activeSubscriptions: [
             {
               id: "polar_subscription_1",
-              productId: "polar_product_growth",
+              productId: "polar-catalog-product-7f31",
               status: "active",
               currentPeriodEnd: "2026-06-22T00:00:00.000Z",
               cancelAtPeriodEnd: false,
+              createdAt: "2026-05-22T00:00:00.000Z",
+              modifiedAt: "2026-05-23T00:00:00.000Z",
             },
           ],
           grantedBenefits: [
             {
-              id: "benefit-premium-runtime",
+              id: "polar-grant-premium-1",
+              benefitId: "polar-benefit-premium",
+              benefitType: "custom",
               type: "custom",
               description: "Premium realtime minutes",
+              createdAt: "2026-05-22T00:00:00.000Z",
+              modifiedAt: "2026-05-23T00:00:00.000Z",
             },
           ],
         },
@@ -136,6 +214,25 @@ describe("BillingController", () => {
       processed: true,
       organizationId: "tenant-west-africa",
     });
+    expect(ledger.customerStateProjections).toEqual([
+      expect.objectContaining({
+        account: expect.objectContaining({
+          organizationId: "tenant-west-africa",
+          providerCustomerId: "polar_customer_1",
+        }),
+        subscriptions: [expect.objectContaining({
+          providerSubscriptionId: "polar_subscription_1",
+          catalogId: "catalog-2026-08-v1",
+          status: "active",
+          updatedAt: "2026-05-23T00:00:00.000Z",
+        })],
+        entitlements: [expect.objectContaining({
+          providerBenefitId: "polar-benefit-premium",
+          key: "premium-realtime",
+          status: "active",
+        })],
+      }),
+    ]);
 
     const replayWebhookResponse = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
@@ -148,6 +245,28 @@ describe("BillingController", () => {
             id: "polar_customer_1",
             externalId: "tenant-west-africa",
           },
+          activeSubscriptions: [
+            {
+              id: "polar_subscription_1",
+              productId: "polar-catalog-product-7f31",
+              status: "active",
+              currentPeriodEnd: "2026-06-22T00:00:00.000Z",
+              cancelAtPeriodEnd: false,
+              createdAt: "2026-05-22T00:00:00.000Z",
+              modifiedAt: "2026-05-23T00:00:00.000Z",
+            },
+          ],
+          grantedBenefits: [
+            {
+              id: "polar-grant-premium-1",
+              benefitId: "polar-benefit-premium",
+              benefitType: "custom",
+              type: "custom",
+              description: "Premium realtime minutes",
+              createdAt: "2026-05-22T00:00:00.000Z",
+              modifiedAt: "2026-05-23T00:00:00.000Z",
+            },
+          ],
         },
       });
 
@@ -166,15 +285,17 @@ describe("BillingController", () => {
         type: "order.paid",
         data: {
           id: "polar_order_1",
-          invoiceNumber: "INV-2026-051",
-          amount: 12900,
+          status: "paid",
+          paid: true,
+          invoice_number: "INV-2026-051",
+          total_amount: 12900,
           currency: "usd",
           customer: {
             id: "polar_customer_1",
             externalId: "tenant-west-africa",
           },
-          productId: "polar_product_growth",
-          createdAt: "2026-05-22T10:00:00.000Z",
+          product_id: "polar-catalog-product-7f31",
+          created_at: "2026-05-22T10:00:00.000Z",
         },
       });
 
@@ -195,7 +316,7 @@ describe("BillingController", () => {
     expect(stateResponse.body.billing.entitlements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "benefit-premium-runtime",
+          id: "polar-grant-premium-1",
           label: "Premium realtime minutes",
         }),
       ]),
@@ -208,10 +329,43 @@ describe("BillingController", () => {
         }),
       ]),
     );
+    expect(ledger.invoiceProjections).toEqual([
+      {
+        id: "polar-invoice:polar_order_1",
+        organizationId: "tenant-west-africa",
+        providerOrderId: "polar_order_1",
+        invoiceNumber: "INV-2026-051",
+        currency: "usd",
+        amountMinor: 12900,
+        status: "paid",
+        issuedAt: "2026-05-22T10:00:00.000Z",
+        metadata: { productId: "polar-catalog-product-7f31" },
+        createdAt: "2026-05-22T10:00:00.000Z",
+      },
+    ]);
     expect(JSON.stringify(stateResponse.body)).not.toContain("polar-secret");
 
     await app.close();
-  });
+  }, 30_000);
+
+  it("rejects subscription checkout when the catalog has no Polar product mapping", async () => {
+    const polarClient = createPolarClient();
+    const app = await createTestingApp(polarClient, { subscriptionProductIds: {} });
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/billing/checkout")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        planSlug: "growth",
+        successUrl: "http://127.0.0.1:4173/billing/success",
+      });
+
+    expect(response.status).toBe(404);
+    expect(polarClient.createdCheckouts).toEqual([]);
+
+    await app.close();
+  }, 30_000);
 
   it("fails Polar webhooks closed in production when the webhook secret is unset", async () => {
     process.env.NODE_ENV = "production";
@@ -238,6 +392,257 @@ describe("BillingController", () => {
 
     await app.close();
   });
+
+  it("does not grant access for an unknown Polar subscription state", async () => {
+    const app = await createTestingApp(createPolarClient());
+
+    const webhookResponse = await request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-unknown-subscription-state")
+      .set("polar-webhook-signature", "test-signature")
+      .send({
+        type: "customer.state_changed",
+        data: {
+          customer: {
+            id: "polar_customer_unknown",
+            externalId: "tenant-west-africa",
+          },
+          activeSubscriptions: [{
+            id: "polar_subscription_unknown",
+            productId: "polar_product_growth",
+            status: "future_new_state",
+          }],
+        },
+      });
+    const stateResponse = await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/billing/state");
+
+    expect(webhookResponse.status).toBe(201);
+    expect(stateResponse.body.billing.subscription.status).toBe("none");
+    expect(stateResponse.body.billing.plan).toBeNull();
+
+    await app.close();
+  });
+
+  it("projects a Polar payment failure as a durable past-due subscription", async () => {
+    const ledger = createWebhookReceiptRepository();
+    const app = await createTestingApp(createPolarClient(), {
+      billingLedgerRepository: ledger,
+    });
+
+    const response = await request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-subscription-past-due")
+      .set("polar-webhook-signature", "test-signature")
+      .send({
+        type: "subscription.past_due",
+        timestamp: "2026-08-10T09:00:01.000Z",
+        data: {
+          id: "polar_subscription_failed",
+          status: "past_due",
+          amount: 12900,
+          currency: "usd",
+          product_id: "polar_product_growth",
+          current_period_end: "2026-09-10T00:00:00.000Z",
+          cancel_at_period_end: false,
+          created_at: "2026-07-10T09:00:00.000Z",
+          modified_at: "2026-08-10T09:00:00.000Z",
+          customer: {
+            id: "polar_customer_failed",
+            external_id: "tenant-west-africa",
+          },
+        },
+      });
+    const state = await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/billing/state");
+
+    expect(response.status).toBe(201);
+    expect(ledger.subscriptionProjections).toEqual([
+      expect.objectContaining({
+        organizationId: "tenant-west-africa",
+        providerSubscriptionId: "polar_subscription_failed",
+        catalogId: "catalog-2026-08-v1",
+        status: "past_due",
+        updatedAt: "2026-08-10T09:00:00.000Z",
+      }),
+    ]);
+    expect(state.body.billing.subscription).toMatchObject({
+      providerSubscriptionId: "polar_subscription_failed",
+      status: "past_due",
+    });
+
+    await app.close();
+  }, 30_000);
+
+  it("detects a webhook replay after the billing service restarts", async () => {
+    const receipts = createWebhookReceiptRepository();
+    const payload = {
+      type: "customer.state_changed" as const,
+      data: {
+        customer: {
+          id: "polar_customer_restart",
+          externalId: "tenant-west-africa",
+        },
+        activeSubscriptions: [{
+          id: "polar_subscription_restart",
+          productId: "polar_product_growth",
+          status: "active",
+        }],
+      },
+    };
+    const firstApp = await createTestingApp(createPolarClient(), {
+      billingLedgerRepository: receipts,
+    });
+    const first = await request(firstApp.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-restart-replay")
+      .set("polar-webhook-signature", "test-signature")
+      .send(payload);
+    await firstApp.close();
+
+    const restartedApp = await createTestingApp(createPolarClient(), {
+      billingLedgerRepository: receipts,
+    });
+    const replay = await request(restartedApp.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-restart-replay")
+      .set("polar-webhook-signature", "test-signature")
+      .send(payload);
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(200);
+    expect(replay.body.webhook).toMatchObject({ processed: false, replay: true });
+
+    await restartedApp.close();
+  });
+
+  it("selects the newest safe subscription when Polar returns more than one", async () => {
+    const app = await createTestingApp(createPolarClient());
+
+    await request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-multiple-subscriptions")
+      .set("polar-webhook-signature", "test-signature")
+      .send({
+        type: "customer.state_changed",
+        data: {
+          customer: {
+            id: "polar_customer_multiple",
+            externalId: "tenant-west-africa",
+          },
+          activeSubscriptions: [
+            {
+              id: "polar_subscription_old",
+              productId: "polar_product_starter",
+              status: "active",
+              modified_at: "2026-08-01T00:00:00.000Z",
+            },
+            {
+              id: "polar_subscription_current",
+              productId: "polar-catalog-product-7f31",
+              status: "active",
+              modified_at: "2026-08-10T00:00:00.000Z",
+            },
+          ],
+        },
+      });
+    const state = await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/billing/state");
+
+    expect(state.body.billing.subscription.providerSubscriptionId).toBe(
+      "polar_subscription_current",
+    );
+    expect(state.body.billing.plan.slug).toBe("growth");
+
+    await app.close();
+  });
+
+  it("grants only the configured $5 PAYG credit pack from a paid order", async () => {
+    const ledger = createWebhookReceiptRepository();
+    const app = await createTestingApp(createPolarClient(), {
+      billingLedgerRepository: ledger,
+    });
+
+    const response = await request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-payg-order-paid")
+      .set("polar-webhook-signature", "test-signature")
+      .send({
+        type: "order.paid",
+        data: {
+          id: "polar-payg-order-1",
+          status: "paid",
+          paid: true,
+          invoice_number: "INV-PAYG-2026-001",
+          total_amount: 500,
+          currency: "usd",
+          productId: "polar-credit_pack-payg-5-usd",
+          created_at: "2026-08-10T06:00:00.000Z",
+          customer: { externalId: "tenant-west-africa" },
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(ledger.paidPaygOrders).toHaveLength(1);
+    expect(ledger.paidPaygOrders[0]).toMatchObject({
+      order: { paidAmountMinor: 500, grantedCreditMinor: 500 },
+      grant: { entryType: "grant", amountMinor: 500 },
+    });
+
+    await app.close();
+  });
+
+  it("reverses an unused $5 PAYG credit pack after Polar refunds the order", async () => {
+    const ledger = createWebhookReceiptRepository();
+    const app = await createTestingApp(createPolarClient(), {
+      billingLedgerRepository: ledger,
+    });
+    const payload = {
+      type: "order.refunded",
+      data: {
+        id: "polar-payg-order-1",
+        total_amount: 500,
+        refunded_amount: 500,
+        currency: "usd",
+        product_id: "polar-credit_pack-payg-5-usd",
+        modified_at: "2026-08-10T07:00:00.000Z",
+        customer: { external_id: "tenant-west-africa" },
+      },
+    };
+
+    const sendRefund = (eventId: string, body = payload) => request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", eventId)
+      .set("polar-webhook-signature", "test-signature")
+      .send(body);
+
+    const response = await sendRefund("evt-payg-order-refunded");
+    const replay = await sendRefund("evt-payg-order-refunded");
+    const partialRefund = await sendRefund("evt-payg-order-partial-refund", {
+      ...payload,
+      data: { ...payload.data, refunded_amount: 200 },
+    });
+
+    expect(response.status).toBe(201);
+    expect(replay.status).toBe(200);
+    expect(replay.body.webhook.replay).toBe(true);
+    expect(partialRefund.status).toBe(400);
+    expect(ledger.refundedPaygOrders).toEqual([{
+      organizationId: "tenant-west-africa",
+      providerOrderId: "polar-payg-order-1",
+      reversal: {
+        id: "payg-reversal:polar-payg-order-1",
+        organizationId: "tenant-west-africa",
+        orderId: "payg-order:polar-payg-order-1",
+        entryType: "reversal",
+        amountMinor: 500,
+        idempotencyKey: "polar-order:polar-payg-order-1:refund",
+        createdAt: "2026-08-10T07:00:00.000Z",
+      },
+    }]);
+
+    await app.close();
+  }, 15_000);
 
   it("deduplicates usage billing events before sending them to Polar", async () => {
     const polarClient = createPolarClient();
@@ -522,23 +927,68 @@ describe("BillingController", () => {
     const polarClient = createPolarClient();
     const app = await createTestingApp(polarClient);
 
+    await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/billing/checkout")
+      .send({
+        actorUserId: "user-finance-admin",
+        actorRole: "admin",
+        planSlug: "starter",
+        successUrl: "http://127.0.0.1:4173/billing/success",
+      });
+    await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/billing/runtime-cost-events")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        runtimeEventId: "budget-runtime-cost",
+        sessionId: "budget-session",
+        occurredAt: "2026-05-22T12:00:00.000Z",
+        modelTier: "standard",
+        rateVersion: "runtime-rates-2026-05",
+        providers: { stt: "assemblyai-streaming" },
+        usage: { sttMinutes: 36_000 },
+      });
+    await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/billing/telephony-minute-events")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        callSessionId: "budget-call",
+        provider: "twilio",
+        providerConnectionId: "budget-connection",
+        startedAt: "2026-05-22T12:00:00.000Z",
+        endedAt: "2026-05-22T12:01:01.000Z",
+        outcome: "completed",
+      });
+    await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/billing/usage-events")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        idempotencyKey: "budget-premium-runtime",
+        name: "zara_premium_runtime",
+        feature: "premium_runtime_minutes",
+        units: 2,
+        occurredAt: "2026-05-22T12:00:00.000Z",
+      });
+
     const policyResponse = await request(app.getHttpServer())
       .patch("/organizations/tenant-west-africa/billing/budget-policy")
       .send({
         actorUserId: "user-finance-admin",
         actorRole: "admin",
-        monthlyBudgetUsd: 750,
-        callMinuteLimit: 6231,
-        premiumRuntimeMinuteLimit: 187,
+        monthlyBudgetUsd: 10,
+        callMinuteLimit: 2.5,
+        premiumRuntimeMinuteLimit: 2.5,
         overBudgetBehavior: "block",
         warningThresholdPercent: 80,
       });
 
     expect(policyResponse.status).toBe(200);
     expect(policyResponse.body.budgetPolicy).toMatchObject({
-      monthlyBudgetUsd: 750,
-      callMinuteLimit: 6231,
-      premiumRuntimeMinuteLimit: 187,
+      monthlyBudgetUsd: 10,
+      callMinuteLimit: 2.5,
+      premiumRuntimeMinuteLimit: 2.5,
       overBudgetBehavior: "block",
     });
 
@@ -548,9 +998,9 @@ describe("BillingController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         requestKind: "premium_runtime",
-        estimatedCostUsd: 20,
-        callMinutes: 2,
-        premiumRuntimeMinutes: 2,
+        estimatedCostUsd: 2,
+        callMinutes: 1,
+        premiumRuntimeMinutes: 1,
         now: "2026-05-22T12:30:00.000Z",
       });
 
@@ -573,7 +1023,7 @@ describe("BillingController", () => {
       .get("/organizations/tenant-west-africa/billing/state");
 
     expect(stateResponse.body.billing.budgetPolicy).toMatchObject({
-      monthlyBudgetUsd: 750,
+      monthlyBudgetUsd: 10,
       overBudgetBehavior: "block",
     });
     expect(stateResponse.body.billing.budgetWarnings).toEqual(
@@ -598,9 +1048,9 @@ describe("BillingController", () => {
       .send({
         actorUserId: "user-finance-admin",
         actorRole: "admin",
-        monthlyBudgetUsd: 750,
-        callMinuteLimit: 6231,
-        premiumRuntimeMinuteLimit: 187,
+        monthlyBudgetUsd: 10,
+        callMinuteLimit: 2.5,
+        premiumRuntimeMinuteLimit: 2.5,
         overBudgetBehavior: "warn",
       });
     expect(warnPolicyResponse.status).toBe(200);
@@ -611,8 +1061,8 @@ describe("BillingController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         requestKind: "call",
-        estimatedCostUsd: 20,
-        callMinutes: 2,
+        estimatedCostUsd: 2,
+        callMinutes: 1,
         premiumRuntimeMinutes: 0,
       });
 
@@ -628,7 +1078,12 @@ describe("BillingController", () => {
 
 async function createTestingApp(
   polarClient: BillingPolarClient,
-  options: { tenantAuth?: boolean | undefined } = {},
+  options: {
+    tenantAuth?: boolean | undefined;
+    legacyUsageFixture?: boolean | undefined;
+    billingLedgerRepository?: ReturnType<typeof createWebhookReceiptRepository> | undefined;
+    subscriptionProductIds?: Partial<Record<"starter" | "growth" | "scale", string>> | undefined;
+  } = {},
 ) {
   const moduleRef = await Test.createTestingModule({
     imports: [BillingModule],
@@ -637,6 +1092,12 @@ async function createTestingApp(
     .useValue(new InMemoryBillingStateRepository())
     .overrideProvider(BILLING_POLAR_CLIENT)
     .useValue(polarClient)
+    .overrideProvider(BILLING_LEDGER_REPOSITORY)
+    .useValue(options.billingLedgerRepository ?? createWebhookReceiptRepository())
+    .overrideProvider(BILLING_READ_MODEL_REPOSITORY)
+    .useValue(createBillingReadModelFixture(options.subscriptionProductIds))
+    .overrideProvider(ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE)
+    .useValue(options.legacyUsageFixture ?? true)
     .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
@@ -645,6 +1106,112 @@ async function createTestingApp(
   }
   await app.init();
   return app;
+}
+
+function createBillingReadModelFixture(
+  subscriptionProductIds: Partial<Record<"starter" | "growth" | "scale", string>> = {
+    starter: "polar-catalog-starter-test",
+    growth: "polar-catalog-growth-test",
+    scale: "polar-catalog-scale-test",
+  },
+) {
+  return {
+    async load() {
+      throw new Error("The in-memory controller fixture owns billing state reads.");
+    },
+    async getPaygProductId() {
+      return "polar-credit_pack-payg-5-usd";
+    },
+    async getSubscriptionProductId(planSlug: "starter" | "growth" | "scale") {
+      return subscriptionProductIds[planSlug] ?? null;
+    },
+  };
+}
+
+function createWebhookReceiptRepository() {
+  const receipts = new Map<string, { eventType: string; payloadHash: string }>();
+  const paidPaygOrders: unknown[] = [];
+  const refundedPaygOrders: unknown[] = [];
+  const tenantAccounts: unknown[] = [];
+  const customerStateProjections: unknown[] = [];
+  const invoiceProjections: unknown[] = [];
+  const subscriptionProjections: unknown[] = [];
+  return {
+    paidPaygOrders,
+    refundedPaygOrders,
+    tenantAccounts,
+    customerStateProjections,
+    invoiceProjections,
+    subscriptionProjections,
+    async upsertTenantAccount(input: unknown) {
+      tenantAccounts.push(input);
+    },
+    async listTenantAccounts() {
+      return [];
+    },
+    async listSubscriptionProjections() {
+      return [];
+    },
+    async applyPolarCustomerStateProjection(input: unknown) {
+      customerStateProjections.push(input);
+      return { changed: false };
+    },
+    async applyPaidInvoiceProjection(input: unknown) {
+      invoiceProjections.push(input);
+      return { duplicate: false };
+    },
+    async upsertSubscriptionProjection(input: unknown) {
+      subscriptionProjections.push(input);
+    },
+    async recordPolarWebhookReceipt(input: {
+      organizationId: string;
+      eventId: string;
+      eventType: string;
+      payloadHash: string;
+    }) {
+      const key = `${input.organizationId}:${input.eventId}`;
+      const existing = receipts.get(key);
+      if (existing !== undefined) {
+        if (
+          existing.eventType !== input.eventType
+          || existing.payloadHash !== input.payloadHash
+        ) {
+          throw new Error("Webhook replay payload does not match the original event.");
+        }
+        return { duplicate: true };
+      }
+      receipts.set(key, {
+        eventType: input.eventType,
+        payloadHash: input.payloadHash,
+      });
+      return { duplicate: false };
+    },
+    async markPolarWebhookProcessed() {},
+    async findPolarMappingByProviderId(providerId: string) {
+      const mapping = {
+        "polar-credit_pack-payg-5-usd": ["credit_pack", "payg-5-usd"],
+        "polar_product_starter": ["product", "starter"],
+        "polar_product_growth": ["product", "growth"],
+        "polar-catalog-product-7f31": ["product", "growth"],
+        "polar-benefit-premium": ["benefit", "premium-realtime"],
+      }[providerId];
+      return mapping === undefined ? null : {
+        catalogId: "catalog-2026-08-v1",
+        mappingType: mapping[0],
+        internalKey: mapping[1],
+        providerId,
+        environment: "sandbox",
+      };
+    },
+    async applyPaidPaygOrder(input: unknown) {
+      paidPaygOrders.push(input);
+      return { duplicate: false };
+    },
+    async applyPaygOrderRefund(input: unknown) {
+      refundedPaygOrders.push(input);
+      return { duplicate: false };
+    },
+  };
 }
 
 function createPolarClient() {
@@ -673,6 +1240,14 @@ function createPolarClient() {
       ingestedUsageEvents.push(input);
       return {
         providerEventId: "polar_usage_event_1",
+      };
+    },
+    async getCustomerState(input) {
+      return {
+        customerId: `polar-customer:${input.externalCustomerId}`,
+        externalCustomerId: input.externalCustomerId,
+        activeSubscriptions: [],
+        grantedBenefits: [],
       };
     },
   };

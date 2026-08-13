@@ -42,6 +42,16 @@ describe("SandboxScreen", () => {
       screen.getByLabelText<HTMLSelectElement>("Published workflow").value,
     ).toBe(getSandboxWorkflowVersionOptionId(publishedWorkflow));
   });
+
+  it("shows no currency amount when a non-billable sandbox estimate is unavailable", () => {
+    renderSandbox("/sandbox");
+
+    expect(screen.getByText("Non-billable estimate")).toBeTruthy();
+    expect(screen.getAllByText("Estimate unavailable")).toHaveLength(2);
+    expect(screen.queryByText("Live cost")).toBeNull();
+    expect(screen.queryByText("Budget remaining")).toBeNull();
+    expect(screen.queryByText("$0.00/min")).toBeNull();
+  });
 });
 
 const organizationId = "tenant-acme";

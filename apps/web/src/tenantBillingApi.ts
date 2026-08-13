@@ -3,9 +3,10 @@ import { requestJson } from "./apiClient";
 export interface TenantBillingState {
   organizationId: string;
   provider: "polar";
+  currency: "usd";
   customerExternalId: string;
   plan: {
-    slug: "starter" | "growth" | "scale";
+    slug: BillingPlanSlug;
     name: string;
     status: "none" | "trialing" | "active" | "past_due" | "canceled";
     monthlyBaseUsd: number;
@@ -13,7 +14,11 @@ export interface TenantBillingState {
     budgetLimitUsd: number;
     budgetUsedUsd: number;
     budgetWarning: boolean;
-  };
+    currency?: "usd";
+    monthlyBaseMinor?: number | null;
+    includedStandardRuntimeSeconds?: number | null;
+    includedPremiumRuntimeSeconds?: number | null;
+  } | null;
   subscription: {
     provider: "polar";
     providerCustomerId?: string;
@@ -28,7 +33,9 @@ export interface TenantBillingState {
     used: number;
     limit?: number;
     unit: string;
-    costUsd: number;
+    costUsd: number | null;
+    costMinor?: number | null;
+    disposition?: "posted" | "shadow_estimate" | "incomplete" | "non_billable" | "blocked";
   }>;
   entitlements: Array<{
     id: string;
@@ -40,11 +47,34 @@ export interface TenantBillingState {
     providerOrderId: string;
     invoiceNumber: string;
     amountUsd: number;
-    status: "paid" | "open" | "void";
+    amountMinor?: number;
+    currency: "usd";
+    status: "paid" | "open" | "void" | "refunded" | "unknown";
     createdAt: string;
   }>;
+  budgetPolicy?: {
+    currency?: "usd";
+    monthlyBudgetMinor?: number;
+    monthlyBudgetUsd: number;
+  } | null;
+  payg: {
+    packAmountMinor: number | null;
+    paidCreditMinor: number;
+    consumedCreditMinor: number;
+    balanceMinor: number;
+    reservedCreditMinor: number;
+    remainingCreditMinor: number;
+    sessionDebits: Array<{
+      id: string;
+      sessionId: string;
+      amountMinor: number;
+      createdAt: string;
+    }>;
+  };
   updatedAt: string;
 }
+
+export type BillingPlanSlug = "starter" | "growth" | "scale";
 
 export async function fetchTenantBillingState(organizationId: string) {
   const response = await requestJson<{ billing: TenantBillingState }>(
@@ -54,7 +84,7 @@ export async function fetchTenantBillingState(organizationId: string) {
   return response.billing;
 }
 
-export async function startPolarCheckout(organizationId: string, planSlug: TenantBillingState["plan"]["slug"]) {
+export async function startPolarCheckout(organizationId: string, planSlug: BillingPlanSlug) {
   const response = await requestJson<{ checkout: { checkoutUrl: string } }>(
     `/organizations/${organizationId}/billing/checkout`,
     {
@@ -86,4 +116,20 @@ export async function openPolarCustomerPortal(organizationId: string) {
   );
 
   return response.portal;
+}
+
+export async function startPaygCheckout(organizationId: string) {
+  const response = await requestJson<{ checkout: { checkoutUrl: string } }>(
+    `/organizations/${organizationId}/billing/payg-checkout`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        successUrl: `${window.location.origin}/billing`,
+        returnUrl: `${window.location.origin}/billing`,
+      }),
+    },
+  );
+  return response.checkout;
 }

@@ -1234,15 +1234,15 @@ function TelephonyConnectionTable({ model }: { model: TelephonyScreenModel }) {
                       <span>{formatProviderName(connection.provider)}</span>
                     </div>
                   </TableCell>
-                  <TableCell><strong>{connection.label}</strong><span>{connection.region}</span></TableCell>
+                  <TableCell><strong className="telephony-connection-name">{connection.label}</strong><span>{connection.region}</span></TableCell>
                   <TableCell>{numbers.length}</TableCell>
                   <TableCell>{routeNames.length > 0 ? routeNames.join(", ") : "Not routed"}</TableCell>
                   <TableCell>
                     <div className="telephony-table-actions">
-                      <Button aria-label="Run heartbeat" aria-busy={heartbeatPending} className="workflow-button telephony-icon-button telephony-action-button telephony-action-heartbeat" disabled={heartbeatPending} title={`Run heartbeat for ${connection.label}`} type="button" variant="outline" onClick={() => runConnectionHeartbeat(connection.id)}><Activity size={15} /></Button>
-                      <Button aria-label="Validate provider" aria-busy={validatePending} className="workflow-button telephony-icon-button telephony-action-button telephony-action-validate" disabled={validatePending} title={`Validate ${connection.label}`} type="button" variant="outline" onClick={() => validateConnection(connection.id)}><BadgeCheck size={15} /></Button>
-                      {connection.ownershipMode === "byo_provider_account" ? <Button aria-label="Import phone numbers" aria-busy={importPending} className="workflow-button telephony-icon-button telephony-action-button telephony-action-import" disabled={importPending} title={`Import numbers from ${connection.label}`} type="button" variant="outline" onClick={() => importNumbers(connection.id)}><PhoneIncoming size={15} /></Button> : null}
-                      <Button aria-label={`Delete ${connection.label}`} aria-busy={deletePending} className="workflow-button workflow-button-danger telephony-icon-button telephony-action-button telephony-action-delete" disabled={deletePending} title="Delete connection" type="button" variant="destructive" onClick={() => deleteConnection(connection.id)}><Trash2 size={15} /></Button>
+                      <Button aria-label="Run heartbeat" aria-busy={heartbeatPending} className="workflow-button telephony-action-button telephony-action-button-labeled telephony-action-heartbeat" disabled={heartbeatPending} title={`Run heartbeat for ${connection.label}`} type="button" variant="outline" onClick={() => runConnectionHeartbeat(connection.id)}><Activity size={16} /><span>Run heartbeat</span></Button>
+                      <Button aria-label="Validate provider" aria-busy={validatePending} className="workflow-button telephony-action-button telephony-action-button-labeled telephony-action-validate" disabled={validatePending} title={`Validate ${connection.label}`} type="button" variant="outline" onClick={() => validateConnection(connection.id)}><BadgeCheck size={16} /><span>Validate provider</span></Button>
+                      {connection.ownershipMode === "byo_provider_account" ? <Button aria-label="Import phone numbers" aria-busy={importPending} className="workflow-button telephony-action-button telephony-action-button-labeled telephony-action-import" disabled={importPending} title={`Import numbers from ${connection.label}`} type="button" variant="outline" onClick={() => importNumbers(connection.id)}><PhoneIncoming size={16} /><span>Import numbers</span></Button> : null}
+                      <Button aria-label={`Delete ${connection.label}`} aria-busy={deletePending} className="workflow-button workflow-button-danger telephony-action-button telephony-action-button-labeled telephony-action-delete" disabled={deletePending} title="Delete connection" type="button" variant="destructive" onClick={() => deleteConnection(connection.id)}><Trash2 size={16} /><span>Delete</span></Button>
                     </div>
                   </TableCell>
                 </TableRow>

@@ -198,15 +198,8 @@ describe("TelephonyController connection-webhooks", () => {
           budgetAction: "allow",
           now: "2026-05-14T12:16:00.000Z",
         });
-      expect(runtimePolicyResponse.status).toBe(201);
-      expect(runtimePolicyResponse.body.session.status).toBe("terminated");
-      expect(twilioRouting.terminationRequests).toEqual([
-        {
-          accountSid: "AC1234567890abcdef1234567890abcd",
-          authToken: "twilio-auth-token-1234567890",
-          callSid: "CA-dispatch-1",
-        },
-      ]);
+      expect(runtimePolicyResponse.status).toBe(404);
+      expect(twilioRouting.terminationRequests).toEqual([]);
 
       const webhookPayload = {
         AccountSid: "AC1234567890abcdef1234567890abcd",

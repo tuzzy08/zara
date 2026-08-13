@@ -121,6 +121,10 @@ export function createMinimalExecutionHarness(
         ownership?: { workerId: string; ownerEpoch: number };
       },
     ) => Promise<unknown>) | undefined;
+    applyRuntimePolicy?: ((input: {
+      organizationId: string;
+      callSessionId: string;
+    }) => Promise<unknown>) | undefined;
     capacityObservability?: Partial<PstnCapacityObservability> | undefined;
   } = {},
 ) {
@@ -186,6 +190,13 @@ export function createMinimalExecutionHarness(
             context: createPremiumCallRuntimeContext(),
           }
         );
+      },
+      async applyCallRuntimePolicy(input: {
+        organizationId: string;
+        callSessionId: string;
+      }) {
+        return await options.applyRuntimePolicy?.(input)
+          ?? { session: { status: "active" as const } };
       },
     } as never,
     {

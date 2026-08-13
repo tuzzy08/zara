@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPstnTestRouteViaApi,
   dispatchInboundTelephonyTestViaApi,
+  dispatchOutboundTelephonyCallViaApi,
 } from "./telephonyApi";
 
 describe("telephony API requests", () => {
@@ -60,6 +61,42 @@ describe("telephony API requests", () => {
           toPhoneNumber: "+14155557890",
           fromPhoneNumber: "+233201110001",
           callSid: "CA-phone-test-001",
+        }),
+      }),
+    );
+  });
+
+  it("does not send client-supplied outbound billing evidence", async () => {
+    const fetchMock = stubSuccessfulFetch();
+
+    await dispatchOutboundTelephonyCallViaApi({
+      organizationId: "tenant-west-africa",
+      toPhoneNumber: "+14155550999",
+      fromPhoneNumber: "+14155550110",
+      callSid: "CA-outbound-001",
+      publishedVersionId: "published-support-v4",
+      workflowLabel: "Support",
+      workspaceId: "workspace-default",
+      consentGranted: true,
+      budgetRemainingUsd: 999,
+      estimatedCostUsd: 0,
+      localHour: 11,
+      callingWindow: { startHour: 8, endHour: 19 },
+    } as Parameters<typeof dispatchOutboundTelephonyCallViaApi>[0]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4010/organizations/tenant-west-africa/telephony/dispatch/outbound",
+      expect.objectContaining({
+        body: JSON.stringify({
+          toPhoneNumber: "+14155550999",
+          fromPhoneNumber: "+14155550110",
+          callSid: "CA-outbound-001",
+          publishedVersionId: "published-support-v4",
+          workflowLabel: "Support",
+          workspaceId: "workspace-default",
+          consentGranted: true,
+          localHour: 11,
+          callingWindow: { startHour: 8, endHour: 19 },
         }),
       }),
     );

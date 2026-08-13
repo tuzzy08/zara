@@ -12,6 +12,10 @@ export interface BillingPlanResponse {
   budgetLimitUsd: number;
   budgetUsedUsd: number;
   budgetWarning: boolean;
+  currency?: "usd" | undefined;
+  monthlyBaseMinor?: number | null | undefined;
+  includedStandardRuntimeSeconds?: number | null | undefined;
+  includedPremiumRuntimeSeconds?: number | null | undefined;
 }
 
 export interface BillingUsageMetricResponse {
@@ -20,7 +24,9 @@ export interface BillingUsageMetricResponse {
   used: number;
   limit?: number | undefined;
   unit: string;
-  costUsd: number;
+  costUsd: number | null;
+  costMinor?: number | null | undefined;
+  disposition?: "posted" | "shadow_estimate" | "incomplete" | "non_billable" | "blocked" | undefined;
 }
 
 export interface BillingBudgetPolicyResponse {
@@ -31,6 +37,8 @@ export interface BillingBudgetPolicyResponse {
   warningThresholdPercent: number;
   updatedBy: string;
   updatedAt: string;
+  currency?: "usd" | undefined;
+  monthlyBudgetMinor?: number | undefined;
 }
 
 export interface BillingBudgetWarningResponse {
@@ -115,8 +123,26 @@ export interface BillingInvoiceResponse {
   invoiceNumber: string;
   amountUsd: number;
   currency: "usd";
-  status: "paid" | "open" | "void";
+  status: "paid" | "open" | "void" | "refunded" | "unknown";
   createdAt: string;
+  amountMinor?: number | undefined;
+}
+
+export interface BillingPaygSessionDebitResponse {
+  id: string;
+  sessionId: string;
+  amountMinor: number;
+  createdAt: string;
+}
+
+export interface BillingPaygBalanceResponse {
+  packAmountMinor: number | null;
+  paidCreditMinor: number;
+  consumedCreditMinor: number;
+  balanceMinor: number;
+  reservedCreditMinor: number;
+  remainingCreditMinor: number;
+  sessionDebits: BillingPaygSessionDebitResponse[];
 }
 
 export interface BillingEntitlementResponse {
@@ -139,17 +165,19 @@ export interface BillingSubscriptionResponse {
 export interface TenantBillingStateResponse {
   organizationId: string;
   provider: "polar";
+  currency?: "usd" | undefined;
   customerExternalId: string;
-  plan: BillingPlanResponse;
+  plan: BillingPlanResponse | null;
   subscription: BillingSubscriptionResponse;
   usage: BillingUsageMetricResponse[];
-  budgetPolicy: BillingBudgetPolicyResponse;
+  budgetPolicy: BillingBudgetPolicyResponse | null;
   budgetWarnings: BillingBudgetWarningResponse[];
   usageAggregates: BillingUsageAggregateResponse[];
   telephonyMinuteAggregates: BillingTelephonyMinuteAggregateResponse[];
   runtimeCostEvents: RuntimeCostEventResponse[];
   entitlements: BillingEntitlementResponse[];
   invoices: BillingInvoiceResponse[];
+  payg?: BillingPaygBalanceResponse | undefined;
   updatedAt: string;
 }
 
@@ -314,7 +342,11 @@ export interface PolarOrderPaidWebhookPayload {
     invoiceNumber?: string | undefined;
     invoice_number?: string | undefined;
     amount?: number | undefined;
+    totalAmount?: number | undefined;
+    total_amount?: number | undefined;
     currency?: string | undefined;
+    status?: string | undefined;
+    paid?: boolean | undefined;
     productId?: string | undefined;
     product_id?: string | undefined;
     createdAt?: string | undefined;
@@ -327,7 +359,62 @@ export interface PolarOrderPaidWebhookPayload {
   };
 }
 
-export type PolarWebhookPayload = PolarCustomerStateWebhookPayload | PolarOrderPaidWebhookPayload | {
+export interface CreatePaygCheckoutRequest {
+  actorUserId: string;
+  actorRole?: BillingActorRole | undefined;
+  successUrl: string;
+  returnUrl?: string | undefined;
+}
+
+export interface BillingPaygCheckoutResponse {
+  id: string;
+  organizationId: string;
+  provider: "polar";
+  packAmountMinor: 500;
+  currency: "usd";
+  providerCheckoutId: string;
+  checkoutUrl: string;
+  status: "open";
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface PolarOrderRefundedWebhookPayload {
+  type: "order.refunded";
+  data: {
+    id?: string | undefined;
+    totalAmount?: number | undefined;
+    total_amount?: number | undefined;
+    refundedAmount?: number | undefined;
+    refunded_amount?: number | undefined;
+    currency?: string | undefined;
+    productId?: string | undefined;
+    product_id?: string | undefined;
+    modifiedAt?: string | undefined;
+    modified_at?: string | undefined;
+    customer?: {
+      id?: string | undefined;
+      externalId?: string | undefined;
+      external_id?: string | undefined;
+    } | undefined;
+  };
+}
+
+export interface PolarSubscriptionPastDueWebhookPayload {
+  type: "subscription.past_due";
+  timestamp?: string | undefined;
+  data: PolarSubscriptionPayload & {
+    amount?: number | undefined;
+    currency?: string | undefined;
+    customer?: {
+      id?: string | undefined;
+      externalId?: string | undefined;
+      external_id?: string | undefined;
+    } | undefined;
+  };
+}
+
+export type PolarWebhookPayload = PolarCustomerStateWebhookPayload | PolarOrderPaidWebhookPayload | PolarOrderRefundedWebhookPayload | PolarSubscriptionPastDueWebhookPayload | {
   type: string;
   data?: unknown;
 };
@@ -341,10 +428,22 @@ export interface PolarSubscriptionPayload {
   current_period_end?: string | undefined;
   cancelAtPeriodEnd?: boolean | undefined;
   cancel_at_period_end?: boolean | undefined;
+  createdAt?: string | undefined;
+  created_at?: string | undefined;
+  modifiedAt?: string | undefined;
+  modified_at?: string | undefined;
 }
 
 export interface PolarBenefitPayload {
   id?: string | undefined;
+  benefitId?: string | undefined;
+  benefit_id?: string | undefined;
+  benefitType?: string | undefined;
+  benefit_type?: string | undefined;
   type?: string | undefined;
   description?: string | undefined;
+  createdAt?: string | undefined;
+  created_at?: string | undefined;
+  modifiedAt?: string | undefined;
+  modified_at?: string | undefined;
 }

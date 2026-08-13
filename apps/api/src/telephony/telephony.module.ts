@@ -3,6 +3,8 @@ import { Module } from "@nestjs/common";
 import { BillingModule } from "../billing/billing.module";
 import { AuditLogModule } from "../compliance/audit-log.module";
 import { PostgresPoolService } from "../database/postgres-pool.service";
+import { DatabaseModule } from "../database/database.module";
+import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
 import {
   createConfiguredPstnCallObservabilityRecorder,
   pstnCallObservabilityRecorderToken,
@@ -50,11 +52,13 @@ import {
   createPstnPremiumWorkerAvailabilityProvider,
 } from "../realtime-worker/pstn-premium-worker-availability";
 import { PstnRealtimeWorkerRegistry } from "../realtime-worker/pstn-realtime-worker-registry";
+import { TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-call-start.service";
 
 @Module({
   imports: [
     AuditLogModule,
     BillingModule,
+    DatabaseModule,
     PstnAdmissionModule,
     PremiumRealtimeConversationPolicyModule,
     PublishedWorkflowManifestReadModule,
@@ -62,8 +66,14 @@ import { PstnRealtimeWorkerRegistry } from "../realtime-worker/pstn-realtime-wor
   ],
   controllers: [TelephonyController],
   providers: [
-    PostgresPoolService,
     TelephonyService,
+    {
+      provide: PostgresTenantStatusRepository,
+      useFactory: (postgres: PostgresPoolService) =>
+        new PostgresTenantStatusRepository(postgres.pool),
+      inject: [PostgresPoolService],
+    },
+    TrustedPaygTelephonyCallStartService,
     TwilioMediaStreamsWebSocketBridge,
     TelephonyShutdownLifecycle,
     PremiumPstnDispatchSnapshotResolver,

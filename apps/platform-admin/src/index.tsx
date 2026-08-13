@@ -42,6 +42,41 @@ interface PlatformAdminView {
   rows: Array<Record<string, string>>;
 }
 
+interface PlatformBillingReadModel {
+  currency: "USD" | null;
+  shadowEstimateMinor: number | null;
+  premiumShadowEstimateMinor: number | null;
+  deliveredChargeMinor: number | null;
+  incompleteUsageCount: number;
+  blockedUsageCount: number;
+  tenantsOverBudget: number;
+  organizations: Array<{
+    organizationId: string;
+    organizationName: string;
+    hasBillingData: boolean;
+    subscription: { status: string; planSlug: string | null } | null;
+    usage: {
+      currency: "USD";
+      shadowEstimateMinor: number | null;
+      premiumShadowEstimateMinor: number | null;
+      deliveredChargeMinor: number | null;
+      incompleteUsageCount: number;
+      blockedUsageCount: number;
+      callSeconds: number;
+      premiumRuntimeSeconds: number;
+    } | null;
+    budget: { currency: "USD"; overageLimitMinor: number; overBudget: boolean } | null;
+    payg: {
+      currency: "USD";
+      paidCreditMinor: number;
+      totalCreditMinor: number;
+      consumedCreditMinor: number;
+      reservedCreditMinor: number;
+      availableCreditMinor: number;
+    } | null;
+  }>;
+}
+
 interface RuntimeRoutePolicyUpdatePayload {
   expectedVersion: number;
   reason: string;
@@ -385,7 +420,6 @@ const views: Record<string, PlatformAdminView> = {
     ],
     rows: [
       { label: "Incidents", value: "0 active", state: "Clear" },
-      { label: "Monthly spend", value: "$1,842.55", state: "Within policy" },
       { label: "Support queue", value: "3 requests", state: "Open" },
     ],
   },
@@ -397,10 +431,7 @@ const views: Record<string, PlatformAdminView> = {
       { label: "Suspended tenants", value: "1", detail: "Policy review" },
       { label: "Risk flags", value: "2", detail: "Injection and outbound velocity" },
     ],
-    rows: [
-      { tenant: "Tuzzy Labs", plan: "Scale", usage: "$1,260.42", state: "Active" },
-      { tenant: "Healthdesk Reception", plan: "Starter", usage: "$248.10", state: "Trialing" },
-    ],
+    rows: [],
   },
   "/users": {
     title: "User and membership support",
@@ -475,15 +506,8 @@ const views: Record<string, PlatformAdminView> = {
   "/billing": {
     title: "Usage and billing controls",
     eyebrow: "Controls",
-    metrics: [
-      { label: "Month to date", value: "$1,842.55", detail: "All tenants" },
-      { label: "Premium realtime", value: "$318.20", detail: "82 minutes" },
-      { label: "Over budget", value: "1", detail: "Requires review" },
-    ],
-    rows: [
-      { tenant: "Tuzzy Labs", plan: "Scale", budget: "$1,500", state: "Within policy" },
-      { tenant: "Healthdesk Reception", plan: "Starter", budget: "$500", state: "Watch" },
-    ],
+    metrics: [],
+    rows: [],
   },
   "/audit": {
     title: "Platform audit log",
@@ -681,6 +705,9 @@ export function PlatformAdminApp({
         <section className="data-panel" aria-label={`${activeView.title} records`}>
           <DataTable rows={activeView.rows} rowKeyPrefix={activeRoute} />
         </section>
+        {activeRoute === "/dashboard" || activeRoute === "/organizations" || activeRoute === "/billing" ? (
+          <PlatformBillingPanel route={activeRoute} />
+        ) : null}
         {activeRoute === "/telephony" ? (
           <PlatformTelephonyProvisioningPanel canMutate={platformAuth.mutationAllowed} />
         ) : null}
@@ -698,6 +725,131 @@ export function PlatformAdminApp({
       </main>
     </div>
   );
+}
+
+export function buildPlatformBillingView(billing: PlatformBillingReadModel): PlatformAdminView {
+  const noBillingData = billing.currency === null;
+  return {
+    title: "Production billing",
+    eyebrow: "Billing ledger",
+    metrics: [
+      {
+        label: "Shadow estimate",
+        value: noBillingData || billing.shadowEstimateMinor === null
+          ? "No billing data"
+          : formatMinorUnits(billing.shadowEstimateMinor, "USD"),
+        detail: "Estimated customer charges in shadow mode",
+      },
+      {
+        label: "Delivered charges",
+        value: billing.deliveredChargeMinor === null
+          ? "No delivered charges"
+          : formatMinorUnits(billing.deliveredChargeMinor, "USD"),
+        detail: "Charges confirmed as delivered",
+      },
+      {
+        label: "Incomplete usage",
+        value: String(billing.incompleteUsageCount),
+        detail: "Usage facts that cannot produce a charge estimate",
+      },
+      {
+        label: "Blocked usage",
+        value: String(billing.blockedUsageCount),
+        detail: "Usage facts blocked from charge delivery",
+      },
+      {
+        label: "Over budget",
+        value: noBillingData ? "No billing data" : String(billing.tenantsOverBudget),
+        detail: "Tenants above their recorded overage limit",
+      },
+    ],
+    rows: billing.organizations.map((organization) => ({
+      tenant: organization.organizationName,
+      plan: organization.subscription?.planSlug === null
+        || organization.subscription === null
+        ? "No subscription"
+        : titleCase(organization.subscription.planSlug),
+      usage: organization.usage === null
+        ? "No usage data"
+        : `${organization.usage.shadowEstimateMinor === null
+          ? "No shadow estimate"
+          : `${formatMinorUnits(organization.usage.shadowEstimateMinor, organization.usage.currency)} shadow estimate`} · ${organization.usage.deliveredChargeMinor === null
+          ? "No delivered charges"
+          : `${formatMinorUnits(organization.usage.deliveredChargeMinor, organization.usage.currency)} delivered`} · ${organization.usage.incompleteUsageCount} incomplete · ${organization.usage.blockedUsageCount} blocked`,
+      budget: organization.budget === null
+        ? "No budget policy"
+        : `${formatMinorUnits(organization.budget.overageLimitMinor, organization.budget.currency)} overage limit`,
+      payg: organization.payg === null
+        ? "No PAYG credit"
+        : `${formatMinorUnits(organization.payg.availableCreditMinor, organization.payg.currency)} available · ${formatMinorUnits(organization.payg.totalCreditMinor, organization.payg.currency)} total · ${formatMinorUnits(organization.payg.paidCreditMinor, organization.payg.currency)} paid · ${formatMinorUnits(organization.payg.reservedCreditMinor, organization.payg.currency)} reserved · ${formatMinorUnits(organization.payg.consumedCreditMinor, organization.payg.currency)} consumed`,
+    })),
+  };
+}
+
+function PlatformBillingPanel({ route }: { route: string }) {
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "error" }
+    | { status: "ready"; billing: PlatformBillingReadModel }
+  >({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(resolvePlatformAdminApiUrl("/platform-admin/billing"), { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Platform billing read failed.");
+        return response.json() as Promise<{ billing: PlatformBillingReadModel }>;
+      })
+      .then((body) => {
+        if (!cancelled) setState({ status: "ready", billing: body.billing });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: "error" });
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (state.status === "loading") {
+    return <section className="data-panel"><p>Loading billing data.</p></section>;
+  }
+  if (state.status === "error") {
+    return <section className="data-panel"><p>Billing data is unavailable.</p></section>;
+  }
+
+  const view = buildPlatformBillingView(state.billing);
+  const showMetrics = route !== "/organizations";
+  const showRows = route !== "/dashboard";
+  return (
+    <section aria-label="Production billing data">
+      {showMetrics ? (
+        <div className="metric-grid">
+          {view.metrics.map((metric) => (
+            <Card className="metric-card" key={metric.label}>
+              <p>{metric.label}</p><strong>{metric.value}</strong><span>{metric.detail}</span>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+      {showRows ? (
+        <div className="data-panel">
+          <DataTable rows={view.rows} rowKeyPrefix={`billing-${route}`} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function formatMinorUnits(amountMinor: number, currency: "USD") {
+  return `${new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amountMinor / 100)} ${currency}`;
+}
+
+function titleCase(value: string) {
+  return value.length === 0 ? value : `${value[0]?.toUpperCase()}${value.slice(1)}`;
 }
 
 function platformSessionFromContext(context: ZaraAuthContext): ZaraAuthSession | null {
