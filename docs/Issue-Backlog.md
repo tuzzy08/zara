@@ -5317,6 +5317,7 @@ Acceptance criteria:
 Implementation progress:
 - Durable worker/epoch fencing, confirmed-lease continuity bounds, explicit forced drain termination, bounded terminal retry, stale-owner reconciliation, and low-cardinality recovery metrics are implemented and locally qualified.
 - Two-worker deployment is documented as separate Coolify applications with immutable identities, distinct endpoints, and serial drain-and-replace without overlapping same-ID processes.
+- Worker bootstrap now remains alive and fail-closed after an initial not-ready posture, so scheduled dependency and capacity refreshes can recover without a Docker restart loop.
 - API typecheck, 202 focused tests, 22 real-Postgres tests, 39 Redis tests, 25 PSTN evals, and the Coolify Compose contract pass.
 - Status remains In Progress until the exact candidate completes deployed Coolify routing, long-running WebSocket, serial replacement, abrupt-stop, live-provider, and alert-delivery validation.
 

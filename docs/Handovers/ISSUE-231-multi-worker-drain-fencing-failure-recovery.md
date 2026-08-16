@@ -30,6 +30,7 @@
 - Stabilized Twilio capacity verification by waiting for the server-side local-close accounting callback after the client observes socket closure; production socket ordering remains unchanged.
 - Closed final review findings before replacement-branch commit: mapped all four production-required admission CPS variables into the realtime worker, exposed tracked reservation and pending-release posture to the load harness, and aligned canonical Redis-outage language with the last-confirmed-lease fencing decision.
 - Closed the standards re-review follow-ups: sandwich media now obeys the same lease-expiry fail-stop contract as premium media, separate Dockerfile worker documentation names `PSTN_WORKER_PUBLIC_MEDIA_URL`, and the ISSUE-229 handover no longer promises unfenced outage continuity.
+- Corrected the deployed Coolify worker restart loop. Bootstrap no longer terminates the process after one transient not-ready sample. The worker remains fail-closed through its existing readiness and call-acceptance posture while scheduled refreshes can move it from `starting` to `ready`.
 
 ## Tests Run
 
@@ -64,6 +65,8 @@
 - The real-Redis suite was selected locally but skipped its 15 tests because `ZARA_TEST_REDIS_URL` is not configured in this shell; PR #120's CI quality gate supplied Redis and passed the authoritative integration result.
 - `docker compose -f compose.coolify.yml config --quiet` passed after populating every required variable with validation-only process values.
 - Final `git diff --check` passed.
+- RED: `pstn-realtime-worker-host.test.ts` reproduced the production `PSTN realtime worker failed readiness during startup` rejection when the first posture was not ready.
+- GREEN: the host, lifecycle, health controller, module, and worker-main suite passed 31 tests; the focused host/lifecycle rerun passed 14 tests; focused ESLint and API typecheck passed.
 - RED: final spec review found that production worker Compose omitted the four required admission CPS variables and that drain recovery ignored reservation debt; standards review found canonical docs still promised media survival beyond the last confirmed lease.
 - GREEN: production worker compilation, deployment contracts, admission posture propagation, capacity client validation, and reservation-debt drain rejection passed in a focused 80-test suite.
 - GREEN: the broader simulator, capacity, platform-admin, worker, and admission regression set passed 134 tests across 18 files.
@@ -84,7 +87,8 @@
 - Local tests cannot prove Coolify reverse-proxy WebSocket timeout, external routing affinity, process replacement order, or effective container file-descriptor limits.
 - The checked-in Compose service remains the single-worker baseline; production HA depends on the documented pair of separately configured Coolify applications.
 - Alert metric contracts exist in code, but alert delivery and paging remain unverified until the staging OTel backend is configured.
+- The corrected worker still needs a Coolify redeploy to prove that the deployed container remains running through its initial not-ready interval and becomes healthy.
 
 ## Next Recommended Step
 
-Deploy the merged PR #120 release SHA without overlapping same-worker identities and execute the ISSUE-231 two-worker staging checklist before starting the blocked capacity control-surface issue.
+Deploy the corrected worker release without overlapping same-worker identities, confirm that its restart count remains stable and `/health/ready` becomes ready, then execute the ISSUE-231 two-worker staging checklist.

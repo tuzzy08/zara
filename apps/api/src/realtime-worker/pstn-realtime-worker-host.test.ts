@@ -39,22 +39,17 @@ describe("PstnCapacityProcessMetricsSource", () => {
 });
 
 describe("PstnRealtimeWorkerHostLifecycle", () => {
-  it("connects Redis, starts heartbeat lifecycle, and fails startup when not ready", async () => {
+  it("keeps running but unavailable while startup readiness recovers", async () => {
     const events: string[] = [];
-    const health = {
-      acceptingCalls: false,
-    };
-    const host = createHost(events, health);
+    const host = createHost(events);
 
-    await expect(host.onApplicationBootstrap()).rejects.toThrow(
-      "PSTN realtime worker failed readiness during startup",
-    );
+    await expect(host.onApplicationBootstrap()).resolves.toBeUndefined();
     expect(events).toEqual(["redis.connect", "lifecycle.start"]);
   });
 
   it("drains before shutting bridge, execution, and admission in order", async () => {
     const events: string[] = [];
-    const host = createHost(events, { acceptingCalls: true });
+    const host = createHost(events);
     await host.onApplicationBootstrap();
 
     await host.beforeApplicationShutdown();
@@ -77,7 +72,6 @@ describe("PstnRealtimeWorkerHostLifecycle", () => {
       .mockImplementation(() => undefined);
     const host = createHost(
       events,
-      { acceptingCalls: true },
       {
         completed: false,
         reason: "deadline",
@@ -105,7 +99,6 @@ describe("PstnRealtimeWorkerHostLifecycle", () => {
 
 function createHost(
   events: string[],
-  health: { acceptingCalls: boolean },
   drainResult: PstnRealtimeWorkerDrainResult = {
     completed: true,
     reason: "empty",
@@ -121,19 +114,7 @@ function createHost(
         return drainResult;
       },
       stop: () => { events.push("lifecycle.stop"); },
-      getHealthPosture: () => ({
-        state: health.acceptingCalls ? "ready" as const : "starting" as const,
-        registered: health.acceptingCalls,
-        dependencies: {
-          redis: health.acceptingCalls,
-          postgres: health.acceptingCalls,
-        },
-        belowExhaustion: health.acceptingCalls,
-        acceptingCalls: health.acceptingCalls,
-        activeCalls: 0,
-        startingCalls: 0,
-        availableSlots: health.acceptingCalls ? 20 : 0,
-      }),
+      getHealthPosture: () => ({ acceptingCalls: false }),
     },
     {
       shutdown: async (input?: {

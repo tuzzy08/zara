@@ -164,11 +164,6 @@ export class PstnRealtimeWorkerHostLifecycle
   async onApplicationBootstrap() {
     await this.redis.connect();
     await this.lifecycle.start();
-    if (!this.lifecycle.getHealthPosture().acceptingCalls) {
-      throw new Error(
-        "PSTN realtime worker failed readiness during startup.",
-      );
-    }
   }
 
   beforeApplicationShutdown() {
