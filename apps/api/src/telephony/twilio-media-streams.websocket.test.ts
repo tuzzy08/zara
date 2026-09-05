@@ -2655,7 +2655,7 @@ async function createRoutedTwilioApp(options?: {
     })
     .compile();
 
-  const app: INestApplication = moduleRef.createNestApplication();
+  const app: INestApplication = moduleRef.createNestApplication({ rawBody: true });
   configureCors(app);
   installTestTenantAuth(app);
   await app.listen(0);

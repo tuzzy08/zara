@@ -372,7 +372,7 @@ async function createTestingApp(): Promise<INestApplication> {
     .useValue(incrementalRepository)
     .compile();
 
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication({ rawBody: true });
   installTestTenantAuth(app);
   await app.init();
   await ensureTestBillingPlan(app, "tenant-west-africa");

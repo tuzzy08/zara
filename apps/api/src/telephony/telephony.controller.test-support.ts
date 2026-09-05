@@ -181,7 +181,7 @@ export async function createTestingApp(input: {
   }
   const moduleRef = await moduleBuilder.compile();
 
-  const app: INestApplication = moduleRef.createNestApplication();
+  const app: INestApplication = moduleRef.createNestApplication({ rawBody: true });
   configureCors(app);
   if (input.installTenantAuth !== false) {
     installTestTenantAuth(app);
@@ -526,8 +526,8 @@ export async function ensureTestBillingPlan(
 
   const webhookResponse = await request(app.getHttpServer())
     .post("/billing/polar/webhooks")
-    .set("polar-webhook-id", `test-subscription-active-${organizationId}`)
-    .set("polar-webhook-signature", "test-signature")
+    .set("webhook-id", `test-subscription-active-${organizationId}`)
+    .set("webhook-signature", "test-signature")
     .send({
       type: "customer.state_changed",
       data: {

@@ -916,8 +916,8 @@ describe("TelephonyController premium-phone-test", () => {
 
       const canceledSubscriptionWebhook = await request(app.getHttpServer())
         .post("/billing/polar/webhooks")
-        .set("polar-webhook-id", "evt-subscription-canceled")
-        .set("polar-webhook-signature", "test-signature")
+        .set("webhook-id", "evt-subscription-canceled")
+        .set("webhook-signature", "test-signature")
         .send({
           type: "customer.state_changed",
           data: {
@@ -966,8 +966,8 @@ describe("TelephonyController premium-phone-test", () => {
 
       await request(app.getHttpServer())
         .post("/billing/polar/webhooks")
-        .set("polar-webhook-id", "evt-subscription-active")
-        .set("polar-webhook-signature", "test-signature")
+        .set("webhook-id", "evt-subscription-active")
+        .set("webhook-signature", "test-signature")
         .send({
           type: "customer.state_changed",
           data: {
