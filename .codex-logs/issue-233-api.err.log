@@ -1,0 +1,337 @@
+[31m[Nest] 20256  - [39m07/30/2026, 1:28:08 PM [31m  ERROR[39m [38;5;3m[SandboxLiveSessionsService] [39m[31mLive sandbox provider failure: organization=tenant-west-africa session=sandbox-live-118ac83d-fa1c-4dcd-adcb-d1517de306eb provider=assemblyai-streaming message="AssemblyAI streaming session failed with close code 3006: Invalid Message Type."[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_initial_agent_identity_unavailable {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_send_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_gemini_output_format_invalid {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"gemini-live"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_start_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_readiness_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_start_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_start_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_protocol_error {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_response_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:51 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_response_timeout {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:51 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_response_timeout {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:43 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_response_incomplete {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_closed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] app_shutdown {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] worker_drain_deadline {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] provider_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:47 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] terminal_lifecycle_persistence_exhausted {"callSessionId":"CA-premium:telephony","attempts":3}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] provider_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:47 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] terminal_lifecycle_persistence_exhausted {"callSessionId":"CA-premium:telephony","attempts":3}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] app_shutdown {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] twilio_media_socket_closed_1006 {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_readiness_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_output_overflow {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:44 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_closed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:45 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_handoff_failed {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:50 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_provider_handoff_timeout {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:45 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] premium_handoff_overflow {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 15748  - [39m07/30/2026, 1:28:45 PM [31m  ERROR[39m [38;5;3m[PstnPremiumCallExecution] [39m[31m[twilio-pstn] app_shutdown {"organizationId":"tenant-west-africa","dispatchId":"dispatch-premium-1","callSessionId":"CA-premium:telephony","runtime":"openai-realtime"}[39m
+[31m[Nest] 28160  - [39m07/30/2026, 1:29:03 PM [31m  ERROR[39m [38;5;3m[TwilioMediaStreamsWebSocketBridge] [39m[31m[twilio-pstn] media_terminalization_failed {"callSessionId":"CA-sandwich-close-terminal-retry:telephony","reasonCode":"twilio_media_socket_closed_1006","runtimePath":"pstn-sandwich"}[39m
+[31m[Nest] 28160  - [39m07/30/2026, 1:29:05 PM [31m  ERROR[39m [38;5;3m[TwilioMediaStreamsWebSocketBridge] [39m[31m[twilio-pstn] media_terminalization_failed {"callSessionId":"CA-sandwich-close-terminal-exhausted:telephony","reasonCode":"twilio_media_socket_closed_1006","runtimePath":"pstn-sandwich"}[39m
+[31m[Nest] 28160  - [39m07/30/2026, 1:29:06 PM [31m  ERROR[39m [38;5;3m[TwilioMediaStreamsWebSocketBridge] [39m[31m[twilio-pstn] media_terminalization_failed {"callSessionId":"CA-sandwich-close-terminal-exhausted:telephony","reasonCode":"twilio_media_socket_closed_1006","runtimePath":"pstn-sandwich"}[39m
+[31m[Nest] 28160  - [39m07/30/2026, 1:29:07 PM [31m  ERROR[39m [38;5;3m[TwilioMediaStreamsWebSocketBridge] [39m[31m[twilio-pstn] media_terminalization_failed {"callSessionId":"CA-premium-close-terminal-failure:telephony","reasonCode":"twilio_media_socket_closed_1006","runtimePath":"pstn-premium-realtime"}[39m
+[31m[Nest] 28160  - [39m07/30/2026, 1:29:09 PM [31m  ERROR[39m [38;5;3m[TwilioMediaStreamsWebSocketBridge] [39m[31m[twilio-pstn] media_ownership_loss_cleanup_failed {"callSessionId":"CA-premium-ownership-lost-cleanup-failure:telephony","operation":"premium_execution","error":"provider stop failed"}[39m
+[31m[Nest] 28160  - [39m07/30/2026, 1:29:09 PM [31m  ERROR[39m [38;5;3m[TwilioMediaStreamsWebSocketBridge] [39m[31m[twilio-pstn] media_terminalization_failed {"callSessionId":"CA-premium-ownership-lost-cleanup-failure:telephony","reasonCode":"twilio_media_socket_closed_4409","runtimePath":"pstn-premium-realtime"}[39m
+stderr | apps/api/src/auth/auth-onboarding.controller.test.ts > Auth onboarding controller > rejects blank tenant organization names before creating a user
+2026-07-30T12:29:35.633Z ERROR [Better Auth]: User not found { email: 'onboarding-blank-1785414575350@example.com' }
+
+[31m[Nest] 20744  - [39m07/30/2026, 1:29:36 PM [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39mAggregateError: 
+    at [90mC:\Users\Lenovo\Desktop\New folder\zara\[39mnode_modules\[4mpg-pool[24m\index.js:45:11
+[90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m
+    at Object.query (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/postgres-telephony-incremental.repository.ts:2758:20)
+    at PostgresTelephonyIncrementalRepository.loadLatestSuccessfulPhoneTest (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/postgres-telephony-incremental.repository.ts:1547:20)
+    at TelephonyService.projectLatestSuccessfulPhoneTest (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/telephony.service.ts:959:20)
+    at TelephonyService.activateLiveRoute (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/telephony.service.ts:798:36)
+    at [90mC:\Users\Lenovo\Desktop\New folder\zara\[39mnode_modules\[4m@nestjs\core[24m\router\router-execution-context.js:46:28
+    at [90mC:\Users\Lenovo\Desktop\New folder\zara\[39mnode_modules\[4m@nestjs\core[24m\router\router-proxy.js:9:17 {
+  code: [32m'ECONNREFUSED'[39m,
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+    [90m    at createConnectionError (node:net:1678:14)[39m
+    [90m    at afterConnectMultiple (node:net:1708:16)[39m {
+      errno: [33m-4078[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'::1'[39m,
+      port: [33m5432[39m
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+    [90m    at createConnectionError (node:net:1678:14)[39m
+    [90m    at afterConnectMultiple (node:net:1708:16)[39m {
+      errno: [33m-4078[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'127.0.0.1'[39m,
+      port: [33m5432[39m
+    }
+  ]
+}
+stderr | apps/api/src/auth/auth-onboarding.controller.test.ts > Auth onboarding controller > rejects duplicate tenant organization names before creating another user
+2026-07-30T12:29:36.490Z ERROR [Better Auth]: User not found { email: 'onboarding-duplicate-blocked-1785414575756@example.com' }
+
+[31m[Nest] 20744  - [39m07/30/2026, 1:29:36 PM [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39mAggregateError: 
+    at [90mC:\Users\Lenovo\Desktop\New folder\zara\[39mnode_modules\[4mpg-pool[24m\index.js:45:11
+[90m    at processTicksAndRejections (node:internal/process/task_queues:103:5)[39m
+    at Object.query (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/postgres-telephony-incremental.repository.ts:2758:20)
+    at PostgresTelephonyIncrementalRepository.loadLatestSuccessfulPhoneTest (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/postgres-telephony-incremental.repository.ts:1547:20)
+    at TelephonyService.projectLatestSuccessfulPhoneTest (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/telephony.service.ts:959:20)
+    at TelephonyService.activateLiveRoute (C:/Users/Lenovo/Desktop/New folder/zara/apps/api/src/telephony/telephony.service.ts:798:36)
+    at [90mC:\Users\Lenovo\Desktop\New folder\zara\[39mnode_modules\[4m@nestjs\core[24m\router\router-execution-context.js:46:28
+    at [90mC:\Users\Lenovo\Desktop\New folder\zara\[39mnode_modules\[4m@nestjs\core[24m\router\router-proxy.js:9:17 {
+  code: [32m'ECONNREFUSED'[39m,
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+    [90m    at createConnectionError (node:net:1678:14)[39m
+    [90m    at afterConnectMultiple (node:net:1708:16)[39m {
+      errno: [33m-4078[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'::1'[39m,
+      port: [33m5432[39m
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+    [90m    at createConnectionError (node:net:1678:14)[39m
+    [90m    at afterConnectMultiple (node:net:1708:16)[39m {
+      errno: [33m-4078[39m,
+      code: [32m'ECONNREFUSED'[39m,
+      syscall: [32m'connect'[39m,
+      address: [32m'127.0.0.1'[39m,
+      port: [33m5432[39m
+    }
+  ]
+}
+stderr | apps/api/src/auth/auth-onboarding.controller.test.ts > Auth onboarding controller > rejects duplicate tenant organization names before creating another user
+2026-07-30T12:29:36.844Z ERROR [Better Auth]: User not found { email: 'onboarding-duplicate-blocked-1785414575756@example.com' }
+
+[31m[Nest] 16664  - [39m07/30/2026, 1:29:55 PM [31m  ERROR[39m [38;5;3m[PstnPremiumFinalizationReconciler] [39m[31m[pstn-realtime-worker] expired_owner_reconciliation_failed[39m
+stderr | apps/api/src/auth/auth-account-security.controller.test.ts > Auth account security controller > normalizes password reset requests so account existence is not exposed
+2026-07-30T12:30:10.562Z ERROR [Better Auth]: Reset Password: User not found { email: 'missing-1785414610531@example.com' }
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/api/src/production-esm-imports.test.ts > production ESM output > emits Node-resolvable relative JavaScript specifiers
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/api/src/production-esm-imports.test.ts:7:3
+      5|
+      6| describe("production ESM output", () => {
+      7|   it("emits Node-resolvable relative JavaScript specifiers", async () …
+       |   ^
+      8|     const outputRoots = [
+      9|       resolve(process.cwd(), "apps/api/dist-js"),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  apps/api/src/compliance/compliance.controller.test.ts > ComplianceController > queues recording notices before call bridge commands and records consent state
+AssertionError: expected 500 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 500
+
+ ❯ createTwoPartyRecordingRoute apps/api/src/compliance/compliance.controller.test.ts:362:37
+    360|     });
+    361|
+    362|   expect(activationResponse.status).toBe(201);
+       |                                     ^
+    363|
+    364|   return {
+ ❯ apps/api/src/compliance/compliance.controller.test.ts:134:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  apps/api/src/compliance/compliance.controller.test.ts > ComplianceController > applies retention deletion jobs to calls, transcripts, memory, and recordings with auditable retries
+AssertionError: expected 500 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 500
+
+ ❯ createTwoPartyRecordingRoute apps/api/src/compliance/compliance.controller.test.ts:362:37
+    360|     });
+    361|
+    362|   expect(activationResponse.status).toBe(201);
+       |                                     ^
+    363|
+    364|   return {
+ ❯ apps/api/src/compliance/compliance.controller.test.ts:176:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > does not execute assigned live tools unless the agent requests them
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:1498:34
+    1496|       });
+    1497|
+    1498|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    1499|
+    1500|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > executes one agent-requested tool call and returns safe results to the same agent
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:1919:34
+    1917|       });
+    1918|
+    1919|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    1920|
+    1921|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > answers closing turns naturally when action-mode output is empty structured JSON
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:2076:34
+    2074|       });
+    2075|
+    2076|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    2077|
+    2078|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > returns approval-required results without executing agent-requested tools
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:2452:34
+    2450|       });
+    2451|
+    2452|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    2453|
+    2454|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > returns a recoverable timeout failure when an agent-requested tool times out
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:2590:34
+    2588|       });
+    2589|
+    2590|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    2591|
+    2592|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > marks post-send side-effect timeouts as unknown and blocks blind retry
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:3001:34
+    2999|       });
+    3000|
+    3001|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    3002|
+    3003|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > returns a recoverable rate-limit failure when an agent-requested tool is rate limited
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:3161:34
+    3159|       });
+    3160|
+    3161|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    3162|
+    3163|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > returns partial tool results with safe output to the same agent
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:3310:34
+    3308|       });
+    3309|
+    3310|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    3311|
+    3312|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/12]⎯
+
+ FAIL  apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts > Sandbox live session websocket stream > does not request human approval for high-risk tools until the agent requests a tool
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts:3523:34
+    3521|       });
+    3522|
+    3523|     expect(grantResponse.status).toBe(201);
+       |                                  ^
+    3524|
+    3525|     const createResponse = await request(app.getHttpServer())
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/12]⎯
+

@@ -61,5 +61,71 @@
     },
     "previousHash": "3365e78477b5a67177d14384759ed8b368c7b44570749291329ecb70015d0f0f",
     "hash": "122567b551d458b281435207458123e00a66e9d2a56f5ce755e776f8fac75efe"
+  },
+  {
+    "id": "audit_0ab2e356-0004-4206-8eaa-645ce25a38fc",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-tenant-west-africa-1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-06-18T19:57:40.673Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": "122567b551d458b281435207458123e00a66e9d2a56f5ce755e776f8fac75efe",
+    "hash": "8fd168a6b03c11d4b9ecfd9d24768b2dc57663fbdf775aac9ff436098e3715fd"
+  },
+  {
+    "id": "audit_674dc1c0-77fe-44ac-95d8-4e02dd525de4",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-tenant-west-africa-1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-06-22T15:44:00.007Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": "8fd168a6b03c11d4b9ecfd9d24768b2dc57663fbdf775aac9ff436098e3715fd",
+    "hash": "fd06eaa47d20c7adfe38fbc12a7054200245d21f67b971981a5d35aa64971207"
+  },
+  {
+    "id": "audit_36a18824-ce39-4536-8822-435608a43738",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-tenant-west-africa-2"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-06-22T15:44:17.316Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": "fd06eaa47d20c7adfe38fbc12a7054200245d21f67b971981a5d35aa64971207",
+    "hash": "a70f4f31a7c31effb357f6a938aaf0563cc02d74b8a4a0f54c28559785d0ce68"
   }
 ]

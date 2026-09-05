@@ -1,0 +1,80 @@
+
+> @zara/web@0.1.0 predev
+> npm run build --workspace @zara/core && npm run build --workspace @zara/auth-client && npm run build --workspace @zara/ui
+
+
+> @zara/core@0.1.0 build
+> tsc -p tsconfig.json && node ../../scripts/patch-esm-extensions.mjs dist
+
+
+> @zara/auth-client@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @zara/ui@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @zara/web@0.1.0 dev
+> vite --host localhost --port 4173 --host 127.0.0.1 --port 4177
+
+[2m2:35:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because lockfile has changed
+
+  [32m[1mVITE[22m v8.0.12[39m  [2mready in [0m[1m1676[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m4177[22m/[39m
+[2m2:35:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [optimizer] bundling dependencies...
+[2m2:41:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/MarketingLandingPageMockup.tsx, /src/styles.css[22m
+[2m2:41:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/marketing-landing.css[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:22 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:22 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:22 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:45:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:/Users/Lenovo/Desktop/New folder/zara/packages/ui/dist/index.js[22m
+[2m2:45:26 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:48:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:/Users/Lenovo/Desktop/New folder/zara/packages/ui/dist/index.js[22m
+[2m2:48:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m2:49:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:49:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:49:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:49:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:49:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:49:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:49:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m2:49:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m
+[2m4:04:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/WorkflowBuilder.tsx, /src/SandboxScreen.tsx, /src/DashboardScreen.tsx, /src/TelephonyScreen.tsx[22m

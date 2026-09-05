@@ -1,0 +1,68 @@
+[
+  {
+    "id": "audit_d8fa1dfc-0a6b-4fcd-aadd-571ee3e568d3",
+    "tenantId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+    "actor": {
+      "type": "user",
+      "id": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-7QC80J475bWrKl1KRpVsN419ZJ5onI7Z-2"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-07-07T19:51:04.141Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": null,
+    "hash": "a4540f33252083c9c08c81e5047d66a3ff39e1ef49feebd5dc558852f677c79c"
+  },
+  {
+    "id": "audit_f5ee1ec2-6991-4c60-a73e-ee0336213648",
+    "tenantId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+    "actor": {
+      "type": "user",
+      "id": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-7QC80J475bWrKl1KRpVsN419ZJ5onI7Z-1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-07-07T19:51:41.367Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": "a4540f33252083c9c08c81e5047d66a3ff39e1ef49feebd5dc558852f677c79c",
+    "hash": "8841c2518000a8b14ca870b06e6013ff0107be5a2f063911f8f0802b41954a5e"
+  },
+  {
+    "id": "audit_0322080f-c517-4367-9f17-26c13b0f7509",
+    "tenantId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+    "actor": {
+      "type": "user",
+      "id": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-7QC80J475bWrKl1KRpVsN419ZJ5onI7Z-1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-07-08T03:18:39.254Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": "8841c2518000a8b14ca870b06e6013ff0107be5a2f063911f8f0802b41954a5e",
+    "hash": "5f60071794c90dad559cc585d5ed049f64d723f49d801ed19d63533c359cc6fb"
+  }
+]

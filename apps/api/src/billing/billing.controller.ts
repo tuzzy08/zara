@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Inject, NotFoundException, Param, Patch, Post, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Inject, NotFoundException, Param, Patch, Post, Req, Res, UseGuards, type RawBodyRequest } from "@nestjs/common";
+import type { IncomingMessage } from "node:http";
 
 import {
   TenantAuth,
@@ -167,9 +168,10 @@ export class BillingController {
 
   @Post("billing/polar/webhooks")
   async handlePolarWebhook(
+    @Req() request: RawBodyRequest<IncomingMessage>,
     @Headers() headers: Record<string, string | undefined>,
-    @Headers("polar-webhook-id") eventId: string | undefined,
-    @Headers("polar-webhook-signature") signature: string | undefined,
+    @Headers("webhook-id") eventId: string | undefined,
+    @Headers("webhook-signature") signature: string | undefined,
     @Body() payload: PolarWebhookPayload,
     @Res({ passthrough: true }) response: { status: (statusCode: number) => void },
   ) {
@@ -178,6 +180,7 @@ export class BillingController {
       signature,
       headers,
       payload,
+      rawBody: request.rawBody,
     });
     response.status(webhook.replay === true ? 200 : 201);
 

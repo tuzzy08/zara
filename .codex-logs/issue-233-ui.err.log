@@ -1,0 +1,209 @@
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/web/src/app.test.tsx > tenant dashboard shell > renders the voice-agent agency landing for signed-out visitors
+TestingLibraryElementError: Unable to find an element with the text: Voice strategy. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<main[39m
+      [33mclass[39m=[32m"signal-page"[39m
+    [36m>[39m
+      [36m<header[39m
+        [33mclass[39m=[32m"signal-header"[39m
+        [33mrole[39m=[32m"banner"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-current[39m=[32m"page"[39m
+          [33maria-label[39m=[32m"Zara home"[39m
+          [33mclass[39m=[32m"signal-brand active"[39m
+          [33mdata-discover[39m=[32m"true"[39m
+          [33mhref[39m=[32m"/"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"signal-mark signal-mark-compact"[39m
+            [33mviewBox[39m=[32m"0 0 64 64"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M9 8h46L34 31H14zM29 33h21L55 56H9z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [36m<span>[39m
+            [0mZARA[0m
+          [36m</span>[39m
+        [36m</a>[39m
+        [36m<nav[39m
+          [33maria-label[39m=[32m"Primary"[39m
+          [33mclass[39m=[32m"signal-nav"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"#capabilities"[39m
+          [36m>[39m
+            [0mCapabilities[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"#product"[39m
+          [36m>[39m
+            [0mProduct[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mhref[39m=[32m"#proof"[39m
+          [36m>[39m
+            [0mUse cases[0m
+          [36m</a>[39m
+        [36m</nav>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"signal-header-actions"[39m
+        [36m>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m""[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/login"[39m
+          [36m>[39m
+            [0mSign in[0m
+          [36m</a>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"signal-header-cta"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/signup"[39m
+          [36m>[39m
+            [0mBuild a workflow[0m
+          [36m</a>[39m
+        [36m</div>[39m
+      [36m</header>[39m
+      [36m<section[39m
+        [33maria-labelledby[39m=[32m"signal-hero-title"[39m
+        [33mclass[39m=[32m"signal-hero signal-grid"[39m
+      [36m>[39m
+        [36m<picture>[39m
+          [36m<source[39m
+            [33mmedia[39m=[32m"(max-width: 640px)"[39m
+            [33msrcset[39m=[32m"/marketing/zara-switchboard-hero-960.webp"[39m
+          [36m/>[39m
+          [36m<img[39m
+            [33malt[39m=[32m"Analog voice-routing switchboard"[39m
+            [33mclass[39m=[32m"signal-hero-media"[39m
+            [33msrc[39m=[32m"/marketing/zara-switchboard-hero-1672.webp"[39m
+          [36m/>[39m
+        [36m</picture>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"signal-hero-scrim"[39m
+        [36m/>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"signal-hero-meta"[39m
+        [36m>[39m
+          [36m<span>[39m
+            [0mVOICE OPERATIONS / 2026[0m
+          [36m</span>[39m
+          [36m<span>[39m
+            [0mBUILD · TEST · OPERATE[0m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"signal-hero-copy"[39m
+        [36m>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"signal-kicker"[39m
+          [36m>[39m
+            [0mVOICE OPERATIONS PLATFORM[0m
+          [36m</p>[39m
+          [36m<h1[39m
+            [33mid[39m=[32m"signal-hero-title"[39m
+          [36m>[39m
+            [0mBuild the system behind every call[0m
+          [36m</h1>[39m
+          [36m<p>[39m
+            [0mDesign, test, and operate voice agents that route, resolve, and hand off with control.[0m
+          [36m</p>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"signal-button signal-button-light"[39m
+            [33mdata-discover[39m=[32m"true"[39m
+            [33mhref[39m=[32m"/signup"[39m
+          [36m>[39m
+            [0mBuild a workflow [0m
+            [36m<span>[39m
+              [0m↗[0m
+            [36m</span>[39m
+          [36m</a>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33maria-label[39m=[32m"Live voice routing control surface"[39m
+          [33mclass[39m=[32m"signal-control-surface"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"signal-control-header"[39m
+          [36m>[39m
+            [36m<span>[39m
+              [0mZR / VOICE MATRIX[0m
+            [36m</span>[39m
+            [36m<i>[39m
+              [0mLIVE[0m
+            [36m</i>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"signal-control-body"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"signal-control-routing"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"signal-control-label"[39m
+              [36m>[39m
+                [0mROUTE BUS / 04[0m
+              [36m</span>[39m
+              [36m<div[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"signal-route-map"[39m
+              [36m>[39m
+                [36m<svg[39m
+                  [33mviewBox[39m=[32m"0 0 420 220"[39m
+                [36m>[39m
+                  [36m<path[39m
+                    [33md[39m=[32m"M24 110h88c37 0 38-64 76-64h56c42 0 40 45 79 45h72M112 110h76c40 0 34 64 76 64h131M244 46v128"[39m
+                  [36m/>[39m
+                [36m</svg>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"signal-route-port signal-route-port-0"[39m
+                [36m>[39m
+                  [0mCALL[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"signal-route-port signal-route-port-1"[39m
+                [36m>[39m
+                  [0mROUTE[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"signal-route-port signal-route-port-2"[39m
+                [36m>[39m
+                  [0mAGENT[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"signal-route-port signal-route-port-3"[39m
+                [36m>[39m
+                  [0mTOOL[0m
+                [36m</span>[39m
+                [36m<span[39m
+                  [33mclass[39m=[32m"signal-route-port signal-route-port-4"[39m
+                [36m>[39m
+                  [0mHUMAN[0m
+                [36m</span>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33maria-hidden[39m=[32m"true"[39m
+             ...
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/web/src/app.test.tsx:200:19
+    198|     expect(screen.getByRole("heading", { name: "Build the system behin…
+    199|     expect(document.title).toBe("Zara | Voice operations, designed end…
+    200|     expect(screen.getByText("Voice strategy")).toBeTruthy();
+       |                   ^
+    201|     expect(screen.getAllByRole("link", { name: "Build a workflow" }).l…
+    202|     expect(screen.getByRole("link", { name: "Sign in" }).getAttribute(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

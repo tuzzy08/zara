@@ -9,6 +9,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
+import { SDKValidationError } from "@polar-sh/sdk/models/errors/sdkvalidationerror";
 
 import {
   BILLING_STATE_REPOSITORY,
@@ -16,24 +17,15 @@ import {
   type PersistedBillingStateRecord,
   PostgresBillingStateRepository,
 } from "./billing-state.repository";
-import {
-  BILLING_POLAR_CLIENT,
-  type BillingPolarClient,
-} from "./polar-billing.client";
+import { BILLING_POLAR_CLIENT, type BillingPolarClient } from "./polar-billing.client";
 import {
   BILLING_LEDGER_REPOSITORY,
   type BillingEntitlementProjectionRecord,
   type BillingSubscriptionProjectionRecord,
   type PostgresBillingLedgerRepository,
 } from "./postgres-billing-ledger.repository";
-import {
-  BILLING_READ_MODEL_REPOSITORY,
-  type BillingReadModelRepository,
-} from "./billing-read-model.repository";
-import {
-  projectPolarSubscription,
-  selectActiveSubscription,
-} from "./billing-payment-state-policy";
+import { BILLING_READ_MODEL_REPOSITORY, type BillingReadModelRepository } from "./billing-read-model.repository";
+import { projectPolarSubscription, selectActiveSubscription } from "./billing-payment-state-policy";
 import type {
   BillingActorRole,
   BillingBudgetDecisionResponse,
@@ -77,12 +69,15 @@ const planNamesBySlug: Record<BillingPlanSlug, string> = {
   scale: "Scale",
 };
 
-const runtimeRateCatalogs: Record<string, {
-  sttPerMinuteUsd: Record<string, number>;
-  modelInputPer1kTokensUsd: Record<string, number>;
-  modelOutputPer1kTokensUsd: Record<string, number>;
-  ttsPer1kCharactersUsd: Record<string, number>;
-}> = {
+const runtimeRateCatalogs: Record<
+  string,
+  {
+    sttPerMinuteUsd: Record<string, number>;
+    modelInputPer1kTokensUsd: Record<string, number>;
+    modelOutputPer1kTokensUsd: Record<string, number>;
+    ttsPer1kCharactersUsd: Record<string, number>;
+  }
+> = {
   "runtime-rates-2026-05": {
     sttPerMinuteUsd: {
       "assemblyai-streaming": 0.00025,
@@ -115,6 +110,7 @@ export class BillingService {
       PostgresBillingLedgerRepository,
       | "recordPolarWebhookReceipt"
       | "markPolarWebhookProcessed"
+      | "markPolarWebhookFailed"
       | "findPolarMappingByProviderId"
       | "applyPaidPaygOrder"
       | "applyPaygOrderRefund"
@@ -134,9 +130,7 @@ export class BillingService {
     accessContext: "platform_managed_pstn" | "byo_live_runtime";
     now: string;
   }) {
-    const subscriptions = await this.ledgerRepository.listSubscriptionProjections(
-      input.organizationId,
-    );
+    const subscriptions = await this.ledgerRepository.listSubscriptionProjections(input.organizationId);
     const subscription = subscriptions[0];
     if (subscription?.status === "active" || subscription?.status === "trialing") {
       return {
@@ -147,18 +141,12 @@ export class BillingService {
     }
     if (subscription?.status === "past_due") {
       if (input.accessContext === "byo_live_runtime") {
-        const graceEndsAt = new Date(
-          Date.parse(subscription.updatedAt) + 72 * 60 * 60 * 1_000,
-        ).toISOString();
-        const accessAllowed =
-          Number.isFinite(Date.parse(input.now))
-          && Date.parse(input.now) < Date.parse(graceEndsAt);
+        const graceEndsAt = new Date(Date.parse(subscription.updatedAt) + 72 * 60 * 60 * 1_000).toISOString();
+        const accessAllowed = Number.isFinite(Date.parse(input.now)) && Date.parse(input.now) < Date.parse(graceEndsAt);
         return {
           subscriptionStatus: "past_due" as const,
           accessAllowed,
-          reason: accessAllowed
-            ? "byo_payment_grace" as const
-            : "payment_grace_expired" as const,
+          reason: accessAllowed ? ("byo_payment_grace" as const) : ("payment_grace_expired" as const),
           graceEndsAt,
         };
       }
@@ -176,10 +164,7 @@ export class BillingService {
   }
 
   async getBillingState(organizationId: string): Promise<TenantBillingStateResponse> {
-    if (
-      this.readModelRepository !== undefined
-      && this.stateRepository instanceof PostgresBillingStateRepository
-    ) {
+    if (this.readModelRepository !== undefined && this.stateRepository instanceof PostgresBillingStateRepository) {
       return this.readModelRepository.load(organizationId);
     }
     const state = await this.getOrCreateState(organizationId);
@@ -190,10 +175,7 @@ export class BillingService {
     assertBillingAdmin(input.actorRole);
     const state = await this.getOrCreateState(organizationId);
     const environment = process.env.POLAR_SERVER === "production" ? "production" : "sandbox";
-    const productId = await this.readModelRepository?.getSubscriptionProductId(
-      input.planSlug,
-      environment,
-    ) ?? null;
+    const productId = (await this.readModelRepository?.getSubscriptionProductId(input.planSlug, environment)) ?? null;
     if (productId === null) {
       throw new NotFoundException(`The ${input.planSlug} plan checkout is not configured.`);
     }
@@ -229,18 +211,17 @@ export class BillingService {
     });
 
     state.checkouts = [checkout, ...state.checkouts];
-    state.plan = createPlan(
-      input.planSlug,
-      state.subscription.status,
-      state.plan?.budgetUsedUsd ?? 0,
-    );
+    state.plan = createPlan(input.planSlug, state.subscription.status, state.plan?.budgetUsedUsd ?? 0);
     state.updatedAt = now;
     await this.stateRepository.save(state);
 
     return checkout;
   }
 
-  async createCustomerPortal(organizationId: string, input: CreateCustomerPortalRequest): Promise<CustomerPortalResponse> {
+  async createCustomerPortal(
+    organizationId: string,
+    input: CreateCustomerPortalRequest,
+  ): Promise<CustomerPortalResponse> {
     assertBillingAdmin(input.actorRole);
     const state = await this.getOrCreateState(organizationId);
     const portal = await this.polarClient.createCustomerPortal({
@@ -282,12 +263,7 @@ export class BillingService {
 
     state.budgetPolicy = policy;
     if (state.plan !== null) {
-      state.plan = createPlan(
-        state.plan.slug,
-        state.plan.status,
-        state.plan.budgetUsedUsd,
-        policy.monthlyBudgetUsd,
-      );
+      state.plan = createPlan(state.plan.slug, state.plan.status, state.plan.budgetUsedUsd, policy.monthlyBudgetUsd);
     }
     state.updatedAt = policy.updatedAt;
     await this.stateRepository.save(state);
@@ -306,9 +282,7 @@ export class BillingService {
     const projected = {
       budgetUsedUsd: roundMoney(current.budgetUsedUsd + Math.max(0, input.estimatedCostUsd)),
       callMinutes: roundUsage(current.callMinutes + Math.max(0, input.callMinutes ?? 0)),
-      premiumRuntimeMinutes: roundUsage(
-        current.premiumRuntimeMinutes + Math.max(0, input.premiumRuntimeMinutes ?? 0),
-      ),
+      premiumRuntimeMinutes: roundUsage(current.premiumRuntimeMinutes + Math.max(0, input.premiumRuntimeMinutes ?? 0)),
     };
     const reasons: BillingBudgetDecisionResponse["reasons"] = [];
     if (projected.budgetUsedUsd > policy.monthlyBudgetUsd) {
@@ -396,7 +370,10 @@ export class BillingService {
   ): Promise<TelephonyMinuteEventResponse> {
     assertBillingAdmin(input.actorRole);
     const provider = assertNonEmpty(input.provider, "Telephony provider is required.");
-    const providerConnectionId = assertNonEmpty(input.providerConnectionId, "Telephony provider connection is required.");
+    const providerConnectionId = assertNonEmpty(
+      input.providerConnectionId,
+      "Telephony provider connection is required.",
+    );
     const callSessionId = assertNonEmpty(input.callSessionId, "Telephony call session id is required.");
     const state = await this.getOrCreateState(organizationId);
     const duplicate = (state.telephonyMinuteEvents ?? []).find(
@@ -586,6 +563,7 @@ export class BillingService {
     signature: string | undefined;
     headers?: Record<string, string | undefined> | undefined;
     payload: PolarWebhookPayload;
+    rawBody?: Buffer | undefined;
   }): Promise<PolarWebhookResponse> {
     if (input.eventId === undefined || input.eventId.trim().length === 0) {
       throw new BadRequestException("Polar webhook id is required.");
@@ -596,10 +574,10 @@ export class BillingService {
     }
 
     verifyPolarWebhookSignature({
-      payload: input.payload,
+      rawBody: input.rawBody,
       headers: {
-        "polar-webhook-id": input.eventId,
-        "polar-webhook-signature": input.signature,
+        "webhook-id": input.eventId,
+        "webhook-signature": input.signature,
         ...(input.headers ?? {}),
       },
     });
@@ -614,9 +592,7 @@ export class BillingService {
       organizationId,
       eventId: input.eventId,
       eventType: input.payload.type,
-      payloadHash: createHash("sha256")
-        .update(JSON.stringify(input.payload))
-        .digest("hex"),
+      payloadHash: createHash("sha256").update(JSON.stringify(input.payload)).digest("hex"),
       receivedAt: handledAt,
     });
     if (receipt.duplicate) {
@@ -629,303 +605,275 @@ export class BillingService {
         handledAt,
       };
     }
-    const state = await this.getOrCreateState(organizationId);
-    if (state.processedWebhookIds.includes(input.eventId)) {
-      return {
-        eventId: input.eventId,
-        provider: "polar",
-        organizationId,
-        processed: false,
-        replay: true,
-        handledAt,
-      };
-    }
-
-    let paygCreditPackOrder = false;
-    if (isCustomerStateWebhook(input.payload)) {
-      const customer = input.payload.data.customer;
-      if (customer?.id === undefined) {
-        throw new BadRequestException("Polar customer state is missing the customer id.");
+    try {
+      const state = await this.getOrCreateState(organizationId);
+      if (state.processedWebhookIds.includes(input.eventId)) {
+        return {
+          eventId: input.eventId,
+          provider: "polar",
+          organizationId,
+          processed: false,
+          replay: true,
+          handledAt,
+        };
       }
-      const environment = process.env.POLAR_SERVER === "production" ? "production" : "sandbox";
-      const subscriptions: BillingSubscriptionProjectionRecord[] = [];
-      const subscriptionPlanSlugs = new Map<string, BillingPlanSlug>();
-      for (const subscription of input.payload.data.activeSubscriptions
-        ?? input.payload.data.active_subscriptions
-        ?? []) {
+
+      let paygCreditPackOrder = false;
+      if (isCustomerStateWebhook(input.payload)) {
+        const customer = resolvePolarStateCustomer(input.payload);
+        if (customer?.id === undefined) {
+          throw new BadRequestException("Polar customer state is missing the customer id.");
+        }
+        const environment = process.env.POLAR_SERVER === "production" ? "production" : "sandbox";
+        const subscriptions: BillingSubscriptionProjectionRecord[] = [];
+        const subscriptionPlanSlugs = new Map<string, BillingPlanSlug>();
+        for (const subscription of input.payload.data.activeSubscriptions ??
+          input.payload.data.active_subscriptions ??
+          []) {
+          const productId = subscription.productId ?? subscription.product_id;
+          if (subscription.id === undefined || productId === undefined) {
+            throw new BadRequestException("Polar subscription state is incomplete.");
+          }
+          const mapping = await this.ledgerRepository.findPolarMappingByProviderId(productId, environment);
+          if (mapping?.mappingType !== "product") {
+            throw new BadRequestException(`Polar product ${productId} has no billing catalog mapping.`);
+          }
+          const planSlug = parseBillingPlanSlug(mapping.internalKey);
+          subscriptionPlanSlugs.set(productId, planSlug);
+          const createdAt = subscription.createdAt ?? subscription.created_at ?? handledAt;
+          subscriptions.push({
+            id: subscription.id,
+            organizationId,
+            providerSubscriptionId: subscription.id,
+            catalogId: mapping.catalogId,
+            planSlug,
+            status: subscription.status ?? "unknown",
+            currentPeriodEnd: subscription.currentPeriodEnd ?? subscription.current_period_end,
+            cancelAtPeriodEnd: subscription.cancelAtPeriodEnd ?? subscription.cancel_at_period_end ?? false,
+            version: 1,
+            createdAt,
+            updatedAt: subscription.modifiedAt ?? subscription.modified_at ?? createdAt,
+          });
+        }
+        const entitlements: BillingEntitlementProjectionRecord[] = [];
+        for (const benefit of input.payload.data.grantedBenefits ?? input.payload.data.granted_benefits ?? []) {
+          const benefitId = benefit.benefitId ?? benefit.benefit_id;
+          if (benefit.id === undefined || benefitId === undefined) {
+            throw new BadRequestException("Polar benefit state is incomplete.");
+          }
+          const mapping = await this.ledgerRepository.findPolarMappingByProviderId(benefitId, environment);
+          if (mapping?.mappingType !== "benefit") {
+            throw new BadRequestException(`Polar benefit ${benefitId} has no billing catalog mapping.`);
+          }
+          const createdAt = benefit.createdAt ?? benefit.created_at ?? handledAt;
+          entitlements.push({
+            id: benefit.id,
+            organizationId,
+            providerBenefitId: benefitId,
+            key: mapping.internalKey,
+            status: "active",
+            metadata: {
+              benefitType: benefit.benefitType ?? benefit.benefit_type ?? benefit.type ?? "unknown",
+            },
+            createdAt,
+            updatedAt: benefit.modifiedAt ?? benefit.modified_at ?? createdAt,
+          });
+        }
+        await this.ledgerRepository.applyPolarCustomerStateProjection({
+          account: {
+            organizationId,
+            provider: "polar",
+            providerCustomerId: customer.id,
+            createdAt: handledAt,
+            updatedAt: handledAt,
+          },
+          subscriptions,
+          entitlements,
+          reconciledAt: handledAt,
+        });
+        applyCustomerStateWebhook(state, input.payload, subscriptionPlanSlugs);
+      } else if (isSubscriptionPastDueWebhook(input.payload)) {
+        const subscription = input.payload.data;
         const productId = subscription.productId ?? subscription.product_id;
-        if (subscription.id === undefined || productId === undefined) {
-          throw new BadRequestException("Polar subscription state is incomplete.");
+        const createdAt = subscription.createdAt ?? subscription.created_at;
+        const updatedAt = subscription.modifiedAt ?? subscription.modified_at;
+        if (
+          subscription.id === undefined ||
+          subscription.customer?.id === undefined ||
+          productId === undefined ||
+          subscription.status !== "past_due" ||
+          subscription.currency?.toLowerCase() !== "usd" ||
+          typeof subscription.amount !== "number" ||
+          !Number.isSafeInteger(subscription.amount) ||
+          subscription.amount < 0 ||
+          typeof createdAt !== "string" ||
+          !Number.isFinite(Date.parse(createdAt)) ||
+          typeof updatedAt !== "string" ||
+          !Number.isFinite(Date.parse(updatedAt))
+        ) {
+          throw new BadRequestException("Polar payment-failure data is invalid.");
         }
         const mapping = await this.ledgerRepository.findPolarMappingByProviderId(
           productId,
-          environment,
+          process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
         );
         if (mapping?.mappingType !== "product") {
           throw new BadRequestException(`Polar product ${productId} has no billing catalog mapping.`);
         }
         const planSlug = parseBillingPlanSlug(mapping.internalKey);
-        subscriptionPlanSlugs.set(productId, planSlug);
-        const createdAt = subscription.createdAt ?? subscription.created_at ?? handledAt;
-        subscriptions.push({
+        await this.ledgerRepository.upsertSubscriptionProjection({
           id: subscription.id,
           organizationId,
           providerSubscriptionId: subscription.id,
           catalogId: mapping.catalogId,
           planSlug,
-          status: subscription.status ?? "unknown",
+          status: "past_due",
           currentPeriodEnd: subscription.currentPeriodEnd ?? subscription.current_period_end,
-          cancelAtPeriodEnd:
-            subscription.cancelAtPeriodEnd
-            ?? subscription.cancel_at_period_end
-            ?? false,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd ?? subscription.cancel_at_period_end ?? false,
           version: 1,
           createdAt,
-          updatedAt:
-            subscription.modifiedAt
-            ?? subscription.modified_at
-            ?? createdAt,
+          updatedAt,
         });
-      }
-      const entitlements: BillingEntitlementProjectionRecord[] = [];
-      for (const benefit of input.payload.data.grantedBenefits
-        ?? input.payload.data.granted_benefits
-        ?? []) {
-        const benefitId = benefit.benefitId ?? benefit.benefit_id;
-        if (benefit.id === undefined || benefitId === undefined) {
-          throw new BadRequestException("Polar benefit state is incomplete.");
-        }
-        const mapping = await this.ledgerRepository.findPolarMappingByProviderId(
-          benefitId,
-          environment,
-        );
-        if (mapping?.mappingType !== "benefit") {
-          throw new BadRequestException(`Polar benefit ${benefitId} has no billing catalog mapping.`);
-        }
-        const createdAt = benefit.createdAt ?? benefit.created_at ?? handledAt;
-        entitlements.push({
-          id: benefit.id,
-          organizationId,
-          providerBenefitId: benefitId,
-          key: mapping.internalKey,
-          status: "active",
-          metadata: {
-            benefitType:
-              benefit.benefitType
-              ?? benefit.benefit_type
-              ?? benefit.type
-              ?? "unknown",
-          },
-          createdAt,
-          updatedAt: benefit.modifiedAt ?? benefit.modified_at ?? createdAt,
-        });
-      }
-      await this.ledgerRepository.applyPolarCustomerStateProjection({
-        account: {
-          organizationId,
-          provider: "polar",
-          providerCustomerId: customer.id,
-          createdAt: handledAt,
-          updatedAt: handledAt,
-        },
-        subscriptions,
-        entitlements,
-        reconciledAt: handledAt,
-      });
-      applyCustomerStateWebhook(state, input.payload, subscriptionPlanSlugs);
-    } else if (isSubscriptionPastDueWebhook(input.payload)) {
-      const subscription = input.payload.data;
-      const productId = subscription.productId ?? subscription.product_id;
-      const createdAt = subscription.createdAt ?? subscription.created_at;
-      const updatedAt = subscription.modifiedAt ?? subscription.modified_at;
-      if (
-        subscription.id === undefined
-        || subscription.customer?.id === undefined
-        || productId === undefined
-        || subscription.status !== "past_due"
-        || subscription.currency?.toLowerCase() !== "usd"
-        || typeof subscription.amount !== "number"
-        || !Number.isSafeInteger(subscription.amount)
-        || subscription.amount < 0
-        || typeof createdAt !== "string"
-        || !Number.isFinite(Date.parse(createdAt))
-        || typeof updatedAt !== "string"
-        || !Number.isFinite(Date.parse(updatedAt))
-      ) {
-        throw new BadRequestException("Polar payment-failure data is invalid.");
-      }
-      const mapping = await this.ledgerRepository.findPolarMappingByProviderId(
-        productId,
-        process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
-      );
-      if (mapping?.mappingType !== "product") {
-        throw new BadRequestException(`Polar product ${productId} has no billing catalog mapping.`);
-      }
-      const planSlug = parseBillingPlanSlug(mapping.internalKey);
-      await this.ledgerRepository.upsertSubscriptionProjection({
-        id: subscription.id,
-        organizationId,
-        providerSubscriptionId: subscription.id,
-        catalogId: mapping.catalogId,
-        planSlug,
-        status: "past_due",
-        currentPeriodEnd:
-          subscription.currentPeriodEnd
-          ?? subscription.current_period_end,
-        cancelAtPeriodEnd:
-          subscription.cancelAtPeriodEnd
-          ?? subscription.cancel_at_period_end
-          ?? false,
-        version: 1,
-        createdAt,
-        updatedAt,
-      });
-      applySubscriptionPastDueWebhook(state, input.payload, planSlug);
-    } else if (isOrderPaidWebhook(input.payload)) {
-      const orderId = input.payload.data.id;
-      const amountMinor = input.payload.data.totalAmount ?? input.payload.data.total_amount;
-      const currency = input.payload.data.currency?.toLowerCase();
-      const invoiceNumber =
-        input.payload.data.invoiceNumber
-        ?? input.payload.data.invoice_number;
-      const issuedAt =
-        input.payload.data.createdAt
-        ?? input.payload.data.created_at;
-      if (
-        orderId === undefined
-        || typeof amountMinor !== "number"
-        || !Number.isSafeInteger(amountMinor)
-        || amountMinor < 0
-        || currency !== "usd"
-        || typeof invoiceNumber !== "string"
-        || invoiceNumber.trim() === ""
-        || typeof issuedAt !== "string"
-        || !Number.isFinite(Date.parse(issuedAt))
-        || input.payload.data.status !== "paid"
-        || input.payload.data.paid !== true
-      ) {
-        throw new BadRequestException("Polar paid order data is invalid.");
-      }
-      const productId = input.payload.data.productId ?? input.payload.data.product_id;
-      const mapping = productId === undefined
-        ? null
-        : await this.ledgerRepository.findPolarMappingByProviderId(
-            productId,
-            process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
-          );
-      paygCreditPackOrder =
-        mapping?.mappingType === "credit_pack"
-        && mapping.internalKey === "payg-5-usd";
-      if (paygCreditPackOrder) {
+        applySubscriptionPastDueWebhook(state, input.payload, planSlug);
+      } else if (isOrderPaidWebhook(input.payload)) {
+        const orderId = input.payload.data.id;
+        const amountMinor = input.payload.data.totalAmount ?? input.payload.data.total_amount;
+        const currency = input.payload.data.currency?.toLowerCase();
+        const invoiceNumber = input.payload.data.invoiceNumber ?? input.payload.data.invoice_number;
+        const issuedAt = input.payload.data.createdAt ?? input.payload.data.created_at;
         if (
-          amountMinor !== 500
+          orderId === undefined ||
+          typeof amountMinor !== "number" ||
+          !Number.isSafeInteger(amountMinor) ||
+          amountMinor < 0 ||
+          currency !== "usd" ||
+          typeof invoiceNumber !== "string" ||
+          invoiceNumber.trim() === "" ||
+          typeof issuedAt !== "string" ||
+          !Number.isFinite(Date.parse(issuedAt)) ||
+          input.payload.data.status !== "paid" ||
+          input.payload.data.paid !== true
         ) {
-          throw new BadRequestException(
-            "The approved PAYG pack is exactly USD 5.00.",
-          );
+          throw new BadRequestException("Polar paid order data is invalid.");
         }
-        const createdAt =
-          input.payload.data.createdAt
-          ?? input.payload.data.created_at
-          ?? handledAt;
-        await this.ledgerRepository.applyPaidPaygOrder({
-          order: {
-            id: `payg-order:${orderId}`,
-            organizationId,
-            providerOrderId: orderId,
-            currency: "usd",
-            paidAmountMinor: 500,
-            grantedCreditMinor: 500,
-            status: "paid",
-            createdAt,
-          },
-          grant: {
-            id: `payg-grant:${orderId}`,
+        const productId = input.payload.data.productId ?? input.payload.data.product_id;
+        const mapping =
+          productId === undefined
+            ? null
+            : await this.ledgerRepository.findPolarMappingByProviderId(
+                productId,
+                process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
+              );
+        paygCreditPackOrder = mapping?.mappingType === "credit_pack" && mapping.internalKey === "payg-5-usd";
+        if (paygCreditPackOrder) {
+          if (amountMinor !== 500) {
+            throw new BadRequestException("The approved PAYG pack is exactly USD 5.00.");
+          }
+          const createdAt = input.payload.data.createdAt ?? input.payload.data.created_at ?? handledAt;
+          await this.ledgerRepository.applyPaidPaygOrder({
+            order: {
+              id: `payg-order:${orderId}`,
+              organizationId,
+              providerOrderId: orderId,
+              currency: "usd",
+              paidAmountMinor: 500,
+              grantedCreditMinor: 500,
+              status: "paid",
+              createdAt,
+            },
+            grant: {
+              id: `payg-grant:${orderId}`,
+              organizationId,
+              orderId: `payg-order:${orderId}`,
+              entryType: "grant",
+              amountMinor: 500,
+              idempotencyKey: `polar-order:${orderId}:grant`,
+              createdAt,
+            },
+          });
+        }
+        const createdAt = issuedAt;
+        await this.ledgerRepository.applyPaidInvoiceProjection({
+          id: `polar-invoice:${orderId}`,
+          organizationId,
+          providerOrderId: orderId,
+          invoiceNumber,
+          currency: "usd",
+          amountMinor,
+          status: "paid",
+          issuedAt: createdAt,
+          metadata: productId === undefined ? {} : { productId },
+          createdAt,
+        });
+        const subscriptionPlanSlug =
+          mapping?.mappingType === "product" ? parseBillingPlanSlug(mapping.internalKey) : undefined;
+        applyOrderPaidWebhook(state, input.payload, subscriptionPlanSlug);
+      } else if (isOrderRefundedWebhook(input.payload)) {
+        const productId = input.payload.data.productId ?? input.payload.data.product_id;
+        const mapping =
+          productId === undefined
+            ? null
+            : await this.ledgerRepository.findPolarMappingByProviderId(
+                productId,
+                process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
+              );
+        const orderId = input.payload.data.id;
+        const totalAmount = input.payload.data.totalAmount ?? input.payload.data.total_amount;
+        const refundedAmount = input.payload.data.refundedAmount ?? input.payload.data.refunded_amount;
+        const refundedTaxAmount = input.payload.data.refundedTaxAmount ?? input.payload.data.refunded_tax_amount ?? 0;
+        const currency = input.payload.data.currency?.toLowerCase();
+        if (
+          mapping?.mappingType !== "credit_pack" ||
+          mapping.internalKey !== "payg-5-usd" ||
+          orderId === undefined ||
+          totalAmount !== 500 ||
+          typeof refundedAmount !== "number" ||
+          typeof refundedTaxAmount !== "number" ||
+          refundedAmount + refundedTaxAmount !== totalAmount ||
+          currency !== "usd"
+        ) {
+          throw new BadRequestException("Only a full refund of the unused USD 5.00 PAYG pack can be reversed.");
+        }
+        const refundedAt = input.payload.data.modifiedAt ?? input.payload.data.modified_at ?? handledAt;
+        await this.ledgerRepository.applyPaygOrderRefund({
+          organizationId,
+          providerOrderId: orderId,
+          reversal: {
+            id: `payg-reversal:${orderId}`,
             organizationId,
             orderId: `payg-order:${orderId}`,
-            entryType: "grant",
+            entryType: "reversal",
             amountMinor: 500,
-            idempotencyKey: `polar-order:${orderId}:grant`,
-            createdAt,
+            idempotencyKey: `polar-order:${orderId}:refund`,
+            createdAt: refundedAt,
           },
         });
       }
-      const createdAt = issuedAt;
-      await this.ledgerRepository.applyPaidInvoiceProjection({
-        id: `polar-invoice:${orderId}`,
+
+      state.processedWebhookIds = [input.eventId, ...state.processedWebhookIds];
+      state.updatedAt = handledAt;
+      await this.stateRepository.save(state);
+      await this.ledgerRepository.markPolarWebhookProcessed({
         organizationId,
-        providerOrderId: orderId,
-        invoiceNumber,
-        currency: "usd",
-        amountMinor,
-        status: "paid",
-        issuedAt: createdAt,
-        metadata: productId === undefined ? {} : { productId },
-        createdAt,
+        eventId: input.eventId,
+        processedAt: handledAt,
       });
-      const subscriptionPlanSlug = mapping?.mappingType === "product"
-        ? parseBillingPlanSlug(mapping.internalKey)
-        : undefined;
-      applyOrderPaidWebhook(state, input.payload, subscriptionPlanSlug);
-    } else if (isOrderRefundedWebhook(input.payload)) {
-      const productId = input.payload.data.productId ?? input.payload.data.product_id;
-      const mapping = productId === undefined
-        ? null
-        : await this.ledgerRepository.findPolarMappingByProviderId(
-            productId,
-            process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
-          );
-      const orderId = input.payload.data.id;
-      const totalAmount = input.payload.data.totalAmount ?? input.payload.data.total_amount;
-      const refundedAmount = input.payload.data.refundedAmount ?? input.payload.data.refunded_amount;
-      const currency = input.payload.data.currency?.toLowerCase();
-      if (
-        mapping?.mappingType !== "credit_pack"
-        || mapping.internalKey !== "payg-5-usd"
-        || orderId === undefined
-        || totalAmount !== 500
-        || refundedAmount !== 500
-        || currency !== "usd"
-      ) {
-        throw new BadRequestException(
-          "Only a full refund of the unused USD 5.00 PAYG pack can be reversed.",
-        );
-      }
-      const refundedAt =
-        input.payload.data.modifiedAt
-        ?? input.payload.data.modified_at
-        ?? handledAt;
-      await this.ledgerRepository.applyPaygOrderRefund({
+
+      return {
+        eventId: input.eventId,
+        provider: "polar",
         organizationId,
-        providerOrderId: orderId,
-        reversal: {
-          id: `payg-reversal:${orderId}`,
-          organizationId,
-          orderId: `payg-order:${orderId}`,
-          entryType: "reversal",
-          amountMinor: 500,
-          idempotencyKey: `polar-order:${orderId}:refund`,
-          createdAt: refundedAt,
-        },
+        processed: true,
+        handledAt,
+      };
+    } catch (error) {
+      await this.ledgerRepository.markPolarWebhookFailed({
+        organizationId,
+        eventId: input.eventId,
+        error: "Polar webhook processing failed.",
       });
+      throw error;
     }
-
-    state.processedWebhookIds = [input.eventId, ...state.processedWebhookIds];
-    state.updatedAt = handledAt;
-    await this.stateRepository.save(state);
-    await this.ledgerRepository.markPolarWebhookProcessed({
-      organizationId,
-      eventId: input.eventId,
-      processedAt: handledAt,
-    });
-
-    return {
-      eventId: input.eventId,
-      provider: "polar",
-      organizationId,
-      processed: true,
-      handledAt,
-    };
   }
 
   async createPaygCheckout(
@@ -1082,7 +1030,9 @@ function toBillingStateResponse(state: PersistedBillingStateRecord): TenantBilli
     telephonyMinuteAggregates: createTelephonyMinuteAggregates(state),
     runtimeCostEvents: (state.runtimeCostEvents ?? []).map((runtimeCostEvent) => ({
       ...runtimeCostEvent,
-      components: runtimeCostEvent.components.map((component) => ({ ...component })),
+      components: runtimeCostEvent.components.map((component) => ({
+        ...component,
+      })),
       missingRates: [...runtimeCostEvent.missingRates],
     })),
     entitlements: state.entitlements.map((entitlement) => ({ ...entitlement })),
@@ -1129,16 +1079,11 @@ function getCurrentBudgetUsage(state: PersistedBillingStateRecord) {
 
 function readUsageMetric(state: PersistedBillingStateRecord, usageId: string) {
   if (usageId === "usage-telephony-minutes" && state.telephonyMinuteEvents.length > 0) {
-    return state.telephonyMinuteEvents.reduce(
-      (total, event) => total + event.billableMinutes,
-      0,
-    );
+    return state.telephonyMinuteEvents.reduce((total, event) => total + event.billableMinutes, 0);
   }
 
   if (usageId === "usage-premium-realtime-minutes") {
-    const premiumEvents = state.usageEvents.filter(
-      (event) => event.feature === "premium_runtime_minutes",
-    );
+    const premiumEvents = state.usageEvents.filter((event) => event.feature === "premium_runtime_minutes");
     if (premiumEvents.length > 0) {
       return premiumEvents.reduce((total, event) => total + event.units, 0);
     }
@@ -1251,9 +1196,8 @@ function resolveUsageFeature(input: CreateUsageBillingEventRequest | UsageBillin
     return explicitFeature;
   }
 
-  const metadataFeature = "metadata" in input && typeof input.metadata?.feature === "string"
-    ? input.metadata.feature.trim()
-    : "";
+  const metadataFeature =
+    "metadata" in input && typeof input.metadata?.feature === "string" ? input.metadata.feature.trim() : "";
   if (metadataFeature.length > 0) {
     return metadataFeature;
   }
@@ -1323,14 +1267,15 @@ function createTelephonyMinuteAggregates(
     }
   }
 
-  return [...aggregates.values()].sort((left, right) => (
-    `${left.provider}:${left.providerConnectionId}`.localeCompare(`${right.provider}:${right.providerConnectionId}`)
-  ));
+  return [...aggregates.values()].sort((left, right) =>
+    `${left.provider}:${left.providerConnectionId}`.localeCompare(`${right.provider}:${right.providerConnectionId}`),
+  );
 }
 
 function resolveOrganizationId(payload: PolarWebhookPayload) {
   if (isCustomerStateWebhook(payload)) {
-    return payload.data.customer?.externalId ?? payload.data.customer?.external_id;
+    const customer = resolvePolarStateCustomer(payload);
+    return customer?.externalId ?? customer?.external_id ?? undefined;
   }
 
   if (isOrderPaidWebhook(payload)) {
@@ -1360,10 +1305,19 @@ function isOrderRefundedWebhook(payload: PolarWebhookPayload): payload is PolarO
   return payload.type === "order.refunded" && isRecord(payload.data);
 }
 
-function isSubscriptionPastDueWebhook(
-  payload: PolarWebhookPayload,
-): payload is PolarSubscriptionPastDueWebhookPayload {
+function isSubscriptionPastDueWebhook(payload: PolarWebhookPayload): payload is PolarSubscriptionPastDueWebhookPayload {
   return payload.type === "subscription.past_due" && isRecord(payload.data);
+}
+
+function resolvePolarStateCustomer(
+  payload: PolarCustomerStateWebhookPayload,
+): PolarCustomerStateWebhookPayload["data"]["customer"] {
+  return payload.data.id === undefined
+    ? payload.data.customer
+    : {
+        id: payload.data.id,
+        external_id: payload.data.external_id ?? undefined,
+      };
 }
 
 function applyCustomerStateWebhook(
@@ -1371,28 +1325,29 @@ function applyCustomerStateWebhook(
   payload: PolarCustomerStateWebhookPayload,
   subscriptionPlanSlugs: ReadonlyMap<string, BillingPlanSlug>,
 ) {
-  const customer = payload.data.customer;
+  const customer = resolvePolarStateCustomer(payload);
   const subscriptions = payload.data.activeSubscriptions ?? payload.data.active_subscriptions ?? [];
   const selectedProjection = selectActiveSubscription(
     subscriptions
       .filter((subscription) => subscription.id !== undefined)
-      .map((subscription) => projectPolarSubscription({
-        providerSubscriptionId: subscription.id as string,
-        providerStatus: subscription.status ?? "unknown",
-        updatedAt:
-          subscription.modifiedAt
-          ?? subscription.modified_at
-          ?? subscription.createdAt
-          ?? subscription.created_at
-          ?? "1970-01-01T00:00:00.000Z",
-        now: new Date().toISOString(),
-      })),
+      .map((subscription) =>
+        projectPolarSubscription({
+          providerSubscriptionId: subscription.id as string,
+          providerStatus: subscription.status ?? "unknown",
+          updatedAt:
+            subscription.modifiedAt ??
+            subscription.modified_at ??
+            subscription.createdAt ??
+            subscription.created_at ??
+            "1970-01-01T00:00:00.000Z",
+          now: new Date().toISOString(),
+        }),
+      ),
   );
-  const subscription = selectedProjection === undefined
-    ? undefined
-    : subscriptions.find(
-        (candidate) => candidate.id === selectedProjection.providerSubscriptionId,
-      );
+  const subscription =
+    selectedProjection === undefined
+      ? undefined
+      : subscriptions.find((candidate) => candidate.id === selectedProjection.providerSubscriptionId);
 
   if (customer?.id !== undefined) {
     state.providerCustomerId = customer.id;
@@ -1453,11 +1408,7 @@ function applyOrderPaidWebhook(
 
   state.invoices = [invoice, ...state.invoices];
   if (subscriptionPlanSlug !== undefined) {
-    state.plan = createPlan(
-      subscriptionPlanSlug,
-      "active",
-      state.plan?.budgetUsedUsd ?? 0,
-    );
+    state.plan = createPlan(subscriptionPlanSlug, "active", state.plan?.budgetUsedUsd ?? 0);
   }
 }
 
@@ -1484,19 +1435,12 @@ function applySubscriptionPastDueWebhook(
   state.plan = createPlan(planSlug, "past_due", state.plan?.budgetUsedUsd ?? 0);
   state.subscription = {
     provider: "polar",
-    ...(subscription.customer?.id === undefined
-      ? {}
-      : { providerCustomerId: subscription.customer.id }),
+    ...(subscription.customer?.id === undefined ? {} : { providerCustomerId: subscription.customer.id }),
     providerSubscriptionId: subscription.id,
     productId,
     status: "past_due",
-    currentPeriodEnd:
-      subscription.currentPeriodEnd
-      ?? subscription.current_period_end,
-    cancelAtPeriodEnd:
-      subscription.cancelAtPeriodEnd
-      ?? subscription.cancel_at_period_end
-      ?? false,
+    currentPeriodEnd: subscription.currentPeriodEnd ?? subscription.current_period_end,
+    cancelAtPeriodEnd: subscription.cancelAtPeriodEnd ?? subscription.cancel_at_period_end ?? false,
   };
 }
 
@@ -1522,7 +1466,7 @@ function toEntitlement(benefit: PolarBenefitPayload): BillingEntitlementResponse
 }
 
 function verifyPolarWebhookSignature(input: {
-  payload: PolarWebhookPayload;
+  rawBody: Buffer | undefined;
   headers: Record<string, string | undefined>;
 }) {
   const webhookSecret = process.env.POLAR_WEBHOOK_SECRET?.trim();
@@ -1539,10 +1483,16 @@ function verifyPolarWebhookSignature(input: {
   );
 
   try {
-    validateEvent(JSON.stringify(input.payload), headers, webhookSecret);
+    if (input.rawBody === undefined) {
+      throw new ForbiddenException("Polar webhook raw body is required.");
+    }
+    validateEvent(input.rawBody, headers, webhookSecret);
   } catch (error) {
     if (error instanceof WebhookVerificationError) {
       throw new ForbiddenException("Polar webhook signature verification failed.");
+    }
+    if (error instanceof SDKValidationError) {
+      throw new BadRequestException("Polar webhook payload is invalid.");
     }
 
     throw error;

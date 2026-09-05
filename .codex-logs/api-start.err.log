@@ -1,0 +1,29 @@
+[31m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::4010[39m[38;5;3m +24ms[39m
+node:net:1940
+    const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+               ^
+
+Error: listen EADDRINUSE: address already in use :::4010
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at ExpressAdapter.listen (C:\Users\Lenovo\Desktop\New folder\zara\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+    at C:\Users\Lenovo\Desktop\New folder\zara\node_modules\@nestjs\core\nest-application.js:188:30
+    at new Promise (<anonymous>)
+    at NestApplication.listen (C:\Users\Lenovo\Desktop\New folder\zara\node_modules\@nestjs\core\nest-application.js:178:16)
+    at async bootstrap (C:\Users\Lenovo\Desktop\New folder\zara\apps\api\src\main.ts:15:3) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 4010
+}
+
+Node.js v24.13.1
+npm error Lifecycle script `start:raw` failed with error:
+npm error code 1
+npm error path C:\Users\Lenovo\Desktop\New folder\zara\apps\api
+npm error workspace @zara/api@0.1.0
+npm error location C:\Users\Lenovo\Desktop\New folder\zara\apps\api
+npm error command failed
+npm error command C:\Windows\system32\cmd.exe /d /s /c dotenv -e ../../.env.example -e ../../.env -- tsx dist-js/main.js

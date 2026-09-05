@@ -1,0 +1,47 @@
+[     656ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[11714706ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4173/@vite/client:968
+[33572271ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[34037718ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4173/@vite/client:968
+[34075633ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[34078745ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[34079558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[34774942ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[35039024ms] [WARNING] [React Flow]: It looks like you've created a new nodeTypes or edgeTypes object. If this wasn't on purpose please define the nodeTypes/edgeTypes outside of the component or memoize them. Help: https://reactflow.dev/error#002 @ http://localhost:4173/node_modules/.vite/deps/@xyflow_react.js?v=b39f5f34:3356
+[35071998ms] [WARNING] [React Flow]: It looks like you've created a new nodeTypes or edgeTypes object. If this wasn't on purpose please define the nodeTypes/edgeTypes outside of the component or memoize them. Help: https://reactflow.dev/error#002 @ http://localhost:4173/node_modules/.vite/deps/@xyflow_react.js?v=b39f5f34:3356
+[35098116ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[35209998ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/integrations/connections:0
+[35210011ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/integrations/tool-grants?workspaceId=workspace-default:0
+[35210016ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/integrations/catalog:0
+[35210023ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/voices:0
+[35210028ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/workspaces/state:0
+[35210109ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35210397ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35212560ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35212723ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35214915ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35214963ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35217433ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35217434ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35223254ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35228930ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35265665ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35274135ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35283142ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35283143ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35285276ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35288868ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35288884ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35379189ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35379434ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35381585ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35381803ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35383883ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35384165ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35386309ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[35479742ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[36617191ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4173/@vite/client:968
+[36645455ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[36648894ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[36649174ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[37665083ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[37743618ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336

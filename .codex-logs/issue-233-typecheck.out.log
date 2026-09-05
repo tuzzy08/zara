@@ -1,0 +1,4 @@
+
+> zara@0.1.0 typecheck:core
+> tsc -p packages/core/tsconfig.json
+

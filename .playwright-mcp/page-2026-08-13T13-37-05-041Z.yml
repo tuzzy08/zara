@@ -1,0 +1,477 @@
+- main [ref=e3]:
+  - banner [ref=e4]:
+    - link "Zara home" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - generic [ref=e8]: ZARA
+    - navigation "Primary" [ref=e9]:
+      - link "Capabilities" [ref=e10] [cursor=pointer]:
+        - /url: "#capabilities"
+      - link "Product" [ref=e11] [cursor=pointer]:
+        - /url: "#product"
+      - link "Use cases" [ref=e12] [cursor=pointer]:
+        - /url: "#proof"
+      - link "Pricing" [ref=e13] [cursor=pointer]:
+        - /url: "#pricing"
+    - generic [ref=e14]:
+      - link "Sign in" [ref=e15] [cursor=pointer]:
+        - /url: /login
+      - link "Build a workflow" [ref=e16] [cursor=pointer]:
+        - /url: /signup
+  - region [ref=e17]:
+    - img "Analog voice-routing switchboard" [ref=e19]
+    - generic [ref=e21]:
+      - generic [ref=e22]: VOICE OPERATIONS / 2026
+      - generic [ref=e23]: BUILD · TEST · OPERATE
+    - generic [ref=e24]:
+      - paragraph [ref=e25]: VOICE OPERATIONS PLATFORM
+      - heading "Build the system behind every call" [level=1] [ref=e26]
+      - paragraph [ref=e27]: Design, test, and operate voice agents that route, resolve, and hand off with control.
+      - link "Build a workflow ↗" [ref=e28] [cursor=pointer]:
+        - /url: /signup
+        - text: Build a workflow
+        - generic [ref=e29]: ↗
+    - generic "Live voice routing control surface" [ref=e30]:
+      - generic [ref=e31]:
+        - generic [ref=e32]: ZR / VOICE MATRIX
+        - generic [ref=e33]: LIVE
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - text: ROUTE BUS / 04
+          - img "Live voice route map" [ref=e37]:
+            - generic [ref=e43]: CALL
+            - generic [ref=e47]: ROUTE
+            - generic [ref=e52]: AGENT
+            - generic [ref=e57]: TOOL
+            - generic [ref=e62]: HUMAN
+        - generic [ref=e89]:
+          - generic [ref=e90]: INTENT
+          - generic [ref=e94]: LATENCY
+          - generic [ref=e98]: COST
+        - generic [ref=e102]:
+          - generic [ref=e103]: VAD
+          - generic [ref=e106]: MEM
+          - generic [ref=e109]: TOOLS
+          - generic [ref=e112]: SAFE
+        - generic [ref=e115]:
+          - strong [ref=e116]: 01:42.8
+          - generic [ref=e117]: TURN 08 / ROUTE SCHEDULING
+    - generic [ref=e118]: SCROLL TO EXPLORE
+  - region "Zara voice operations promise" [ref=e121]:
+    - generic [ref=e122]: 01 / OPERATING MODEL
+    - generic [ref=e130]:
+      - paragraph [ref=e131]:
+        - strong [ref=e132]: Connect every call to the right agent, tool, and human.
+        - text: Zara turns complex phone operations into one system you can see, test, and improve.
+      - generic [ref=e133]: One operational model from first hello to resolved outcome.
+  - region "Core capabilities" [ref=e134]:
+    - article [ref=e135]:
+      - generic [ref=e147]: 01 / CAPABILITY
+      - heading "Call routing" [level=2] [ref=e148]
+      - paragraph [ref=e149]: Identify intent, apply policy, and move every caller to the right next step.
+    - article [ref=e150]:
+      - generic [ref=e162]: 02 / CAPABILITY
+      - heading "Agent teams" [level=2] [ref=e163]
+      - paragraph [ref=e164]: Coordinate reception, scheduling, sales, support, and specialist roles in one flow.
+    - article [ref=e165]:
+      - generic [ref=e176]: 03 / CAPABILITY
+      - heading "Human handoff" [level=2] [ref=e177]
+      - paragraph [ref=e178]: Escalate with the transcript, route history, and the context a person needs.
+    - article [ref=e179]:
+      - generic [ref=e190]: 04 / CAPABILITY
+      - heading "Call memory" [level=2] [ref=e191]
+      - paragraph [ref=e192]: Keep approved knowledge and caller context scoped, visible, editable, and auditable.
+  - region [ref=e193]:
+    - generic [ref=e194]:
+      - paragraph [ref=e195]: MEASUREMENT MODEL
+      - heading "Know what improved" [level=2] [ref=e196]
+      - paragraph [ref=e197]: Compare the signals that explain how every call performs.
+    - article [ref=e198]:
+      - generic [ref=e199]: "01"
+      - strong [ref=e200]: P50 / P95
+      - text: FIRST AUDIO / BY ROUTE
+    - article [ref=e203]:
+      - generic [ref=e204]: "02"
+      - strong [ref=e205]: LIVE
+      - text: RESOLUTION / HANDOFF
+    - article [ref=e208]:
+      - generic [ref=e209]: "03"
+      - strong [ref=e210]: $/CALL
+      - text: COST / RESOLVED OUTCOME
+  - region [ref=e213]:
+    - generic [ref=e214]:
+      - paragraph [ref=e215]: COMMON CALL PATTERNS
+      - heading "Designed around the work callers need done" [level=2] [ref=e216]
+    - article [ref=e217]:
+      - generic [ref=e218]: "01"
+      - generic [ref=e228]:
+        - text: Service operations
+        - heading "Bookings and urgent work" [level=3] [ref=e229]
+        - paragraph [ref=e230]: Route new bookings and urgent requests without losing context.
+      - generic [ref=e231]: ↗
+    - article [ref=e232]:
+      - generic [ref=e233]: "02"
+      - generic [ref=e239]:
+        - text: Multi-location
+        - heading "Scheduling across locations" [level=3] [ref=e240]
+        - paragraph [ref=e241]: Check availability and apply local routing rules in one workflow.
+      - generic [ref=e242]: ↗
+    - article [ref=e243]:
+      - generic [ref=e244]: "03"
+      - generic [ref=e252]:
+        - text: Subscription support
+        - heading "Billing and retention" [level=3] [ref=e253]
+        - paragraph [ref=e254]: Resolve routine questions and hand complex cases to the right team.
+      - generic [ref=e255]: ↗
+  - region [ref=e256]:
+    - generic [ref=e257]:
+      - paragraph [ref=e258]: OUR PRODUCT
+      - heading "Build call logic at scale" [level=2] [ref=e259]
+      - paragraph [ref=e260]: Design, test, publish, and observe sophisticated voice workflows through one visual operating surface.
+    - generic "Zara workflow builder preview" [ref=e261]:
+      - generic [ref=e262]:
+        - generic [ref=e263]: WORKFLOW / RECEPTION V12
+        - generic [ref=e264]: TEST MODE · AUTO SAVE · 100%
+      - complementary [ref=e265]:
+        - strong [ref=e266]: STEPS
+      - img "Connected workflow preview" [ref=e318]:
+        - generic [ref=e331]:
+          - generic [ref=e332]:
+            - generic [ref=e339]: INCOMING CALL
+            - generic [ref=e340]: VOICE / PSTN
+          - generic [ref=e342]:
+            - generic [ref=e352]: ROUTER AGENT
+            - generic [ref=e353]: INTENT / 0.94
+          - generic [ref=e356]:
+            - generic [ref=e364]: POLICY GATE
+            - generic [ref=e365]: RULES / SAFE
+          - generic [ref=e368]:
+            - generic [ref=e378]: RECEPTION
+            - generic [ref=e379]: AGENT / ACTIVE
+          - generic [ref=e382]:
+            - generic [ref=e388]: SCHEDULER
+            - generic [ref=e389]: TOOL / READY
+          - generic [ref=e392]:
+            - generic [ref=e401]: TRANSCRIPT MEMORY
+            - generic [ref=e402]: CONTEXT / SCOPED
+          - generic [ref=e405]:
+            - generic [ref=e414]: KNOWLEDGE
+            - generic [ref=e415]: RETRIEVAL / 6 DOCS
+          - generic [ref=e418]:
+            - generic [ref=e427]: HUMAN HANDOFF
+            - generic [ref=e428]: QUEUE / PRIORITY
+          - generic [ref=e431]:
+            - generic [ref=e441]: CRM UPDATE
+            - generic [ref=e442]: TOOL / WRITTEN
+          - generic [ref=e445]:
+            - generic [ref=e453]: RESOLVED
+            - generic [ref=e454]: OUTCOME / LOGGED
+          - generic [ref=e456]:
+            - generic [ref=e464]: REPLAY TRACE
+            - generic [ref=e465]: EVENTS / 28
+      - generic [ref=e474]:
+        - generic [ref=e475]: 11 NODES
+        - generic [ref=e476]: 18 CONNECTIONS
+        - generic [ref=e477]: POLICY / VALID
+        - generic [ref=e478]: TEST / READY
+  - region [ref=e479]:
+    - generic [ref=e480]:
+      - paragraph [ref=e481]: ILLUSTRATIVE OPERATIONS VIEW
+      - heading "Every signal, in view" [level=2] [ref=e482]
+      - paragraph [ref=e483]: Compare routes, investigate change, and understand the whole call.
+    - generic [ref=e484]:
+      - article [ref=e485]:
+        - generic [ref=e486]: 01 / System load
+        - strong [ref=e495]: "68.4"
+        - generic [ref=e509]: NOMINAL
+      - article [ref=e510]:
+        - generic [ref=e511]: 02 / Route health
+        - strong [ref=e521]: "99.2"
+        - generic [ref=e535]: LIVE / ROUTED
+      - article [ref=e536]:
+        - generic [ref=e537]: 03 / Cost signal
+        - strong [ref=e545]: $0.18
+        - generic [ref=e559]: NOMINAL
+      - article [ref=e560]:
+        - generic [ref=e561]: 04 / First audio
+        - strong [ref=e568]: 482ms
+        - generic [ref=e582]: LIVE / ROUTED
+      - article [ref=e583]:
+        - generic [ref=e584]: 05 / Live calls
+        - strong [ref=e592]: "024"
+        - generic [ref=e606]: NOMINAL
+      - article [ref=e607]:
+        - generic [ref=e608]: 06 / Handoff
+        - strong [ref=e617]: 8.2%
+        - generic [ref=e631]: LIVE / ROUTED
+  - region [ref=e632]:
+    - generic [ref=e633]: CALL / 01:42.8
+    - generic [ref=e644]:
+      - paragraph [ref=e645]: OUR APPROACH
+      - heading "Built for the whole call" [level=2] [ref=e646]
+      - generic [ref=e647]:
+        - article [ref=e648]:
+          - generic [ref=e649]: "01"
+          - heading "Route with context" [level=3] [ref=e658]
+        - article [ref=e659]:
+          - generic [ref=e660]: "02"
+          - heading "See every handoff" [level=3] [ref=e670]
+        - article [ref=e671]:
+          - generic [ref=e672]: "03"
+          - heading "Test before launch" [level=3] [ref=e679]
+        - article [ref=e680]:
+          - generic [ref=e681]: "04"
+          - heading "Improve with evidence" [level=3] [ref=e689]
+  - region [ref=e690]:
+    - generic [ref=e691]:
+      - paragraph [ref=e692]: PRODUCT FEATURES
+      - heading "Engineered for real conversations" [level=2] [ref=e693]
+    - generic [ref=e694]:
+      - generic "Conversation stages" [ref=e695]:
+        - button "Listen" [pressed] [ref=e696] [cursor=pointer]:
+          - generic [ref=e697]: "01"
+          - text: Listen
+        - button "Understand" [ref=e698] [cursor=pointer]:
+          - generic [ref=e699]: "02"
+          - text: Understand
+        - button "Act" [ref=e700] [cursor=pointer]:
+          - generic [ref=e701]: "03"
+          - text: Act
+        - button "Escalate" [ref=e702] [cursor=pointer]:
+          - generic [ref=e703]: "04"
+          - text: Escalate
+      - generic [ref=e704]:
+        - generic [ref=e732]:
+          - generic [ref=e733]: 00:01 / CAPTURE
+          - generic [ref=e734]: 00:03 / POLICY
+          - generic [ref=e735]: 00:05 / RESOLVE
+        - generic [ref=e736]:
+          - generic [ref=e737]: 01 / LISTEN
+          - paragraph [ref=e738]: Capture high-fidelity audio and reliable turn signals across browser and phone channels.
+          - generic [ref=e739]: AUDIO / LOCKED
+  - region [ref=e740]:
+    - generic [ref=e741]:
+      - paragraph [ref=e742]: INTEGRATIONS
+      - heading "One conversation, connected to every system that finishes the work." [level=2] [ref=e743]
+    - generic [ref=e744]:
+      - generic [ref=e745]: Calendars
+      - generic [ref=e752]: CRM
+      - generic [ref=e764]: Support
+      - generic [ref=e774]: Commerce
+      - generic [ref=e783]: Knowledge
+      - generic [ref=e793]: Messaging
+      - generic [ref=e802]: Telephony
+      - generic [ref=e810]: Cloud
+      - generic [ref=e819]: Webhooks
+      - generic [ref=e827]: Identity
+      - generic [ref=e838]: Automation
+      - generic [ref=e849]: Monitoring
+  - region [ref=e859]:
+    - generic [ref=e860]:
+      - paragraph [ref=e861]: OPERATIONAL PROOF
+      - heading "Built for work where every call matters" [level=2] [ref=e862]
+    - generic [ref=e863]:
+      - article [ref=e864]:
+        - generic [ref=e865]: "01"
+        - heading "Reception" [level=3] [ref=e875]
+        - text: OPERATIONAL SIGNAL
+        - paragraph [ref=e881]: Answers, identifies the reason, and routes with a safe fallback.
+      - article [ref=e882]:
+        - generic [ref=e883]: "02"
+        - heading "Scheduling" [level=3] [ref=e889]
+        - text: OPERATIONAL SIGNAL
+        - paragraph [ref=e895]: Checks availability, books, reschedules, and confirms.
+      - article [ref=e896]:
+        - generic [ref=e897]: "03"
+        - heading "Sales" [level=3] [ref=e905]
+        - text: OPERATIONAL SIGNAL
+        - paragraph [ref=e911]: Qualifies intent and moves high-value callers to the right closer.
+      - article [ref=e912]:
+        - generic [ref=e913]: "04"
+        - heading "Support" [level=3] [ref=e922]
+        - text: OPERATIONAL SIGNAL
+        - paragraph [ref=e928]: Uses approved knowledge and tools before escalating with context.
+  - region [ref=e929]:
+    - generic [ref=e930]:
+      - paragraph [ref=e931]: PRICING
+      - heading "Pricing that follows the work" [level=2] [ref=e932]
+      - paragraph [ref=e933]: Start with a 14-day trial. Choose a plan for ongoing operations or buy prepaid credit when you need it.
+    - generic [ref=e934]:
+      - article [ref=e935]:
+        - generic [ref=e936]: 01 / SUBSCRIPTION
+        - heading "Starter" [level=3] [ref=e938]
+        - paragraph [ref=e939]:
+          - strong [ref=e940]: $49
+          - generic [ref=e941]: / month
+        - generic [ref=e942]:
+          - generic [ref=e943]:
+            - term [ref=e944]: Standard runtime
+            - definition [ref=e945]: 200 min
+          - generic [ref=e946]:
+            - term [ref=e947]: Premium runtime
+            - definition [ref=e948]: —
+          - generic [ref=e949]:
+            - term [ref=e950]: Standard overage
+            - definition [ref=e951]: $0.15/min
+          - generic [ref=e952]:
+            - term [ref=e953]: Premium overage
+            - definition [ref=e954]: $0.40/min
+        - link "Get started with Starter" [ref=e955] [cursor=pointer]:
+          - /url: /signup
+          - text: Get started
+          - generic [ref=e956]: ↗
+      - article [ref=e957]:
+        - generic [ref=e958]:
+          - generic [ref=e959]: 02 / SUBSCRIPTION
+          - generic [ref=e960]: MOST POPULAR
+        - heading "Growth" [level=3] [ref=e961]
+        - paragraph [ref=e962]:
+          - strong [ref=e963]: $149
+          - generic [ref=e964]: / month
+        - generic [ref=e965]:
+          - generic [ref=e966]:
+            - term [ref=e967]: Standard runtime
+            - definition [ref=e968]: 1,000 min
+          - generic [ref=e969]:
+            - term [ref=e970]: Premium runtime
+            - definition [ref=e971]: 50 min
+          - generic [ref=e972]:
+            - term [ref=e973]: Standard overage
+            - definition [ref=e974]: $0.12/min
+          - generic [ref=e975]:
+            - term [ref=e976]: Premium overage
+            - definition [ref=e977]: $0.35/min
+        - link "Get started with Growth" [ref=e978] [cursor=pointer]:
+          - /url: /signup
+          - text: Get started
+          - generic [ref=e979]: ↗
+      - article [ref=e980]:
+        - generic [ref=e981]: 03 / SUBSCRIPTION
+        - heading "Scale" [level=3] [ref=e983]
+        - paragraph [ref=e984]:
+          - strong [ref=e985]: $499
+          - generic [ref=e986]: / month
+        - generic [ref=e987]:
+          - generic [ref=e988]:
+            - term [ref=e989]: Standard runtime
+            - definition [ref=e990]: 3,000 min
+          - generic [ref=e991]:
+            - term [ref=e992]: Premium runtime
+            - definition [ref=e993]: 200 min
+          - generic [ref=e994]:
+            - term [ref=e995]: Standard overage
+            - definition [ref=e996]: $0.10/min
+          - generic [ref=e997]:
+            - term [ref=e998]: Premium overage
+            - definition [ref=e999]: $0.30/min
+        - link "Get started with Scale" [ref=e1000] [cursor=pointer]:
+          - /url: /signup
+          - text: Get started
+          - generic [ref=e1001]: ↗
+    - article [ref=e1002]:
+      - generic [ref=e1003]:
+        - generic [ref=e1004]: 04 / PREPAID
+        - heading "Pay as you go" [level=3] [ref=e1005]
+        - paragraph [ref=e1006]: For individual use without a monthly subscription.
+      - generic [ref=e1007]:
+        - strong [ref=e1008]: $5 credit pack
+        - generic [ref=e1009]: $0 monthly fee
+      - generic [ref=e1010]:
+        - generic [ref=e1011]:
+          - term [ref=e1012]: Standard runtime
+          - definition [ref=e1013]: $0.18/min
+        - generic [ref=e1014]:
+          - term [ref=e1015]: Premium runtime
+          - definition [ref=e1016]: $0.45/min
+      - link "Get started with pay as you go" [ref=e1017] [cursor=pointer]:
+        - /url: /signup
+        - text: Get started
+        - generic [ref=e1018]: ↗
+    - paragraph [ref=e1019]: Overage is off by default. Prices exclude tax and platform-managed telephony. Included runtime resets each billing period.
+  - region [ref=e1020]:
+    - generic [ref=e1021]:
+      - paragraph [ref=e1022]: OPERATING PRINCIPLES
+      - heading "Control before complexity" [level=2] [ref=e1023]
+    - article [ref=e1024]:
+      - heading "Design workflows around clear outcomes, safe boundaries, and visible decisions." [level=3] [ref=e1035]
+      - generic [ref=e1036]: PRINCIPLE 01 / SYSTEM DESIGN
+    - generic [ref=e1037]:
+      - article [ref=e1038]:
+        - heading "Keep context intact whenever a person takes over." [level=3] [ref=e1046]
+        - text: PRINCIPLE 02 / HANDOFF
+      - article [ref=e1047]:
+        - heading "Measure the whole call, not a single provider event." [level=3] [ref=e1055]
+        - text: PRINCIPLE 03 / OBSERVABILITY
+  - region [ref=e1056]:
+    - generic [ref=e1057]:
+      - paragraph [ref=e1058]: FAQ
+      - heading "Common questions" [level=2] [ref=e1059]
+      - paragraph [ref=e1060]: Everything you need to know before running your first call.
+      - link "Contact Zara ↗" [ref=e1061] [cursor=pointer]:
+        - /url: /signup
+        - text: Contact Zara
+        - generic [ref=e1062]: ↗
+    - generic [ref=e1063]:
+      - group [ref=e1064]:
+        - generic "Product How does Zara handle call routing? +" [ref=e1065] [cursor=pointer]:
+          - generic [ref=e1066]: Product
+          - text: How does Zara handle call routing?
+          - generic [ref=e1067]: +
+        - paragraph [ref=e1068]: A published workflow resolves the active agent, route policy, available tools, and safe fallback for every turn.
+      - group [ref=e1069]:
+        - generic "Security How is caller and tenant data protected? +" [ref=e1070] [cursor=pointer]:
+          - generic [ref=e1071]: Security
+          - text: How is caller and tenant data protected?
+          - generic [ref=e1072]: +
+      - group [ref=e1073]:
+        - generic "Telephony Can we keep our phone provider? +" [ref=e1074] [cursor=pointer]:
+          - generic [ref=e1075]: Telephony
+          - text: Can we keep our phone provider?
+          - generic [ref=e1076]: +
+      - group [ref=e1077]:
+        - generic "Billing How do we control runtime cost? +" [ref=e1078] [cursor=pointer]:
+          - generic [ref=e1079]: Billing
+          - text: How do we control runtime cost?
+          - generic [ref=e1080]: +
+  - region [ref=e1081]:
+    - generic [ref=e1082]:
+      - paragraph [ref=e1089]: GET STARTED
+      - heading "Make the next call work better" [level=2] [ref=e1090]
+      - paragraph [ref=e1091]: Build the workflow, test the conversation, and see every operational signal.
+      - link "Build a workflow ↗" [ref=e1092] [cursor=pointer]:
+        - /url: /signup
+        - text: Build a workflow
+        - generic [ref=e1093]: ↗
+  - generic [ref=e1094]:
+    - paragraph [ref=e1098]: Voice operations,designed end to end.
+    - navigation "Footer product" [ref=e1099]:
+      - strong [ref=e1100]: PRODUCT
+      - link "Workflows" [ref=e1101] [cursor=pointer]:
+        - /url: "#product"
+      - link "Monitoring" [ref=e1102] [cursor=pointer]:
+        - /url: "#telemetry"
+      - link "Integrations" [ref=e1103] [cursor=pointer]:
+        - /url: "#integrations"
+      - link "Pricing" [ref=e1104] [cursor=pointer]:
+        - /url: "#pricing"
+      - link "Sign in" [ref=e1105] [cursor=pointer]:
+        - /url: /login
+    - navigation "Footer company" [ref=e1106]:
+      - strong [ref=e1107]: EXPLORE
+      - link "Use cases" [ref=e1108] [cursor=pointer]:
+        - /url: "#proof"
+      - link "Principles" [ref=e1109] [cursor=pointer]:
+        - /url: "#principles"
+      - link "FAQ" [ref=e1110] [cursor=pointer]:
+        - /url: "#faq"
+      - link "Contact" [ref=e1111] [cursor=pointer]:
+        - /url: /signup
+    - navigation "Footer access" [ref=e1112]:
+      - strong [ref=e1113]: ACCESS
+      - link "Sign in" [ref=e1114] [cursor=pointer]:
+        - /url: /login
+      - link "Create workspace" [ref=e1115] [cursor=pointer]:
+        - /url: /signup
+      - link "Get started" [ref=e1116] [cursor=pointer]:
+        - /url: "#start"
+    - generic [ref=e1117]: zara
+    - generic [ref=e1118]: ©2026 Zara Technologies. Voice operations, designed end to end.

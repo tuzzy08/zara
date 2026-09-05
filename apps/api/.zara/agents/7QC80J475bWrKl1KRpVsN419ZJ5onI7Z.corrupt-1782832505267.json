@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+  "agents": [
+    {
+      "id": "agent-bill",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "workspaceId": "workspace-default",
+      "name": "Bill",
+      "agentClass": "billing-specialist",
+      "instructions": "Handle all billing related issues",
+      "defaultLanguage": "en",
+      "runtimeProfile": "premium-realtime",
+      "toolbeltAssignments": [
+        {
+          "id": "assignment-zendesk-tickets-search",
+          "toolId": "zendesk.tickets.search",
+          "connector": "zendesk",
+          "toolName": "Search tickets",
+          "integrationConnectionId": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+          "connectionStatus": "connected",
+          "label": "Search tickets",
+          "description": "Search tickets.",
+          "whenToUse": "Use when the caller asks about Search tickets.",
+          "risk": "low",
+          "requiresAuthorization": true,
+          "requiresHumanApproval": false,
+          "integrationLabel": "roylessolutions.zendesk.com"
+        }
+      ],
+      "createdAt": "2026-06-28T13:28:09.806Z",
+      "updatedAt": "2026-06-28T13:28:44.552Z",
+      "createdBy": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU",
+      "updatedBy": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU"
+    }
+  ]
+}

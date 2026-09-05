@@ -1,0 +1,6 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: Z
+    - paragraph [ref=e6]: Session
+    - heading "Checking your Zara session" [level=1] [ref=e7]
+    - paragraph [ref=e8]: Confirming secure access before opening the tenant workspace.

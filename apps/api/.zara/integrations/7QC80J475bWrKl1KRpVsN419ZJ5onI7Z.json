@@ -606,94 +606,69 @@
   ],
   "connections": [
     {
-      "id": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+      "id": "integration_connection_b47b8609-2185-4248-86c3-8101cd4bf3a8",
       "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
       "provider": "zendesk",
       "status": "connected",
-      "connectedBy": "user-ops-lead",
+      "connectedBy": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU",
       "scopes": [
         "tickets:read",
         "tickets:write"
       ],
       "availability": {
-        "scope": "organization"
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
       },
       "credentialReference": {
-        "id": "integration_credential_57e653d4-a669-4886-ab03-161ae09a6277",
+        "id": "integration_credential_7adeabda-23db-463f-b417-4aa516390fed",
         "provider": "zendesk",
         "kind": "api-token",
-        "preview": "tuzzy08@gmail.com / ...DqBH"
+        "preview": "sageiche33@gmail.com / ...zpBL"
       },
-      "accountLabel": "roylessolutions.zendesk.com",
-      "connectedAt": "2026-06-10T22:07:04.474Z",
+      "accountLabel": "bodwich.zendesk.com",
+      "connectedAt": "2026-07-02T08:06:37.235Z",
       "health": {
-        "status": "healthy",
-        "checkedAt": "2026-06-10T22:14:19.948Z",
-        "message": "Connector credentials are available."
+        "status": "unknown"
       },
       "auditEvents": [
         {
-          "id": "integration_audit_0d32f7fd-0db4-47fc-a7e9-05099d187078",
+          "id": "integration_audit_f4f77d6e-837d-4991-bb86-af15cf9f0b7a",
           "action": "connected",
-          "actorUserId": "user-ops-lead",
-          "at": "2026-06-10T22:07:04.474Z"
-        },
-        {
-          "id": "integration_audit_4129c9be-2215-461c-8e2e-db36e1a3c46f",
-          "action": "health_checked",
-          "actorUserId": "user-ops-lead",
-          "at": "2026-06-10T22:14:19.948Z",
-          "healthStatus": "healthy"
+          "actorUserId": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU",
+          "at": "2026-07-02T08:06:37.235Z"
         }
       ]
     }
   ],
   "credentials": [
     {
-      "connectionId": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+      "connectionId": "integration_connection_b47b8609-2185-4248-86c3-8101cd4bf3a8",
       "envelope": {
         "algorithm": "aes-256-gcm",
         "keyVersion": 1,
-        "iv": "fWsvDQKjEmKQSqsl",
-        "authTag": "PFcNWrVQ+jiJw7IRihhVVA==",
-        "ciphertext": "BbPLCPii8DyOArik8CIrnxc2oC8OmVR9ipVRz9lsuCTs8RcuPFel2lygSFjNE+UNGSPlw9q/Jee8rWvEAVmIbZuAD0AyRlGFO1noNfmO4+UwEo9c4F9m9KZxBoRPtp3iz/87SN/Saaw8D5k62uM2XD8HGoS6z5xlXOQ5Zv0ZUHu3zHTT6saSUNuexweHgZ7XRegW4zp2E3WL3L5Ifyn6DhvX8G5w88jfANSsjkVQy1XJ8BlIwmwVgbNYdfdrPljkYz7Hbp9pQZLQUjRMIWi9WIY="
+        "iv": "lHzjH+Xnxp2DCm5x",
+        "authTag": "FqNlWVYazBpP5e/6nGosIQ==",
+        "ciphertext": "HjAgWc6Rn58VuHwFU8pM/tMWSD4mQva/lpLBBMaSxajf8t3I9YzkKJKl8sN+SS0WJ2844bSs6jiTGTto0M3eqNSXfZWAlSJrewymSBgf2Hy3JEdKoIy2fWrmP4dM0fivTcG8SPXtYBl7VeqNwRcY+l4Xw+CeKP7YVrZSsoqBEFEoUETCpprWNeUy1+x/Adj75qyKy9/WnA9QhSrUELcnGv7omRtbQ7UqOmChRQJVVlFypB/4nXoL7OPWpaIV/TqHsCqS6A=="
       }
     }
   ],
   "toolGrants": [
     {
-      "id": "tool_grant_7QC80J475bWrKl1KRpVsN419ZJ5onI7Z_2",
-      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
-      "capability": "agent-tool",
-      "workspaceId": "workspace-support",
-      "workflowId": "workflow-inbound-support-triage-v1",
-      "toolId": "zendesk.tickets.create",
-      "integrationConnectionId": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
-      "risk": "medium",
-      "requiredScopes": [
-        "tickets:write"
-      ],
-      "approvalRequired": true,
-      "status": "active",
-      "grantedBy": "user-ops-lead",
-      "createdAt": "2026-06-13T06:59:29.043Z"
-    },
-    {
       "id": "tool_grant_7QC80J475bWrKl1KRpVsN419ZJ5onI7Z_1",
       "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
       "capability": "agent-tool",
-      "workspaceId": "workspace-support",
-      "workflowId": "workflow-inbound-support-triage-v1",
+      "workspaceId": "workspace-default",
+      "agentId": "agent-specialist-1",
       "toolId": "zendesk.tickets.search",
-      "integrationConnectionId": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+      "integrationConnectionId": "integration_connection_b47b8609-2185-4248-86c3-8101cd4bf3a8",
       "risk": "low",
       "requiredScopes": [
         "tickets:read"
       ],
       "approvalRequired": false,
       "status": "active",
-      "grantedBy": "user-ops-lead",
-      "createdAt": "2026-06-11T07:43:09.377Z"
+      "grantedBy": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU",
+      "createdAt": "2026-07-02T08:07:55.724Z"
     }
   ]
 }

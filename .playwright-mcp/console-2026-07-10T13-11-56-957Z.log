@@ -1,0 +1,2 @@
+[     608ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=cb8f1faf:14090
+[    1986ms] [WARNING] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728

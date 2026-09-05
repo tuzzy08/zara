@@ -162,31 +162,31 @@ export class PostgresBillingLedgerRepository {
            tenant_id, provider, event_id, event_type, payload_hash,
            received_at, status
          ) values ($1, 'polar', $2, $3, $4, $5, 'received')`,
-        [
-          input.organizationId,
-          input.eventId,
-          input.eventType,
-          input.payloadHash,
-          input.receivedAt,
-        ],
+        [input.organizationId, input.eventId, input.eventType, input.payloadHash, input.receivedAt],
       );
       return { duplicate: false };
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
     }
     const existing = await this.database.query(
-      `select event_type, payload_hash
+      `select event_type, payload_hash, status
        from billing_webhook_receipts
        where tenant_id = $1 and provider = 'polar' and event_id = $2`,
       [input.organizationId, input.eventId],
     );
     const row = existing.rows[0];
-    if (
-      row === undefined
-      || row.event_type !== input.eventType
-      || row.payload_hash !== input.payloadHash
-    ) {
+    if (row === undefined || row.event_type !== input.eventType || row.payload_hash !== input.payloadHash) {
       throw new Error("Webhook replay payload does not match the original event.");
+    }
+    if (row.status === "failed") {
+      const reopened = await this.database.query(
+        `update billing_webhook_receipts
+         set status = 'received', received_at = $3, processed_at = null, error = null
+         where tenant_id = $1 and provider = 'polar' and event_id = $2
+           and status = 'failed'`,
+        [input.organizationId, input.eventId, input.receivedAt],
+      );
+      return { duplicate: reopened.rowCount !== 1 };
     }
     return { duplicate: true };
   }
@@ -202,12 +202,7 @@ export class PostgresBillingLedgerRepository {
        where billing_customers.provider_customer_id <> excluded.provider_customer_id
           or (billing_customers.provider_customer_id is null and excluded.provider_customer_id is not null)
           or (billing_customers.provider_customer_id is not null and excluded.provider_customer_id is null)`,
-      [
-        input.organizationId,
-        input.providerCustomerId ?? null,
-        input.createdAt,
-        input.updatedAt,
-      ],
+      [input.organizationId, input.providerCustomerId ?? null, input.createdAt, input.updatedAt],
     );
   }
 
@@ -239,10 +234,7 @@ export class PostgresBillingLedgerRepository {
         [input.providerOrderId],
       );
       if (existingBeforeInsert.rows[0] !== undefined) {
-        assertInvoiceProjectionMatch(
-          mapInvoiceProjection(existingBeforeInsert.rows[0]),
-          input,
-        );
+        assertInvoiceProjectionMatch(mapInvoiceProjection(existingBeforeInsert.rows[0]), input);
         await client.query("commit");
         return { duplicate: true };
       }
@@ -311,8 +303,8 @@ export class PostgresBillingLedgerRepository {
       );
       const existingProviderCustomerId = existingAccountResult.rows[0]?.provider_customer_id;
       changed =
-        existingAccountResult.rows[0] === undefined
-        || existingProviderCustomerId !== (input.account.providerCustomerId ?? null);
+        existingAccountResult.rows[0] === undefined ||
+        existingProviderCustomerId !== (input.account.providerCustomerId ?? null);
       await client.query(
         `insert into billing_customers (
            tenant_id, provider, provider_customer_id, created_at, updated_at
@@ -362,14 +354,13 @@ export class PostgresBillingLedgerRepository {
         );
         changed = changed || (result.rowCount ?? 0) > 0;
       }
-      const activeSubscriptionIds = input.subscriptions.map(
-        (subscription) => subscription.providerSubscriptionId,
-      );
-      const activeIdCondition = activeSubscriptionIds.length === 0
-        ? ""
-        : `and provider_subscription_id not in (${activeSubscriptionIds
-            .map((_, index) => `$${index + 3}`)
-            .join(", ")})`;
+      const activeSubscriptionIds = input.subscriptions.map((subscription) => subscription.providerSubscriptionId);
+      const activeIdCondition =
+        activeSubscriptionIds.length === 0
+          ? ""
+          : `and provider_subscription_id not in (${activeSubscriptionIds
+              .map((_, index) => `$${index + 3}`)
+              .join(", ")})`;
       const revocationResult = await client.query(
         `update billing_subscriptions
          set status = 'revoked', cancel_at_period_end = false,
@@ -378,11 +369,7 @@ export class PostgresBillingLedgerRepository {
            and status not in ('canceled', 'revoked')
            and updated_at < $2
            ${activeIdCondition}`,
-        [
-          input.account.organizationId,
-          input.reconciledAt,
-          ...activeSubscriptionIds,
-        ],
+        [input.account.organizationId, input.reconciledAt, ...activeSubscriptionIds],
       );
       changed = changed || (revocationResult.rowCount ?? 0) > 0;
       for (const entitlement of input.entitlements) {
@@ -410,24 +397,17 @@ export class PostgresBillingLedgerRepository {
         );
         changed = changed || (result.rowCount ?? 0) > 0;
       }
-      const activeEntitlementKeys = input.entitlements.map(
-        (entitlement) => entitlement.key,
-      );
-      const activeKeyCondition = activeEntitlementKeys.length === 0
-        ? ""
-        : `and key not in (${activeEntitlementKeys
-            .map((_, index) => `$${index + 3}`)
-            .join(", ")})`;
+      const activeEntitlementKeys = input.entitlements.map((entitlement) => entitlement.key);
+      const activeKeyCondition =
+        activeEntitlementKeys.length === 0
+          ? ""
+          : `and key not in (${activeEntitlementKeys.map((_, index) => `$${index + 3}`).join(", ")})`;
       const entitlementRevocationResult = await client.query(
         `update billing_entitlements
          set status = 'revoked', updated_at = $2
          where tenant_id = $1 and status <> 'revoked' and updated_at < $2
            ${activeKeyCondition}`,
-        [
-          input.account.organizationId,
-          input.reconciledAt,
-          ...activeEntitlementKeys,
-        ],
+        [input.account.organizationId, input.reconciledAt, ...activeEntitlementKeys],
       );
       changed = changed || (entitlementRevocationResult.rowCount ?? 0) > 0;
       await client.query("commit");
@@ -440,11 +420,7 @@ export class PostgresBillingLedgerRepository {
     }
   }
 
-  async markPolarWebhookProcessed(input: {
-    organizationId: string;
-    eventId: string;
-    processedAt: string;
-  }) {
+  async markPolarWebhookProcessed(input: { organizationId: string; eventId: string; processedAt: string }) {
     const result = await this.database.query(
       `update billing_webhook_receipts
        set status = 'processed', processed_at = $3, error = null
@@ -456,10 +432,20 @@ export class PostgresBillingLedgerRepository {
     }
   }
 
-  async getPolarWebhookReceipt(
-    organizationId: string,
-    eventId: string,
-  ): Promise<BillingWebhookReceiptRecord | null> {
+  async markPolarWebhookFailed(input: { organizationId: string; eventId: string; error: string }) {
+    const result = await this.database.query(
+      `update billing_webhook_receipts
+       set status = 'failed', processed_at = null, error = $3
+       where tenant_id = $1 and provider = 'polar' and event_id = $2
+         and status = 'received'`,
+      [input.organizationId, input.eventId, input.error],
+    );
+    if (result.rowCount !== 1) {
+      throw new Error(`Polar webhook receipt ${input.eventId} was not available to fail.`);
+    }
+  }
+
+  async getPolarWebhookReceipt(organizationId: string, eventId: string): Promise<BillingWebhookReceiptRecord | null> {
     const result = await this.database.query(
       `select tenant_id, event_id, event_type, payload_hash, received_at,
               processed_at, status, error
@@ -503,9 +489,7 @@ export class PostgresBillingLedgerRepository {
     );
   }
 
-  async listSubscriptionProjections(
-    organizationId: string,
-  ): Promise<BillingSubscriptionProjectionRecord[]> {
+  async listSubscriptionProjections(organizationId: string): Promise<BillingSubscriptionProjectionRecord[]> {
     const result = await this.database.query(
       `select tenant_id, id, provider_subscription_id, catalog_id, plan_slug, status,
               current_period_end, cancel_at_period_end, version, created_at, updated_at
@@ -517,9 +501,7 @@ export class PostgresBillingLedgerRepository {
     return result.rows.map(mapSubscriptionProjection);
   }
 
-  async listEntitlementProjections(
-    organizationId: string,
-  ): Promise<BillingEntitlementProjectionRecord[]> {
+  async listEntitlementProjections(organizationId: string): Promise<BillingEntitlementProjectionRecord[]> {
     const result = await this.database.query(
       `select tenant_id, id, provider_benefit_id, key, status,
               metadata, created_at, updated_at
@@ -608,9 +590,9 @@ export class PostgresBillingLedgerRepository {
     reversal: BillingPaygCreditEntry & { entryType: "reversal" };
   }) {
     if (
-      input.reversal.organizationId !== input.organizationId
-      || input.reversal.amountMinor !== 500
-      || input.reversal.orderId === undefined
+      input.reversal.organizationId !== input.organizationId ||
+      input.reversal.amountMinor !== 500 ||
+      input.reversal.orderId === undefined
     ) {
       throw new Error("A PAYG refund must reverse one USD 5.00 grant.");
     }
@@ -698,11 +680,7 @@ export class PostgresBillingLedgerRepository {
       if (originalResult.rows[0] === undefined) {
         throw new Error(`Original ledger entry ${input.ledgerEntryId} was not found.`);
       }
-      const existing = await this.getAdjustmentUsing(
-        client,
-        input.organizationId,
-        input.id,
-      );
+      const existing = await this.getAdjustmentUsing(client, input.organizationId, input.id);
       const duplicate = existing !== null;
       if (existing !== null) {
         assertAdjustmentMatch(existing, input);
@@ -725,10 +703,7 @@ export class PostgresBillingLedgerRepository {
           ],
         );
       }
-      const ledgerResult = await this.appendLedgerEntryUsing(
-        client,
-        adjustmentLedgerEntry(input),
-      );
+      const ledgerResult = await this.appendLedgerEntryUsing(client, adjustmentLedgerEntry(input));
       if (ledgerResult.duplicate !== duplicate) {
         throw new Error(`Adjustment ${input.id} has incomplete ledger state.`);
       }
@@ -764,15 +739,17 @@ export class PostgresBillingLedgerRepository {
         kind: input.kind,
         amountMinor: input.amountMinor,
       };
-      if (auditRow === undefined
-        || auditRow.tenant_id !== input.organizationId
-        || auditRow.actor_type !== "user"
-        || auditRow.actor_id !== input.createdBy
-        || auditRow.action !== "billing.adjustment_applied"
-        || auditRow.target_type !== "billing_adjustment"
-        || auditRow.target_id !== input.id
-        || !isDeepStrictEqual(auditRow.metadata, expectedMetadata)
-        || new Date(String(auditRow.occurred_at)).toISOString() !== input.createdAt) {
+      if (
+        auditRow === undefined ||
+        auditRow.tenant_id !== input.organizationId ||
+        auditRow.actor_type !== "user" ||
+        auditRow.actor_id !== input.createdBy ||
+        auditRow.action !== "billing.adjustment_applied" ||
+        auditRow.target_type !== "billing_adjustment" ||
+        auditRow.target_id !== input.id ||
+        !isDeepStrictEqual(auditRow.metadata, expectedMetadata) ||
+        new Date(String(auditRow.occurred_at)).toISOString() !== input.createdAt
+      ) {
         throw new Error(`Adjustment ${input.id} audit record has different data.`);
       }
       await client.query("commit");
@@ -864,7 +841,10 @@ export class PostgresBillingLedgerRepository {
       return { catalog: concurrentCatalog, duplicate: true };
     }
 
-    return { catalog: { ...catalog, document: { ...catalog.document } }, duplicate: false };
+    return {
+      catalog: { ...catalog, document: { ...catalog.document } },
+      duplicate: false,
+    };
   }
 
   async getPriceCatalog(id: string): Promise<BillingPriceCatalog | null> {
@@ -904,10 +884,7 @@ export class PostgresBillingLedgerRepository {
     return catalog;
   }
 
-  async listPolarMappings(
-    catalogId: string,
-    environment: "sandbox" | "production",
-  ): Promise<BillingPolarMapping[]> {
+  async listPolarMappings(catalogId: string, environment: "sandbox" | "production"): Promise<BillingPolarMapping[]> {
     const result = await this.database.query(
       `select catalog_id, mapping_type, internal_key, provider_id, environment
        from billing_polar_mappings
@@ -952,10 +929,7 @@ export class PostgresBillingLedgerRepository {
     return this.appendLedgerEntryUsing(this.database, input);
   }
 
-  async appendLedgerEntryWithOutbox(input: {
-    ledgerEntry: BillingLedgerEntry;
-    outboxEntry: BillingOutboxEntry;
-  }) {
+  async appendLedgerEntryWithOutbox(input: { ledgerEntry: BillingLedgerEntry; outboxEntry: BillingOutboxEntry }) {
     const client = await this.database.connect();
     try {
       await client.query("begin");
@@ -967,24 +941,24 @@ export class PostgresBillingLedgerRepository {
       );
       if (existingOutbox === null) {
         await client.query(
-        `insert into billing_outbox (
+          `insert into billing_outbox (
            tenant_id, id, aggregate_type, aggregate_id, event_type, payload,
            status, attempt_count, next_attempt_at, last_error, created_at, delivered_at
          ) values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12)`,
-        [
-          input.outboxEntry.organizationId,
-          input.outboxEntry.id,
-          input.outboxEntry.aggregateType,
-          input.outboxEntry.aggregateId,
-          input.outboxEntry.eventType,
-          JSON.stringify(input.outboxEntry.payload),
-          input.outboxEntry.status,
-          input.outboxEntry.attemptCount,
-          input.outboxEntry.nextAttemptAt,
-          input.outboxEntry.lastError ?? null,
-          input.outboxEntry.createdAt,
-          input.outboxEntry.deliveredAt ?? null,
-        ],
+          [
+            input.outboxEntry.organizationId,
+            input.outboxEntry.id,
+            input.outboxEntry.aggregateType,
+            input.outboxEntry.aggregateId,
+            input.outboxEntry.eventType,
+            JSON.stringify(input.outboxEntry.payload),
+            input.outboxEntry.status,
+            input.outboxEntry.attemptCount,
+            input.outboxEntry.nextAttemptAt,
+            input.outboxEntry.lastError ?? null,
+            input.outboxEntry.createdAt,
+            input.outboxEntry.deliveredAt ?? null,
+          ],
         );
       } else {
         assertOutboxMatch(existingOutbox, input.outboxEntry);
@@ -1004,7 +978,10 @@ export class PostgresBillingLedgerRepository {
     outboxEntry: BillingOutboxEntry;
   }) {
     assertPositiveSafeInteger(input.debit.amountMinor, "amountMinor");
-    const debit: BillingPaygCreditEntry = { ...input.debit, entryType: "debit" };
+    const debit: BillingPaygCreditEntry = {
+      ...input.debit,
+      entryType: "debit",
+    };
     const client = await this.database.connect();
     try {
       await client.query("begin");
@@ -1136,12 +1113,7 @@ export class PostgresBillingLedgerRepository {
     return result.rowCount ?? result.rows.length;
   }
 
-  async replayDeadLetter(input: {
-    organizationId: string;
-    id: string;
-    nextAttemptAt: string;
-    reason: string;
-  }) {
+  async replayDeadLetter(input: { organizationId: string; id: string; nextAttemptAt: string; reason: string }) {
     const result = await this.database.query(
       `update billing_outbox
        set status = 'pending', next_attempt_at = $3, last_error = $4
@@ -1157,11 +1129,7 @@ export class PostgresBillingLedgerRepository {
     return mapOutboxEntry(row);
   }
 
-  async markOutboxDelivered(
-    organizationId: string,
-    id: string,
-    deliveredAt: string,
-  ) {
+  async markOutboxDelivered(organizationId: string, id: string, deliveredAt: string) {
     const result = await this.database.query(
       `update billing_outbox
        set status = 'delivered', delivered_at = $3, last_error = null
@@ -1190,13 +1158,7 @@ export class PostgresBillingLedgerRepository {
        where tenant_id = $1 and id = $2 and status = 'processing'
        returning tenant_id, id, aggregate_type, aggregate_id, event_type, payload,
                  status, attempt_count, next_attempt_at, last_error, created_at, delivered_at`,
-      [
-        input.organizationId,
-        input.id,
-        input.deadLetter ? "dead_letter" : "pending",
-        input.nextAttemptAt,
-        input.error,
-      ],
+      [input.organizationId, input.id, input.deadLetter ? "dead_letter" : "pending", input.nextAttemptAt, input.error],
     );
     const row = result.rows[0];
     if (row === undefined) {
@@ -1294,7 +1256,10 @@ export class PostgresBillingLedgerRepository {
       return { entry: concurrentEntry, duplicate: true };
     }
 
-    return { entry: { ...input, metadata: { ...input.metadata } }, duplicate: false };
+    return {
+      entry: { ...input, metadata: { ...input.metadata } },
+      duplicate: false,
+    };
   }
 
   async listLedgerEntries(organizationId: string): Promise<BillingLedgerEntry[]> {
@@ -1315,11 +1280,7 @@ export class PostgresBillingLedgerRepository {
     organizationId: string,
     idempotencyKey: string,
   ): Promise<BillingLedgerEntry | null> {
-    return this.getLedgerEntryByIdempotencyKeyUsing(
-      this.database,
-      organizationId,
-      idempotencyKey,
-    );
+    return this.getLedgerEntryByIdempotencyKeyUsing(this.database, organizationId, idempotencyKey);
   }
 
   private async getLedgerEntryByIdempotencyKeyUsing(
@@ -1380,17 +1341,13 @@ function mapTenantAccount(row: QueryResultRow): BillingTenantAccount {
   return {
     organizationId: row.tenant_id as string,
     provider: row.provider,
-    ...(row.provider_customer_id === null
-      ? {}
-      : { providerCustomerId: row.provider_customer_id as string }),
+    ...(row.provider_customer_id === null ? {} : { providerCustomerId: row.provider_customer_id as string }),
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   };
 }
 
-function mapSubscriptionProjection(
-  row: QueryResultRow,
-): BillingSubscriptionProjectionRecord {
+function mapSubscriptionProjection(row: QueryResultRow): BillingSubscriptionProjectionRecord {
   return {
     id: row.id as string,
     organizationId: row.tenant_id as string,
@@ -1398,9 +1355,7 @@ function mapSubscriptionProjection(
     catalogId: row.catalog_id as string,
     ...(row.plan_slug === null ? {} : { planSlug: row.plan_slug as string }),
     status: row.status as string,
-    ...(row.current_period_end === null
-      ? {}
-      : { currentPeriodEnd: normalizeTimestamp(row.current_period_end) }),
+    ...(row.current_period_end === null ? {} : { currentPeriodEnd: normalizeTimestamp(row.current_period_end) }),
     cancelAtPeriodEnd: row.cancel_at_period_end as boolean,
     version: normalizeInteger(row.version),
     createdAt: normalizeTimestamp(row.created_at),
@@ -1408,9 +1363,7 @@ function mapSubscriptionProjection(
   };
 }
 
-function mapEntitlementProjection(
-  row: QueryResultRow,
-): BillingEntitlementProjectionRecord {
+function mapEntitlementProjection(row: QueryResultRow): BillingEntitlementProjectionRecord {
   return {
     id: row.id as string,
     organizationId: row.tenant_id as string,
@@ -1433,9 +1386,7 @@ function mapWebhookReceipt(row: QueryResultRow): BillingWebhookReceiptRecord {
     eventType: row.event_type as string,
     payloadHash: row.payload_hash as string,
     receivedAt: normalizeTimestamp(row.received_at),
-    ...(row.processed_at === null
-      ? {}
-      : { processedAt: normalizeTimestamp(row.processed_at) }),
+    ...(row.processed_at === null ? {} : { processedAt: normalizeTimestamp(row.processed_at) }),
     status: row.status,
     ...(row.error === null ? {} : { error: row.error as string }),
   };
@@ -1514,12 +1465,8 @@ function mapLedgerEntry(row: QueryResultRow): BillingLedgerEntry {
     entryType: row.entry_type,
     ...(row.catalog_id === null ? {} : { catalogId: row.catalog_id as string }),
     currency: row.currency,
-    ...(row.customer_amount_minor === null
-      ? {}
-      : { customerAmountMinor: normalizeInteger(row.customer_amount_minor) }),
-    ...(row.supplier_cost_minor === null
-      ? {}
-      : { supplierCostMinor: normalizeInteger(row.supplier_cost_minor) }),
+    ...(row.customer_amount_minor === null ? {} : { customerAmountMinor: normalizeInteger(row.customer_amount_minor) }),
+    ...(row.supplier_cost_minor === null ? {} : { supplierCostMinor: normalizeInteger(row.supplier_cost_minor) }),
     quantity: normalizeInteger(row.quantity),
     unit: row.unit as string,
     occurredAt: normalizeTimestamp(row.occurred_at),
@@ -1618,8 +1565,8 @@ function isUniqueViolation(error: unknown) {
   }
 
   const candidate = error as { code?: unknown; message?: unknown };
-  return candidate.code === "23505" || (
-    typeof candidate.message === "string" && candidate.message.includes("duplicate key")
+  return (
+    candidate.code === "23505" || (typeof candidate.message === "string" && candidate.message.includes("duplicate key"))
   );
 }
 
@@ -1629,16 +1576,11 @@ function assertIdempotentMatch(existing: BillingLedgerEntry, input: BillingLedge
     metadata: { ...input.metadata },
   };
   if (!isDeepStrictEqual(existing, normalizedInput)) {
-    throw new Error(
-      `Idempotency key ${input.idempotencyKey} already belongs to a different ledger entry.`,
-    );
+    throw new Error(`Idempotency key ${input.idempotencyKey} already belongs to a different ledger entry.`);
   }
 }
 
-function assertAdjustmentMatch(
-  existing: BillingAdjustmentRecord,
-  input: BillingAdjustmentRecord,
-) {
+function assertAdjustmentMatch(existing: BillingAdjustmentRecord, input: BillingAdjustmentRecord) {
   if (!isDeepStrictEqual(existing, input)) {
     throw new Error(`Adjustment ${input.id} already has different data.`);
   }
@@ -1650,14 +1592,9 @@ function assertOutboxMatch(existing: BillingOutboxEntry, input: BillingOutboxEnt
   }
 }
 
-function assertPaygCreditMatch(
-  existing: BillingPaygCreditEntry,
-  input: BillingPaygCreditEntry,
-) {
+function assertPaygCreditMatch(existing: BillingPaygCreditEntry, input: BillingPaygCreditEntry) {
   if (!isDeepStrictEqual(existing, input)) {
-    throw new Error(
-      `Idempotency key ${input.idempotencyKey} already belongs to a different PAYG credit entry.`,
-    );
+    throw new Error(`Idempotency key ${input.idempotencyKey} already belongs to a different PAYG credit entry.`);
   }
 }
 
@@ -1666,40 +1603,31 @@ function assertApprovedPaygOrder(input: {
   grant: BillingPaygCreditEntry & { entryType: "grant" };
 }) {
   if (
-    input.order.currency !== "usd"
-    || input.order.status !== "paid"
-    || input.order.paidAmountMinor !== 500
-    || input.order.grantedCreditMinor !== 500
-    || input.grant.amountMinor !== 500
-    || input.grant.orderId !== input.order.id
-    || input.grant.organizationId !== input.order.organizationId
+    input.order.currency !== "usd" ||
+    input.order.status !== "paid" ||
+    input.order.paidAmountMinor !== 500 ||
+    input.order.grantedCreditMinor !== 500 ||
+    input.grant.amountMinor !== 500 ||
+    input.grant.orderId !== input.order.id ||
+    input.grant.organizationId !== input.order.organizationId
   ) {
     throw new Error("The approved PAYG pack is exactly USD 5.00.");
   }
 }
 
-function assertPaygOrderMatch(
-  existing: BillingPaygOrderRecord,
-  input: BillingPaygOrderRecord,
-) {
+function assertPaygOrderMatch(existing: BillingPaygOrderRecord, input: BillingPaygOrderRecord) {
   if (!isDeepStrictEqual(existing, input)) {
     throw new Error(`Polar order ${input.providerOrderId} has different PAYG data.`);
   }
 }
 
-function assertInvoiceProjectionMatch(
-  existing: BillingInvoiceProjectionRecord,
-  input: BillingInvoiceProjectionRecord,
-) {
+function assertInvoiceProjectionMatch(existing: BillingInvoiceProjectionRecord, input: BillingInvoiceProjectionRecord) {
   if (!isDeepStrictEqual(existing, { ...input, metadata: { ...input.metadata } })) {
     throw new Error("Invoice replay payload does not match the original order.");
   }
 }
 
-function remainingGrantForOrder(
-  entries: BillingPaygCreditEntry[],
-  orderId: string,
-) {
+function remainingGrantForOrder(entries: BillingPaygCreditEntry[], orderId: string) {
   let debitRemaining = entries
     .filter((entry) => entry.entryType === "debit")
     .reduce((total, entry) => total + entry.amountMinor, 0);
@@ -1707,9 +1635,7 @@ function remainingGrantForOrder(
     const consumed = Math.min(grant.amountMinor, debitRemaining);
     debitRemaining -= consumed;
     const reversed = entries
-      .filter(
-        (entry) => entry.entryType === "reversal" && entry.orderId === grant.orderId,
-      )
+      .filter((entry) => entry.entryType === "reversal" && entry.orderId === grant.orderId)
       .reduce((total, entry) => total + entry.amountMinor, 0);
     if (grant.orderId === orderId) {
       return grant.amountMinor - consumed - reversed;
@@ -1754,9 +1680,7 @@ function assertCatalogMatch(existing: BillingPriceCatalog, input: BillingPriceCa
 function assertCatalogDocument(value: unknown, path = "document") {
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value) || value < 0) {
-      throw new Error(
-        `Price catalog value ${path} must be a non-negative safe integer.`,
-      );
+      throw new Error(`Price catalog value ${path} must be a non-negative safe integer.`);
     }
     return;
   }

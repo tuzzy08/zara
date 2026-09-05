@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+  "agents": [
+    {
+      "id": "agent-frank",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "workspaceId": "workspace-default",
+      "name": "Frank",
+      "businessName": "Cicero Solutions",
+      "agentClass": "receptionist",
+      "instructions": "You are a front end agent. your task is to accept all incoming calls. try to identify the  user's needs. Be polite and always say your name and ask for the user's name before continuing.",
+      "defaultLanguage": "en",
+      "runtimeProfile": "cost-optimized",
+      "toolbeltAssignments": [],
+      "createdAt": "2026-07-07T19:05:00.702Z",
+      "updatedAt": "2026-07-07T19:05:00.702Z",
+      "createdBy": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU",
+      "updatedBy": "qoAq2uqQh1fspVWS0BEx4lA1lDJV0cZU"
+    }
+  ]
+}

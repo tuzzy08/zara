@@ -1,0 +1,8 @@
+[     691ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=b39f5f34:14336
+[    9596ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=cb8f1faf:14090
+[   11163ms] [WARNING] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[   11838ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[  651885ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[  785177ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[ 1011907ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[ 1297234ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728

@@ -55,9 +55,7 @@ export interface BillingBudgetDecisionResponse {
   allowed: boolean;
   action: "allow" | "warn" | "block";
   overBudgetBehavior: BudgetOverageBehavior;
-  reasons: Array<
-    "monthly_budget_exceeded" | "call_minute_limit_exceeded" | "premium_runtime_limit_exceeded"
-  >;
+  reasons: Array<"monthly_budget_exceeded" | "call_minute_limit_exceeded" | "premium_runtime_limit_exceeded">;
   projected: {
     budgetUsedUsd: number;
     callMinutes: number;
@@ -298,11 +296,13 @@ export interface CreateRuntimeCostEventRequest {
   occurredAt: string;
   modelTier: string;
   rateVersion: string;
-  providers?: {
-    stt?: string | undefined;
-    model?: string | undefined;
-    tts?: string | undefined;
-  } | undefined;
+  providers?:
+    | {
+        stt?: string | undefined;
+        model?: string | undefined;
+        tts?: string | undefined;
+      }
+    | undefined;
   usage: {
     sttMinutes?: number | undefined;
     modelInputTokens?: number | undefined;
@@ -323,11 +323,15 @@ export interface PolarWebhookResponse {
 export interface PolarCustomerStateWebhookPayload {
   type: "customer.state_changed";
   data: {
-    customer?: {
-      id?: string | undefined;
-      externalId?: string | undefined;
-      external_id?: string | undefined;
-    } | undefined;
+    id?: string | undefined;
+    external_id?: string | null | undefined;
+    customer?:
+      | {
+          id?: string | undefined;
+          externalId?: string | undefined;
+          external_id?: string | undefined;
+        }
+      | undefined;
     activeSubscriptions?: PolarSubscriptionPayload[] | undefined;
     active_subscriptions?: PolarSubscriptionPayload[] | undefined;
     grantedBenefits?: PolarBenefitPayload[] | undefined;
@@ -351,11 +355,13 @@ export interface PolarOrderPaidWebhookPayload {
     product_id?: string | undefined;
     createdAt?: string | undefined;
     created_at?: string | undefined;
-    customer?: {
-      id?: string | undefined;
-      externalId?: string | undefined;
-      external_id?: string | undefined;
-    } | undefined;
+    customer?:
+      | {
+          id?: string | undefined;
+          externalId?: string | undefined;
+          external_id?: string | undefined;
+        }
+      | undefined;
   };
 }
 
@@ -387,16 +393,20 @@ export interface PolarOrderRefundedWebhookPayload {
     total_amount?: number | undefined;
     refundedAmount?: number | undefined;
     refunded_amount?: number | undefined;
+    refundedTaxAmount?: number | undefined;
+    refunded_tax_amount?: number | undefined;
     currency?: string | undefined;
     productId?: string | undefined;
     product_id?: string | undefined;
     modifiedAt?: string | undefined;
     modified_at?: string | undefined;
-    customer?: {
-      id?: string | undefined;
-      externalId?: string | undefined;
-      external_id?: string | undefined;
-    } | undefined;
+    customer?:
+      | {
+          id?: string | undefined;
+          externalId?: string | undefined;
+          external_id?: string | undefined;
+        }
+      | undefined;
   };
 }
 
@@ -406,18 +416,25 @@ export interface PolarSubscriptionPastDueWebhookPayload {
   data: PolarSubscriptionPayload & {
     amount?: number | undefined;
     currency?: string | undefined;
-    customer?: {
-      id?: string | undefined;
-      externalId?: string | undefined;
-      external_id?: string | undefined;
-    } | undefined;
+    customer?:
+      | {
+          id?: string | undefined;
+          externalId?: string | undefined;
+          external_id?: string | undefined;
+        }
+      | undefined;
   };
 }
 
-export type PolarWebhookPayload = PolarCustomerStateWebhookPayload | PolarOrderPaidWebhookPayload | PolarOrderRefundedWebhookPayload | PolarSubscriptionPastDueWebhookPayload | {
-  type: string;
-  data?: unknown;
-};
+export type PolarWebhookPayload =
+  | PolarCustomerStateWebhookPayload
+  | PolarOrderPaidWebhookPayload
+  | PolarOrderRefundedWebhookPayload
+  | PolarSubscriptionPastDueWebhookPayload
+  | {
+      type: string;
+      data?: unknown;
+    };
 
 export interface PolarSubscriptionPayload {
   id?: string | undefined;

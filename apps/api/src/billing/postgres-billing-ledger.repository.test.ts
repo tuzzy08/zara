@@ -199,20 +199,60 @@ describe("PostgresBillingLedgerRepository", () => {
       eventId: receipt.eventId,
       processedAt: "2026-08-10T03:00:01.000Z",
     });
-    await expect(repository.getPolarWebhookReceipt(
-      receipt.organizationId,
-      receipt.eventId,
-    )).resolves.toEqual(expect.objectContaining({
-      status: "processed",
-      processedAt: "2026-08-10T03:00:01.000Z",
-    }));
+    await expect(repository.getPolarWebhookReceipt(receipt.organizationId, receipt.eventId)).resolves.toEqual(
+      expect.objectContaining({
+        status: "processed",
+        processedAt: "2026-08-10T03:00:01.000Z",
+      }),
+    );
     await expect(repository.recordPolarWebhookReceipt(receipt)).resolves.toEqual({
       duplicate: true,
     });
-    await expect(repository.recordPolarWebhookReceipt({
-      ...receipt,
-      payloadHash: "b".repeat(64),
-    })).rejects.toThrow("Webhook replay payload does not match the original event.");
+    await expect(
+      repository.recordPolarWebhookReceipt({
+        ...receipt,
+        payloadHash: "b".repeat(64),
+      }),
+    ).rejects.toThrow("Webhook replay payload does not match the original event.");
+  });
+
+  it("reopens a failed webhook receipt so Polar can retry it", async () => {
+    const repository = new PostgresBillingLedgerRepository(pool);
+    const receipt = {
+      organizationId: "tenant-a",
+      eventId: "evt-refund-retry",
+      eventType: "order.refunded",
+      payloadHash: "c".repeat(64),
+      receivedAt: "2026-08-10T04:00:00.000Z",
+    };
+
+    await expect(repository.recordPolarWebhookReceipt(receipt)).resolves.toEqual({
+      duplicate: false,
+    });
+    await repository.markPolarWebhookFailed({
+      organizationId: receipt.organizationId,
+      eventId: receipt.eventId,
+      error: "Polar webhook processing failed.",
+    });
+    await expect(repository.getPolarWebhookReceipt(receipt.organizationId, receipt.eventId)).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        error: "Polar webhook processing failed.",
+      }),
+    );
+
+    await expect(
+      repository.recordPolarWebhookReceipt({
+        ...receipt,
+        receivedAt: "2026-08-10T04:01:00.000Z",
+      }),
+    ).resolves.toEqual({ duplicate: false });
+    await expect(repository.getPolarWebhookReceipt(receipt.organizationId, receipt.eventId)).resolves.toEqual(
+      expect.objectContaining({
+        status: "received",
+        receivedAt: "2026-08-10T04:01:00.000Z",
+      }),
+    );
   });
 
   it("projects one paid invoice and rejects changed order replay data", async () => {
@@ -236,15 +276,23 @@ describe("PostgresBillingLedgerRepository", () => {
     await expect(repository.applyPaidInvoiceProjection(invoice)).resolves.toEqual({
       duplicate: true,
     });
-    await expect(pool.query(
-      "select provider_order_id, amount_minor, status from billing_invoices",
-    )).resolves.toMatchObject({
-      rows: [{ provider_order_id: "polar-order-1", amount_minor: 12900, status: "paid" }],
+    await expect(
+      pool.query("select provider_order_id, amount_minor, status from billing_invoices"),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          provider_order_id: "polar-order-1",
+          amount_minor: 12900,
+          status: "paid",
+        },
+      ],
     });
-    await expect(repository.applyPaidInvoiceProjection({
-      ...invoice,
-      amountMinor: 500,
-    })).rejects.toThrow("Invoice replay payload does not match the original order.");
+    await expect(
+      repository.applyPaidInvoiceProjection({
+        ...invoice,
+        amountMinor: 500,
+      }),
+    ).rejects.toThrow("Invoice replay payload does not match the original order.");
   });
 
   it("does not let an older webhook replace a newer subscription projection", async () => {
@@ -270,7 +318,11 @@ describe("PostgresBillingLedgerRepository", () => {
     });
 
     await expect(repository.listSubscriptionProjections("tenant-a")).resolves.toEqual([
-      expect.objectContaining({ planSlug: "growth", status: "active", updatedAt: current.updatedAt }),
+      expect.objectContaining({
+        planSlug: "growth",
+        status: "active",
+        updatedAt: current.updatedAt,
+      }),
     ]);
   });
 
@@ -307,10 +359,12 @@ describe("PostgresBillingLedgerRepository", () => {
     await expect(repository.listPaygCreditEntries("tenant-payg")).resolves.toEqual([
       expect.objectContaining({ entryType: "grant", amountMinor: 500 }),
     ]);
-    await expect(repository.applyPaidPaygOrder({
-      ...input,
-      order: { ...input.order, paidAmountMinor: 1000 },
-    })).rejects.toThrow("The approved PAYG pack is exactly USD 5.00.");
+    await expect(
+      repository.applyPaidPaygOrder({
+        ...input,
+        order: { ...input.order, paidAmountMinor: 1000 },
+      }),
+    ).rejects.toThrow("The approved PAYG pack is exactly USD 5.00.");
   });
 
   it("reverses one unused $5 grant exactly once after a Polar refund", async () => {
@@ -327,16 +381,20 @@ describe("PostgresBillingLedgerRepository", () => {
       createdAt: "2026-08-10T05:00:00.000Z",
     };
 
-    await expect(repository.applyPaygOrderRefund({
-      organizationId: "tenant-payg",
-      providerOrderId: "polar-order-1",
-      reversal,
-    })).resolves.toEqual({ duplicate: false });
-    await expect(repository.applyPaygOrderRefund({
-      organizationId: "tenant-payg",
-      providerOrderId: "polar-order-1",
-      reversal,
-    })).resolves.toEqual({ duplicate: true });
+    await expect(
+      repository.applyPaygOrderRefund({
+        organizationId: "tenant-payg",
+        providerOrderId: "polar-order-1",
+        reversal,
+      }),
+    ).resolves.toEqual({ duplicate: false });
+    await expect(
+      repository.applyPaygOrderRefund({
+        organizationId: "tenant-payg",
+        providerOrderId: "polar-order-1",
+        reversal,
+      }),
+    ).resolves.toEqual({ duplicate: true });
     await expect(repository.listPaygCreditEntries("tenant-payg")).resolves.toEqual([
       expect.objectContaining({ entryType: "grant", amountMinor: 500 }),
       expect.objectContaining({ entryType: "reversal", amountMinor: 500 }),
@@ -391,9 +449,7 @@ describe("PostgresBillingLedgerRepository", () => {
     await repository.publishPriceCatalog(first);
     await repository.publishPriceCatalog(second);
 
-    await expect(
-      repository.getEffectivePriceCatalog("2026-08-09T10:00:00.000Z"),
-    ).resolves.toEqual(first);
+    await expect(repository.getEffectivePriceCatalog("2026-08-09T10:00:00.000Z")).resolves.toEqual(first);
   });
 
   it("rejects a rewrite of a published price catalog", async () => {
@@ -412,11 +468,13 @@ describe("PostgresBillingLedgerRepository", () => {
     };
     await repository.publishPriceCatalog(catalog);
 
-    await expect(repository.publishPriceCatalog({
-      ...catalog,
-      checksum: "c".repeat(64),
-      document: { paygPackMinor: 2_000 },
-    })).rejects.toThrow("Price catalog catalog-immutable is immutable.");
+    await expect(
+      repository.publishPriceCatalog({
+        ...catalog,
+        checksum: "c".repeat(64),
+        document: { paygPackMinor: 2_000 },
+      }),
+    ).rejects.toThrow("Price catalog catalog-immutable is immutable.");
   });
 
   it("accepts an idempotent retry of the same price catalog", async () => {
@@ -446,20 +504,20 @@ describe("PostgresBillingLedgerRepository", () => {
   it("rejects fractional values in a price catalog before persistence", async () => {
     const repository = new PostgresBillingLedgerRepository(pool);
 
-    await expect(repository.publishPriceCatalog({
-      id: "catalog-corrupt",
-      version: 4,
-      status: "active",
-      currency: "usd",
-      effectiveFrom: "2026-08-09T00:00:00.000Z",
-      checksum: "e".repeat(64),
-      document: { paygPackMinor: 500.5 },
-      approvedBy: "user",
-      approvedAt: "2026-08-09T14:24:19.029Z",
-      createdAt: "2026-08-09T14:24:19.029Z",
-    })).rejects.toThrow(
-      "Price catalog value document.paygPackMinor must be a non-negative safe integer.",
-    );
+    await expect(
+      repository.publishPriceCatalog({
+        id: "catalog-corrupt",
+        version: 4,
+        status: "active",
+        currency: "usd",
+        effectiveFrom: "2026-08-09T00:00:00.000Z",
+        checksum: "e".repeat(64),
+        document: { paygPackMinor: 500.5 },
+        approvedBy: "user",
+        approvedAt: "2026-08-09T14:24:19.029Z",
+        createdAt: "2026-08-09T14:24:19.029Z",
+      }),
+    ).rejects.toThrow("Price catalog value document.paygPackMinor must be a non-negative safe integer.");
   });
 
   it("rejects a corrupt stored price catalog", async () => {
@@ -509,7 +567,11 @@ describe("PostgresBillingLedgerRepository", () => {
     const first = await repository.appendLedgerEntry(input);
     const retry = await repository.appendLedgerEntry(input);
 
-    expect({ first, retry, entries: await repository.listLedgerEntries("tenant-a") }).toEqual({
+    expect({
+      first,
+      retry,
+      entries: await repository.listLedgerEntries("tenant-a"),
+    }).toEqual({
       first: { entry: input, duplicate: false },
       retry: { entry: input, duplicate: true },
       entries: [input],
@@ -550,10 +612,9 @@ describe("PostgresBillingLedgerRepository", () => {
 
     await repository.appendLedgerEntryWithOutbox({ ledgerEntry, outboxEntry });
 
-    await expect(Promise.all([
-      repository.listLedgerEntries("tenant-a"),
-      repository.listOutboxEntries("tenant-a"),
-    ])).resolves.toEqual([[ledgerEntry], [outboxEntry]]);
+    await expect(
+      Promise.all([repository.listLedgerEntries("tenant-a"), repository.listOutboxEntries("tenant-a")]),
+    ).resolves.toEqual([[ledgerEntry], [outboxEntry]]);
   });
 
   it("commits one PAYG session debit and one credits-only outbox event exactly once", async () => {
@@ -632,8 +693,14 @@ describe("PostgresBillingLedgerRepository", () => {
       createdAt: "2026-08-09T15:00:01.000Z",
     };
 
-    await repository.appendLedgerEntry({ ...common, organizationId: "tenant-a" });
-    await repository.appendLedgerEntry({ ...common, organizationId: "tenant-b" });
+    await repository.appendLedgerEntry({
+      ...common,
+      organizationId: "tenant-a",
+    });
+    await repository.appendLedgerEntry({
+      ...common,
+      organizationId: "tenant-b",
+    });
 
     await expect(repository.listLedgerEntries("tenant-a")).resolves.toEqual([
       { ...common, organizationId: "tenant-a" },
@@ -646,20 +713,22 @@ describe("PostgresBillingLedgerRepository", () => {
   it("rejects fractional customer money before persistence", async () => {
     const repository = new PostgresBillingLedgerRepository(pool);
 
-    await expect(repository.appendLedgerEntry({
-      id: "entry-fractional",
-      organizationId: "tenant-a",
-      idempotencyKey: "runtime-session-fractional",
-      entryType: "runtime_charge",
-      currency: "usd",
-      customerAmountMinor: 18.5,
-      supplierCostMinor: 5,
-      quantity: 60,
-      unit: "second",
-      occurredAt: "2026-08-09T15:00:00.000Z",
-      metadata: {},
-      createdAt: "2026-08-09T15:00:01.000Z",
-    })).rejects.toThrow("customerAmountMinor must be a non-negative safe integer.");
+    await expect(
+      repository.appendLedgerEntry({
+        id: "entry-fractional",
+        organizationId: "tenant-a",
+        idempotencyKey: "runtime-session-fractional",
+        entryType: "runtime_charge",
+        currency: "usd",
+        customerAmountMinor: 18.5,
+        supplierCostMinor: 5,
+        quantity: 60,
+        unit: "second",
+        occurredAt: "2026-08-09T15:00:00.000Z",
+        metadata: {},
+        createdAt: "2026-08-09T15:00:01.000Z",
+      }),
+    ).rejects.toThrow("customerAmountMinor must be a non-negative safe integer.");
   });
 
   it("settles concurrent idempotent writes as one ledger entry", async () => {
@@ -679,10 +748,7 @@ describe("PostgresBillingLedgerRepository", () => {
       createdAt: "2026-08-09T15:00:01.000Z",
     };
 
-    const results = await Promise.all([
-      repository.appendLedgerEntry(input),
-      repository.appendLedgerEntry(input),
-    ]);
+    const results = await Promise.all([repository.appendLedgerEntry(input), repository.appendLedgerEntry(input)]);
 
     expect({
       duplicateFlags: results.map((result) => result.duplicate).sort(),
@@ -708,13 +774,13 @@ describe("PostgresBillingLedgerRepository", () => {
     };
     await repository.appendLedgerEntry(input);
 
-    await expect(repository.appendLedgerEntry({
-      ...input,
-      id: "entry-conflict-retry",
-      customerAmountMinor: 45,
-    })).rejects.toThrow(
-      "Idempotency key runtime-session-conflict already belongs to a different ledger entry.",
-    );
+    await expect(
+      repository.appendLedgerEntry({
+        ...input,
+        id: "entry-conflict-retry",
+        customerAmountMinor: 45,
+      }),
+    ).rejects.toThrow("Idempotency key runtime-session-conflict already belongs to a different ledger entry.");
   });
 
   it("applies one approved append-only adjustment to its original ledger entry", async () => {
@@ -780,34 +846,45 @@ describe("PostgresBillingLedgerRepository", () => {
         },
       ],
     });
-    await expect(pool.query(
-      "select tenant_id, actor_id, action, target_type, target_id, metadata from audit_logs",
-    )).resolves.toMatchObject({
-      rows: [{
-        tenant_id: "tenant-a",
-        actor_id: "platform-admin-1",
-        action: "billing.adjustment_applied",
-        target_type: "billing_adjustment",
-        target_id: "adjustment-1",
-        metadata: { ledgerEntryId: "entry-original", kind: "credit", amountMinor: 30 },
-      }],
+    await expect(
+      pool.query("select tenant_id, actor_id, action, target_type, target_id, metadata from audit_logs"),
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          tenant_id: "tenant-a",
+          actor_id: "platform-admin-1",
+          action: "billing.adjustment_applied",
+          target_type: "billing_adjustment",
+          target_id: "adjustment-1",
+          metadata: {
+            ledgerEntryId: "entry-original",
+            kind: "credit",
+            amountMinor: 30,
+          },
+        },
+      ],
     });
 
-    await expect(repository.applyApprovedAdjustment({
-      ...adjustment,
-      amountMinor: 31,
-    })).rejects.toThrow("Adjustment adjustment-1 already has different data.");
+    await expect(
+      repository.applyApprovedAdjustment({
+        ...adjustment,
+        amountMinor: 31,
+      }),
+    ).rejects.toThrow("Adjustment adjustment-1 already has different data.");
     await pool.query(
       `update audit_logs set metadata = '{"ledgerEntryId":"forged","kind":"credit","amountMinor":30}'::jsonb
        where id = 'billing-adjustment:tenant-a:adjustment-1'`,
     );
-    await expect(repository.applyApprovedAdjustment(adjustment))
-      .rejects.toThrow("Adjustment adjustment-1 audit record has different data.");
-    await expect(repository.applyApprovedAdjustment({
-      ...adjustment,
-      id: "adjustment-cross-tenant",
-      organizationId: "tenant-b",
-    })).rejects.toThrow("Original ledger entry entry-original was not found.");
+    await expect(repository.applyApprovedAdjustment(adjustment)).rejects.toThrow(
+      "Adjustment adjustment-1 audit record has different data.",
+    );
+    await expect(
+      repository.applyApprovedAdjustment({
+        ...adjustment,
+        id: "adjustment-cross-tenant",
+        organizationId: "tenant-b",
+      }),
+    ).rejects.toThrow("Original ledger entry entry-original was not found.");
   });
 });
 

@@ -48,7 +48,7 @@ export function ResetPasswordScreen({
         <div className="auth-brand-mark">Z</div>
         <p className="auth-eyebrow">Account recovery</p>
         <h1 id="reset-password-title">Reset your password</h1>
-        <p>Choose a new password for your Zara tenant account.</p>
+        <p>Choose a new password for your Zara account.</p>
         <form className="auth-form" onSubmit={submitReset}>
           <FieldGroup>
             <Field>

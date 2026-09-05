@@ -1,0 +1,173 @@
+
+> @zara/api@0.1.0 start:raw
+> dotenv -e ../../.env.example -e ../../.env -- tsx dist-js/main.js
+
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m[38;5;3m +122ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuditLogModule dependencies initialized[39m[38;5;3m +10ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mRuntimePromptPolicyModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mRuntimeRoutePolicyModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mHealthModule dependencies initialized[39m[38;5;3m +4ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mWorkspacesModule dependencies initialized[39m[38;5;3m +6ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuthModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBillingModule dependencies initialized[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mVoiceLibraryModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mIntegrationsModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPlatformAdminModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mComplianceModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mMemoryModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTelephonyModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mWorkflowsModule dependencies initialized[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mRuntimeSessionsModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mSandboxLiveSessionsModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthAccountSecurityController {/api/auth/account-security}:[39m[38;5;3m +15ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/account-security/password-reset/request, POST} route[39m[38;5;3m +11ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/account-security/email-verification/request, POST} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/account-security/sessions, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/account-security/sessions/:sessionId/revoke, POST} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthContextController {/api/auth}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/context, GET} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthInvitationsController {/api/auth/invitations}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/invitations, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/invitations, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/invitations/:invitationId/revoke, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/invitations/:invitationId/accept, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthOnboardingController {/api/auth/onboarding}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/onboarding/signup, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mBetterAuthController {/api/auth}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/auth/{*authPath}, ALL} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mWorkspacesController {/organizations/:organizationId/workspaces}:[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/workspaces/state, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/workspaces, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/workspaces/:workspaceId, PATCH} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:31 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/workspaces/:workspaceId/accessed, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/workspaces/:workspaceId/memberships/:userId, PUT} route[39m[38;5;3m +4ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/workspaces/:workspaceId/memberships/:userId/revoke, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mBillingController {/}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/state, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/checkout, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/customer-portal, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/budget-policy, PATCH} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/budget-checks, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/usage-events, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/telephony-minute-events, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/billing/runtime-cost-events, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/billing/polar/webhooks, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mComplianceController {/organizations/:organizationId/compliance}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/compliance/audit-logs, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/compliance/readiness, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/compliance/retention-jobs, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mMemoryController {/organizations/:organizationId/memory}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge/sources, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge/sources/:sourceId/refresh, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge/review-drafts/:draftId/approve, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge/ingestions, POST} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge/ingestions/:ingestionId, GET} route[39m[38;5;3m +5ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge/ingestions/:ingestionId/retry, POST} route[39m[38;5;3m +4ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/retention/purge, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/export, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/tenant-data, DELETE} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/retrieve, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/extract, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/drafts/:draftId/approve, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/drafts/:draftId/reject, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/:memoryId, PATCH} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/:memoryId, DELETE} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory/knowledge, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/memory, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mIntegrationsController {/}:[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/catalog, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/catalog/:provider, GET} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/:provider/connect, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/zendesk/configure, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/freshdesk/configure, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/slack/destinations, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/integrations/oauth/:provider/callback, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/connections, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/connections/:connectionId/health-check, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/connections/:connectionId/revoke, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/connections/:connectionId, DELETE} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/connections/:connectionId/promote, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/tool-grants, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/tool-grants, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/webhook-tools, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/webhook-tools, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/connectors/:provider/tools, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/integrations/connectors/:provider/tools/:toolId/execute, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mTelephonyController {/}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/state, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/connections, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/connections/:connectionId, DELETE} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/connections/:connectionId/validate, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/connections/:connectionId/heartbeat, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/connections/:connectionId/import-twilio-numbers, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/connections/:connectionId/register-number, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/numbers/:numberId/routing, PATCH} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/numbers/:numberId/live-route/activate, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/numbers/:numberId/live-route/pause, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/numbers/:numberId/live-route/resume, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/dispatch/inbound, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/calls/:callSessionId/runtime-policy, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/dispatch/outbound, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/connections/:connectionId/test-call, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/calls/:callSessionId/events, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/calls/:callSessionId/pstn-test-checkpoints, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/calls/:callSessionId/human-fallback, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/telephony/credentials/rotate, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/telephony/webhooks/twilio, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mHealthController {/health}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/health, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mPlatformAdminController {/platform-admin}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/dashboard, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/organizations, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/organizations/:organizationId, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/organizations/:organizationId/status, PATCH} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/users, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/users/:userId/support-actions, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/telephony, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/integrations, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/runtime/health, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/runtime/ai-observability, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/runtime/prompt-policy, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/runtime/route-policy, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/runtime/prompt-policy, PATCH} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/runtime/route-policy, PATCH} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/organizations/:organizationId/billing-controls, PATCH} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/audit-logs, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/organizations/:organizationId/impersonation-sessions, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/impersonation-sessions/:sessionId, DELETE} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/abuse-compliance/reviews, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/platform-admin/abuse-compliance/reviews/:reviewId/decision, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mRuntimeSessionsController {/runtime/realtime/sessions}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/runtime/realtime/sessions, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mSandboxLiveSessionsController {/organizations/:organizationId/sandbox/live-sessions}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/telemetry, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/escalations, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/escalations/:escalationId/accept, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/escalations/:escalationId/decline, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/events, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/memory, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/summary, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/quality, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/crm-sync, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/crm-sync/:summaryId/retry, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/reconnect, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/sandbox/live-sessions/:sessionId/end, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mVoiceLibraryController {/organizations/:organizationId/voices}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/voices, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/voices/preview, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/voices/uploads, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/voices/clones, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/voices/clones/:voiceId/approve, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/voices/:voiceId/disable, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/voices/:voiceId/delete, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mWorkflowsController {/organizations/:organizationId/workflows}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/organizations/:organizationId/workflows/:workflowId/publish, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29752  - [39m06/27/2026, 11:02:32 PM [32m    LOG[39m [38;5;3m[NestApplication] [39m[32mNest application successfully started[39m[38;5;3m +25ms[39m

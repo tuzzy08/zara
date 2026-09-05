@@ -1,0 +1,154 @@
+- main [ref=f1e3]:
+  - generic [ref=f1e4]:
+    - link "Zara Voice Automation home" [ref=f1e5] [cursor=pointer]:
+      - /url: /
+      - generic "Zara voice automation logo mark" [ref=f1e6]: ZARA
+    - navigation "Landing" [ref=f1e8]:
+      - link "Platform" [ref=f1e9] [cursor=pointer]:
+        - /url: "#workflow"
+      - link "Use cases" [ref=f1e10] [cursor=pointer]:
+        - /url: "#outcomes"
+      - link "Process" [ref=f1e11] [cursor=pointer]:
+        - /url: "#process"
+      - link "Pricing" [ref=f1e12] [cursor=pointer]:
+        - /url: "#engage"
+    - generic [ref=f1e13]:
+      - link "Sign in" [ref=f1e14] [cursor=pointer]:
+        - /url: /login
+      - link "Start building" [ref=f1e15] [cursor=pointer]:
+        - /url: /signup
+  - region [ref=f1e18]:
+    - generic [ref=f1e19]:
+      - generic [ref=f1e20]: A LIVE AI WORKFORCE
+      - heading "Build the team behind every call." [level=1] [ref=f1e21]
+      - paragraph [ref=f1e22]: Design a connected team of agents that routes, resolves, books, and escalates while you watch.
+      - generic [ref=f1e23]:
+        - link "Enter the workflow" [ref=f1e24] [cursor=pointer]:
+          - /url: "#workflow"
+        - link "See how it works" [ref=f1e27] [cursor=pointer]:
+          - /url: "#process"
+          - text: See how it works
+          - generic [ref=f1e28]: ↗
+    - region "Interactive multi-agent workflow workbench" [ref=f1e29]:
+      - generic [ref=f1e30]: Drag to orbit · select a node
+      - generic [ref=f1e33]:
+        - button [ref=f1e241] [cursor=pointer]:
+          - strong [ref=f1e242]: Incoming call
+          - generic [ref=f1e243]: Live · 01:24
+        - button [ref=f1e254] [cursor=pointer]:
+          - strong [ref=f1e255]: Router agent
+          - generic [ref=f1e256]: Selecting best path
+        - button [ref=f1e270] [cursor=pointer]:
+          - strong [ref=f1e271]: Receptionist
+          - generic [ref=f1e272]: Talking · 00:35
+        - button [ref=f1e283] [cursor=pointer]:
+          - strong [ref=f1e284]: Lead qualifier
+          - generic [ref=f1e285]: Gathering info
+        - button [ref=f1e298] [cursor=pointer]:
+          - strong [ref=f1e299]: Scheduler
+          - generic [ref=f1e300]: Booking · 01:02
+        - button [ref=f1e309] [cursor=pointer]:
+          - strong [ref=f1e310]: Human escalation
+          - generic [ref=f1e311]: Informed · 00:18
+        - button [ref=f1e322] [cursor=pointer]:
+          - strong [ref=f1e323]: CRM action
+          - generic [ref=f1e324]: Updating record
+        - button [ref=f1e333] [cursor=pointer]:
+          - strong [ref=f1e334]: Exit
+          - generic [ref=f1e335]: Call resolved
+      - list "Live multi-agent workflow" [ref=f1e139]:
+        - listitem [ref=f1e140]:
+          - strong [ref=f1e141]: Incoming call
+          - generic [ref=f1e142]: ": Live · 01:24"
+        - listitem [ref=f1e143]:
+          - strong [ref=f1e144]: Router agent
+          - generic [ref=f1e145]: ": Selecting best path"
+        - listitem [ref=f1e146]:
+          - strong [ref=f1e147]: Receptionist
+          - generic [ref=f1e148]: ": Talking · 00:35"
+        - listitem [ref=f1e149]:
+          - strong [ref=f1e150]: Lead qualifier
+          - generic [ref=f1e151]: ": Gathering info"
+        - listitem [ref=f1e152]:
+          - strong [ref=f1e153]: Scheduler
+          - generic [ref=f1e154]: ": Booking · 01:02"
+        - listitem [ref=f1e155]:
+          - strong [ref=f1e156]: Human escalation
+          - generic [ref=f1e157]: ": Informed · 00:18"
+        - listitem [ref=f1e158]:
+          - strong [ref=f1e159]: CRM action
+          - generic [ref=f1e160]: ": Updating record"
+        - listitem [ref=f1e161]:
+          - strong [ref=f1e162]: Exit
+          - generic [ref=f1e163]: ": Call resolved"
+      - generic "Live call transcript":
+        - generic:
+          - generic: LIVE CALL · 01:24
+          - generic: Route active
+        - generic:
+          - strong: Caller
+          - generic: I need to change my delivery date.
+        - generic:
+          - strong: Receptionist
+          - generic: No problem—let me pull that up for you.
+  - region [ref=f1e164]:
+    - generic [ref=f1e165]:
+      - generic [ref=f1e166]: OUTCOMES THAT MATTER
+      - heading "Better conversations, by design." [level=2] [ref=f1e167]
+    - generic [ref=f1e168]:
+      - article [ref=f1e169]:
+        - strong [ref=f1e172]: 32%
+        - generic [ref=f1e173]: More calls resolved
+      - article [ref=f1e174]:
+        - strong [ref=f1e178]: 2.1 min
+        - generic [ref=f1e179]: Average handle time
+      - article [ref=f1e180]:
+        - strong [ref=f1e184]: 28%
+        - generic [ref=f1e185]: Increase in bookings
+      - article [ref=f1e186]:
+        - strong [ref=f1e189]: 24/7
+        - generic [ref=f1e190]: Always-on coverage
+  - region [ref=f1e191]:
+    - generic [ref=f1e192]:
+      - generic [ref=f1e193]: HOW IT MOVES
+      - heading "From first ring to resolved." [level=2] [ref=f1e194]
+      - paragraph [ref=f1e195]: Zara maps the call, connects the right agents, and tunes the system against real outcomes—not demo scripts.
+      - link "Design your first workflow" [ref=f1e196] [cursor=pointer]:
+        - /url: /signup
+    - generic [ref=f1e199]:
+      - article [ref=f1e200]:
+        - generic [ref=f1e201]: "01"
+        - generic [ref=f1e202]:
+          - heading "Route with intent" [level=3] [ref=f1e203]
+          - paragraph [ref=f1e204]: The router agent reads the caller's goal and selects the right specialist in real time.
+      - article [ref=f1e205]:
+        - generic [ref=f1e206]: "02"
+        - generic [ref=f1e207]:
+          - heading "Act across systems" [level=3] [ref=f1e208]
+          - paragraph [ref=f1e209]: Specialists qualify, schedule, and update the tools your operation already relies on.
+      - article [ref=f1e210]:
+        - generic [ref=f1e211]: "03"
+        - generic [ref=f1e212]:
+          - heading "Escalate with context" [level=3] [ref=f1e213]
+          - paragraph [ref=f1e214]: When judgment matters, a human joins with the transcript, intent, and next action ready.
+  - generic [ref=f1e215]:
+    - generic [ref=f1e216]:
+      - generic [ref=f1e217]: START WITH ONE CALL FLOW
+      - heading "Put your real operation on the workbench." [level=2] [ref=f1e218]
+      - paragraph [ref=f1e219]: We will map the agents, routes, actions, and human handoffs around the calls that matter most.
+    - link "Book a strategy call" [ref=f1e220] [cursor=pointer]:
+      - /url: /signup
+  - generic [ref=f1e223]:
+    - generic [ref=f1e224]:
+      - generic "Zara voice automation logo mark" [ref=f1e225]: ZARA
+      - paragraph [ref=f1e227]: Zara Voice Automation
+    - navigation "Footer" [ref=f1e228]:
+      - link "Platform" [ref=f1e229] [cursor=pointer]:
+        - /url: "#workflow"
+      - link "Results" [ref=f1e230] [cursor=pointer]:
+        - /url: "#outcomes"
+      - link "Process" [ref=f1e231] [cursor=pointer]:
+        - /url: "#process"
+      - link "Client login" [ref=f1e232] [cursor=pointer]:
+        - /url: /login
+    - generic [ref=f1e233]: © 2026 Zara Voice Automation

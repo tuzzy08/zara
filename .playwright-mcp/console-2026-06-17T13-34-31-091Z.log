@@ -1,0 +1,4 @@
+[     562ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=0e51ed70:14336
+[    3253ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[    3515ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[  264812ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0

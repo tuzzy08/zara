@@ -1,0 +1,132 @@
+- main [ref=f2e3]:
+  - generic [ref=f2e4]:
+    - link "Zara Voice Automation home" [ref=f2e5] [cursor=pointer]:
+      - /url: /
+      - generic "Zara voice automation logo mark" [ref=f2e6]: ZARA
+    - navigation "Landing" [ref=f2e8]:
+      - link "Platform" [ref=f2e9] [cursor=pointer]:
+        - /url: "#workflow"
+      - link "Use cases" [ref=f2e10] [cursor=pointer]:
+        - /url: "#outcomes"
+      - link "Process" [ref=f2e11] [cursor=pointer]:
+        - /url: "#process"
+      - link "Pricing" [ref=f2e12] [cursor=pointer]:
+        - /url: "#engage"
+    - generic [ref=f2e13]:
+      - link "Sign in" [ref=f2e14] [cursor=pointer]:
+        - /url: /login
+      - link "Start building" [ref=f2e15] [cursor=pointer]:
+        - /url: /signup
+  - region [ref=f2e18]:
+    - generic [ref=f2e19]:
+      - generic [ref=f2e20]: A LIVE AI WORKFORCE
+      - heading "Build the team behind every call." [level=1] [ref=f2e21]
+      - paragraph [ref=f2e22]: Design a connected team of agents that routes, resolves, books, and escalates while you watch.
+      - generic [ref=f2e23]:
+        - link "Enter the workflow" [ref=f2e24] [cursor=pointer]:
+          - /url: "#workflow"
+        - link "See how it works" [ref=f2e27] [cursor=pointer]:
+          - /url: "#process"
+          - text: See how it works
+          - generic [ref=f2e28]: ↗
+    - region "Interactive multi-agent workflow workbench" [ref=f2e29]:
+      - generic [ref=f2e30]: Drag to orbit · select a node
+      - generic [ref=f2e33]:
+        - strong [ref=f2e39]: Interactive workflow preview
+        - paragraph [ref=f2e40]: Your browser is showing the accessible live route while the 3D scene is unavailable.
+      - list "Live multi-agent workflow" [ref=f2e41]:
+        - listitem [ref=f2e42]:
+          - strong [ref=f2e43]: Incoming call
+          - generic [ref=f2e44]: ": Live · 01:24"
+        - listitem [ref=f2e45]:
+          - strong [ref=f2e46]: Router agent
+          - generic [ref=f2e47]: ": Selecting best path"
+        - listitem [ref=f2e48]:
+          - strong [ref=f2e49]: Receptionist
+          - generic [ref=f2e50]: ": Talking · 00:35"
+        - listitem [ref=f2e51]:
+          - strong [ref=f2e52]: Lead qualifier
+          - generic [ref=f2e53]: ": Gathering info"
+        - listitem [ref=f2e54]:
+          - strong [ref=f2e55]: Scheduler
+          - generic [ref=f2e56]: ": Booking · 01:02"
+        - listitem [ref=f2e57]:
+          - strong [ref=f2e58]: Human escalation
+          - generic [ref=f2e59]: ": Informed · 00:18"
+        - listitem [ref=f2e60]:
+          - strong [ref=f2e61]: CRM action
+          - generic [ref=f2e62]: ": Updating record"
+        - listitem [ref=f2e63]:
+          - strong [ref=f2e64]: Exit
+          - generic [ref=f2e65]: ": Call resolved"
+      - generic "Live call transcript":
+        - generic:
+          - generic: LIVE CALL · 01:24
+          - generic: Route active
+        - generic:
+          - strong: Caller
+          - generic: I need to change my delivery date.
+        - generic:
+          - strong: Receptionist
+          - generic: No problem—let me pull that up for you.
+  - region [ref=f2e66]:
+    - generic [ref=f2e67]:
+      - generic [ref=f2e68]: OUTCOMES THAT MATTER
+      - heading "Better conversations, by design." [level=2] [ref=f2e69]
+    - generic [ref=f2e70]:
+      - article [ref=f2e71]:
+        - strong [ref=f2e74]: 32%
+        - generic [ref=f2e75]: More calls resolved
+      - article [ref=f2e76]:
+        - strong [ref=f2e80]: 2.1 min
+        - generic [ref=f2e81]: Average handle time
+      - article [ref=f2e82]:
+        - strong [ref=f2e86]: 28%
+        - generic [ref=f2e87]: Increase in bookings
+      - article [ref=f2e88]:
+        - strong [ref=f2e91]: 24/7
+        - generic [ref=f2e92]: Always-on coverage
+  - region [ref=f2e93]:
+    - generic [ref=f2e94]:
+      - generic [ref=f2e95]: HOW IT MOVES
+      - heading "From first ring to resolved." [level=2] [ref=f2e96]
+      - paragraph [ref=f2e97]: Zara maps the call, connects the right agents, and tunes the system against real outcomes—not demo scripts.
+      - link "Design your first workflow" [ref=f2e98] [cursor=pointer]:
+        - /url: /signup
+    - generic [ref=f2e101]:
+      - article [ref=f2e102]:
+        - generic [ref=f2e103]: "01"
+        - generic [ref=f2e104]:
+          - heading "Route with intent" [level=3] [ref=f2e105]
+          - paragraph [ref=f2e106]: The router agent reads the caller's goal and selects the right specialist in real time.
+      - article [ref=f2e107]:
+        - generic [ref=f2e108]: "02"
+        - generic [ref=f2e109]:
+          - heading "Act across systems" [level=3] [ref=f2e110]
+          - paragraph [ref=f2e111]: Specialists qualify, schedule, and update the tools your operation already relies on.
+      - article [ref=f2e112]:
+        - generic [ref=f2e113]: "03"
+        - generic [ref=f2e114]:
+          - heading "Escalate with context" [level=3] [ref=f2e115]
+          - paragraph [ref=f2e116]: When judgment matters, a human joins with the transcript, intent, and next action ready.
+  - generic [ref=f2e117]:
+    - generic [ref=f2e118]:
+      - generic [ref=f2e119]: START WITH ONE CALL FLOW
+      - heading "Put your real operation on the workbench." [level=2] [ref=f2e120]
+      - paragraph [ref=f2e121]: We will map the agents, routes, actions, and human handoffs around the calls that matter most.
+    - link "Book a strategy call" [ref=f2e122] [cursor=pointer]:
+      - /url: /signup
+  - generic [ref=f2e125]:
+    - generic [ref=f2e126]:
+      - generic "Zara voice automation logo mark" [ref=f2e127]: ZARA
+      - paragraph [ref=f2e129]: Zara Voice Automation
+    - navigation "Footer" [ref=f2e130]:
+      - link "Platform" [ref=f2e131] [cursor=pointer]:
+        - /url: "#workflow"
+      - link "Results" [ref=f2e132] [cursor=pointer]:
+        - /url: "#outcomes"
+      - link "Process" [ref=f2e133] [cursor=pointer]:
+        - /url: "#process"
+      - link "Client login" [ref=f2e134] [cursor=pointer]:
+        - /url: /login
+    - generic [ref=f2e135]: © 2026 Zara Voice Automation

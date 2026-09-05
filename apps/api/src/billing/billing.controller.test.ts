@@ -2,17 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
+import { Webhook } from "standardwebhooks";
 
 import { BillingModule } from "./billing.module";
 import { ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE } from "./billing.controller";
-import {
-  BILLING_STATE_REPOSITORY,
-  InMemoryBillingStateRepository,
-} from "./billing-state.repository";
-import {
-  BILLING_POLAR_CLIENT,
-  type BillingPolarClient,
-} from "./polar-billing.client";
+import { BILLING_STATE_REPOSITORY, InMemoryBillingStateRepository } from "./billing-state.repository";
+import { BILLING_POLAR_CLIENT, type BillingPolarClient } from "./polar-billing.client";
 import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import { BILLING_LEDGER_REPOSITORY } from "./postgres-billing-ledger.repository";
 import { BILLING_READ_MODEL_REPOSITORY } from "./billing-read-model.repository";
@@ -31,6 +26,160 @@ describe("BillingController", () => {
       delete process.env.POLAR_WEBHOOK_SECRET;
     } else {
       process.env.POLAR_WEBHOOK_SECRET = originalPolarWebhookSecret;
+    }
+  });
+
+  it("accepts Polar's standard webhook headers without a tenant session", async () => {
+    const app = await createTestingApp(createPolarClient(), {
+      tenantAuth: false,
+    });
+    try {
+      const response = await request(app.getHttpServer())
+        .post("/billing/polar/webhooks")
+        .set("webhook-id", "evt-standard-headers")
+        .set("webhook-signature", "test-signature")
+        .send({
+          type: "customer.state_changed",
+          data: {
+            customer: {
+              id: "polar_customer_1",
+              external_id: "tenant-west-africa",
+            },
+          },
+        });
+      expect(response.status).toBe(201);
+      expect(response.body.webhook).toMatchObject({
+        eventId: "evt-standard-headers",
+        processed: true,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("accepts a signed Polar customer-state payload with top-level customer identity", async () => {
+    process.env.POLAR_WEBHOOK_SECRET = "whsec_local-test-only";
+    const app = await createTestingApp(createPolarClient());
+    try {
+      const body = JSON.stringify(polarCustomerState());
+      const response = await request(app.getHttpServer())
+        .post("/billing/polar/webhooks")
+        .set(signedWebhookHeaders(body))
+        .send(body);
+      expect(response.status).toBe(201);
+      expect(response.body.webhook).toMatchObject({
+        organizationId: "tenant-west-africa",
+        processed: true,
+      });
+      const state = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
+      expect(state.body.billing.subscription.providerCustomerId).toBe("polar_customer_wire");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("verifies the original signed JSON bytes and accepts an exact replay", async () => {
+    process.env.POLAR_WEBHOOK_SECRET = "whsec_local-test-only";
+    const app = await createTestingApp(createPolarClient(), {
+      tenantAuth: false,
+    });
+    try {
+      const body = JSON.stringify(polarCustomerState(), null, 2) + "\n";
+      const headers = signedWebhookHeaders(body);
+      const send = () => request(app.getHttpServer()).post("/billing/polar/webhooks").set(headers).send(body);
+      const response = await send();
+      expect(response.status).toBe(201);
+      const replay = await send();
+      expect(replay.status).toBe(200);
+      expect(replay.body.webhook).toMatchObject({
+        processed: false,
+        replay: true,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    "body change",
+    "whitespace change",
+    "invalid signature",
+    "expired timestamp",
+    "missing timestamp",
+    "missing id",
+    "missing signature",
+    "legacy headers",
+  ])("rejects a signed webhook with %s without consuming the event", async (scenario) => {
+    process.env.POLAR_WEBHOOK_SECRET = "whsec_local-test-only";
+    const app = await createTestingApp(createPolarClient(), {
+      tenantAuth: false,
+    });
+    try {
+      const body = JSON.stringify(polarCustomerState());
+      const validHeaders = signedWebhookHeaders(body);
+      const headers: Record<string, string> = { ...validHeaders };
+      let sentBody = body;
+      if (scenario === "body change") sentBody = body.replace("Test Café", "Changed");
+      if (scenario === "whitespace change") sentBody = body + "\n";
+      if (scenario === "invalid signature") headers["webhook-signature"] = "v1,invalid";
+      if (scenario === "expired timestamp")
+        Object.assign(headers, signedWebhookHeaders(body, "evt-signed-wire", new Date(Date.now() - 600_000)));
+      if (scenario === "missing timestamp") delete headers["webhook-timestamp"];
+      if (scenario === "missing id") delete headers["webhook-id"];
+      if (scenario === "missing signature") delete headers["webhook-signature"];
+      if (scenario === "legacy headers") {
+        headers["polar-webhook-id"] = headers["webhook-id"]!;
+        headers["polar-webhook-signature"] = headers["webhook-signature"]!;
+        delete headers["webhook-id"];
+        delete headers["webhook-signature"];
+      }
+      const response = await request(app.getHttpServer()).post("/billing/polar/webhooks").set(headers).send(sentBody);
+      expect(response.status).toBe(
+        ["missing id", "missing signature", "legacy headers"].includes(scenario) ? 400 : 403,
+      );
+      const valid = await request(app.getHttpServer()).post("/billing/polar/webhooks").set(validHeaders).send(body);
+      expect(valid.status).toBe(201);
+      expect(valid.body.webhook.processed).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns a safe client error for a signed payload that does not match Polar's schema", async () => {
+    process.env.POLAR_WEBHOOK_SECRET = "whsec_local-test-only";
+    const app = await createTestingApp(createPolarClient(), {
+      tenantAuth: false,
+    });
+    try {
+      const body = JSON.stringify({
+        type: "customer.state_changed",
+        data: { privateMarker: "must-not-return" },
+      });
+      const response = await request(app.getHttpServer())
+        .post("/billing/polar/webhooks")
+        .set(signedWebhookHeaders(body))
+        .send(body);
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe("Polar webhook payload is invalid.");
+      expect(JSON.stringify(response.body)).not.toContain("must-not-return");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("fails closed when the server did not capture the signed request body", async () => {
+    process.env.POLAR_WEBHOOK_SECRET = "whsec_local-test-only";
+    const app = await createTestingApp(createPolarClient(), { rawBody: false });
+    try {
+      const body = JSON.stringify(polarCustomerState());
+      const response = await request(app.getHttpServer())
+        .post("/billing/polar/webhooks")
+        .set(signedWebhookHeaders(body))
+        .send(body);
+      expect(response.status).toBe(403);
+      expect(response.body.message).toBe("Polar webhook raw body is required.");
+    } finally {
+      await app.close();
     }
   });
 
@@ -55,8 +204,7 @@ describe("BillingController", () => {
   it("returns an honest empty state for a new tenant", async () => {
     const app = await createTestingApp(createPolarClient());
 
-    const response = await request(app.getHttpServer())
-      .get("/organizations/tenant-new/billing/state");
+    const response = await request(app.getHttpServer()).get("/organizations/tenant-new/billing/state");
 
     expect(response.status).toBe(200);
     expect(response.body.billing).toMatchObject({
@@ -79,7 +227,9 @@ describe("BillingController", () => {
 
   it("rejects tenant-submitted billing usage facts in the production route graph", async () => {
     const polarClient = createPolarClient();
-    const app = await createTestingApp(polarClient, { legacyUsageFixture: false });
+    const app = await createTestingApp(polarClient, {
+      legacyUsageFixture: false,
+    });
 
     const responses = await Promise.all([
       request(app.getHttpServer())
@@ -102,7 +252,9 @@ describe("BillingController", () => {
   it("creates organization-linked Polar checkout and customer portal sessions without exposing provider secrets", async () => {
     const polarClient = createPolarClient();
     const ledger = createWebhookReceiptRepository();
-    const app = await createTestingApp(polarClient, { billingLedgerRepository: ledger });
+    const app = await createTestingApp(polarClient, {
+      billingLedgerRepository: ledger,
+    });
 
     const checkoutResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/billing/checkout")
@@ -137,8 +289,7 @@ describe("BillingController", () => {
     ]);
     expect(JSON.stringify(checkoutResponse.body)).not.toContain("polar-secret");
 
-    const stateResponse = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
     expect(stateResponse.body.billing.plan).toMatchObject({
       slug: "growth",
       monthlyBaseMinor: null,
@@ -170,12 +321,14 @@ describe("BillingController", () => {
   it("updates subscription, entitlement, order, and cancellation state from idempotent Polar webhooks", async () => {
     const polarClient = createPolarClient();
     const ledger = createWebhookReceiptRepository();
-    const app = await createTestingApp(polarClient, { billingLedgerRepository: ledger });
+    const app = await createTestingApp(polarClient, {
+      billingLedgerRepository: ledger,
+    });
 
     const firstWebhookResponse = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-subscription-1")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-subscription-1")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "customer.state_changed",
         data: {
@@ -220,24 +373,28 @@ describe("BillingController", () => {
           organizationId: "tenant-west-africa",
           providerCustomerId: "polar_customer_1",
         }),
-        subscriptions: [expect.objectContaining({
-          providerSubscriptionId: "polar_subscription_1",
-          catalogId: "catalog-2026-08-v1",
-          status: "active",
-          updatedAt: "2026-05-23T00:00:00.000Z",
-        })],
-        entitlements: [expect.objectContaining({
-          providerBenefitId: "polar-benefit-premium",
-          key: "premium-realtime",
-          status: "active",
-        })],
+        subscriptions: [
+          expect.objectContaining({
+            providerSubscriptionId: "polar_subscription_1",
+            catalogId: "catalog-2026-08-v1",
+            status: "active",
+            updatedAt: "2026-05-23T00:00:00.000Z",
+          }),
+        ],
+        entitlements: [
+          expect.objectContaining({
+            providerBenefitId: "polar-benefit-premium",
+            key: "premium-realtime",
+            status: "active",
+          }),
+        ],
       }),
     ]);
 
     const replayWebhookResponse = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-subscription-1")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-subscription-1")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "customer.state_changed",
         data: {
@@ -279,8 +436,8 @@ describe("BillingController", () => {
 
     const orderWebhookResponse = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-order-1")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-order-1")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "order.paid",
         data: {
@@ -301,8 +458,7 @@ describe("BillingController", () => {
 
     expect(orderWebhookResponse.status).toBe(201);
 
-    const stateResponse = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
     expect(stateResponse.status).toBe(200);
     expect(stateResponse.body.billing.plan).toMatchObject({
@@ -350,7 +506,9 @@ describe("BillingController", () => {
 
   it("rejects subscription checkout when the catalog has no Polar product mapping", async () => {
     const polarClient = createPolarClient();
-    const app = await createTestingApp(polarClient, { subscriptionProductIds: {} });
+    const app = await createTestingApp(polarClient, {
+      subscriptionProductIds: {},
+    });
 
     const response = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/billing/checkout")
@@ -375,8 +533,8 @@ describe("BillingController", () => {
 
     const response = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-missing-secret")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-missing-secret")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "customer.state_changed",
         data: {
@@ -398,8 +556,8 @@ describe("BillingController", () => {
 
     const webhookResponse = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-unknown-subscription-state")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-unknown-subscription-state")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "customer.state_changed",
         data: {
@@ -407,15 +565,16 @@ describe("BillingController", () => {
             id: "polar_customer_unknown",
             externalId: "tenant-west-africa",
           },
-          activeSubscriptions: [{
-            id: "polar_subscription_unknown",
-            productId: "polar_product_growth",
-            status: "future_new_state",
-          }],
+          activeSubscriptions: [
+            {
+              id: "polar_subscription_unknown",
+              productId: "polar_product_growth",
+              status: "future_new_state",
+            },
+          ],
         },
       });
-    const stateResponse = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
     expect(webhookResponse.status).toBe(201);
     expect(stateResponse.body.billing.subscription.status).toBe("none");
@@ -432,8 +591,8 @@ describe("BillingController", () => {
 
     const response = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-subscription-past-due")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-subscription-past-due")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "subscription.past_due",
         timestamp: "2026-08-10T09:00:01.000Z",
@@ -453,8 +612,7 @@ describe("BillingController", () => {
           },
         },
       });
-    const state = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const state = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
     expect(response.status).toBe(201);
     expect(ledger.subscriptionProjections).toEqual([
@@ -483,11 +641,13 @@ describe("BillingController", () => {
           id: "polar_customer_restart",
           externalId: "tenant-west-africa",
         },
-        activeSubscriptions: [{
-          id: "polar_subscription_restart",
-          productId: "polar_product_growth",
-          status: "active",
-        }],
+        activeSubscriptions: [
+          {
+            id: "polar_subscription_restart",
+            productId: "polar_product_growth",
+            status: "active",
+          },
+        ],
       },
     };
     const firstApp = await createTestingApp(createPolarClient(), {
@@ -495,8 +655,8 @@ describe("BillingController", () => {
     });
     const first = await request(firstApp.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-restart-replay")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-restart-replay")
+      .set("webhook-signature", "test-signature")
       .send(payload);
     await firstApp.close();
 
@@ -505,13 +665,16 @@ describe("BillingController", () => {
     });
     const replay = await request(restartedApp.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-restart-replay")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-restart-replay")
+      .set("webhook-signature", "test-signature")
       .send(payload);
 
     expect(first.status).toBe(201);
     expect(replay.status).toBe(200);
-    expect(replay.body.webhook).toMatchObject({ processed: false, replay: true });
+    expect(replay.body.webhook).toMatchObject({
+      processed: false,
+      replay: true,
+    });
 
     await restartedApp.close();
   });
@@ -521,8 +684,8 @@ describe("BillingController", () => {
 
     await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-multiple-subscriptions")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-multiple-subscriptions")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "customer.state_changed",
         data: {
@@ -546,12 +709,9 @@ describe("BillingController", () => {
           ],
         },
       });
-    const state = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const state = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
-    expect(state.body.billing.subscription.providerSubscriptionId).toBe(
-      "polar_subscription_current",
-    );
+    expect(state.body.billing.subscription.providerSubscriptionId).toBe("polar_subscription_current");
     expect(state.body.billing.plan.slug).toBe("growth");
 
     await app.close();
@@ -565,8 +725,8 @@ describe("BillingController", () => {
 
     const response = await request(app.getHttpServer())
       .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", "evt-payg-order-paid")
-      .set("polar-webhook-signature", "test-signature")
+      .set("webhook-id", "evt-payg-order-paid")
+      .set("webhook-signature", "test-signature")
       .send({
         type: "order.paid",
         data: {
@@ -602,7 +762,8 @@ describe("BillingController", () => {
       data: {
         id: "polar-payg-order-1",
         total_amount: 500,
-        refunded_amount: 500,
+        refunded_amount: 465,
+        refunded_tax_amount: 35,
         currency: "usd",
         product_id: "polar-credit_pack-payg-5-usd",
         modified_at: "2026-08-10T07:00:00.000Z",
@@ -610,36 +771,39 @@ describe("BillingController", () => {
       },
     };
 
-    const sendRefund = (eventId: string, body = payload) => request(app.getHttpServer())
-      .post("/billing/polar/webhooks")
-      .set("polar-webhook-id", eventId)
-      .set("polar-webhook-signature", "test-signature")
-      .send(body);
+    const sendRefund = (eventId: string, body = payload) =>
+      request(app.getHttpServer())
+        .post("/billing/polar/webhooks")
+        .set("webhook-id", eventId)
+        .set("webhook-signature", "test-signature")
+        .send(body);
 
     const response = await sendRefund("evt-payg-order-refunded");
     const replay = await sendRefund("evt-payg-order-refunded");
     const partialRefund = await sendRefund("evt-payg-order-partial-refund", {
       ...payload,
-      data: { ...payload.data, refunded_amount: 200 },
+      data: { ...payload.data, refunded_amount: 200, refunded_tax_amount: 0 },
     });
 
     expect(response.status).toBe(201);
     expect(replay.status).toBe(200);
     expect(replay.body.webhook.replay).toBe(true);
     expect(partialRefund.status).toBe(400);
-    expect(ledger.refundedPaygOrders).toEqual([{
-      organizationId: "tenant-west-africa",
-      providerOrderId: "polar-payg-order-1",
-      reversal: {
-        id: "payg-reversal:polar-payg-order-1",
+    expect(ledger.refundedPaygOrders).toEqual([
+      {
         organizationId: "tenant-west-africa",
-        orderId: "payg-order:polar-payg-order-1",
-        entryType: "reversal",
-        amountMinor: 500,
-        idempotencyKey: "polar-order:polar-payg-order-1:refund",
-        createdAt: "2026-08-10T07:00:00.000Z",
+        providerOrderId: "polar-payg-order-1",
+        reversal: {
+          id: "payg-reversal:polar-payg-order-1",
+          organizationId: "tenant-west-africa",
+          orderId: "payg-order:polar-payg-order-1",
+          entryType: "reversal",
+          amountMinor: 500,
+          idempotencyKey: "polar-order:polar-payg-order-1:refund",
+          createdAt: "2026-08-10T07:00:00.000Z",
+        },
       },
-    }]);
+    ]);
 
     await app.close();
   }, 15_000);
@@ -728,8 +892,7 @@ describe("BillingController", () => {
       .post("/organizations/tenant-west-africa/billing/usage-events")
       .send(secondRuntimeUsage);
 
-    const stateResponse = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
     expect(stateResponse.status).toBe(200);
     expect(stateResponse.body.billing.usageAggregates).toEqual(
@@ -795,8 +958,7 @@ describe("BillingController", () => {
       failureReason: "provider_busy",
     });
 
-    const stateResponse = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
     expect(stateResponse.body.billing.telephonyMinuteAggregates).toEqual(
       expect.arrayContaining([
@@ -871,10 +1033,26 @@ describe("BillingController", () => {
     });
     expect(accountedResponse.body.runtimeCostEvent.components).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: "stt", feature: "stt_minutes", units: 0.08 }),
-        expect.objectContaining({ kind: "model_input", feature: "model_input_tokens", units: 120 }),
-        expect.objectContaining({ kind: "model_output", feature: "model_output_tokens", units: 96 }),
-        expect.objectContaining({ kind: "tts", feature: "tts_characters", units: 180 }),
+        expect.objectContaining({
+          kind: "stt",
+          feature: "stt_minutes",
+          units: 0.08,
+        }),
+        expect.objectContaining({
+          kind: "model_input",
+          feature: "model_input_tokens",
+          units: 120,
+        }),
+        expect.objectContaining({
+          kind: "model_output",
+          feature: "model_output_tokens",
+          units: 96,
+        }),
+        expect.objectContaining({
+          kind: "tts",
+          feature: "tts_characters",
+          units: 180,
+        }),
       ]),
     );
     expect(unknownRateResponse.status).toBe(201);
@@ -883,8 +1061,7 @@ describe("BillingController", () => {
       missingRates: ["model_input:experimental", "model_output:experimental"],
     });
 
-    const stateResponse = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
     expect(stateResponse.body.billing.runtimeCostEvents).toEqual(
       expect.arrayContaining([
@@ -927,14 +1104,12 @@ describe("BillingController", () => {
     const polarClient = createPolarClient();
     const app = await createTestingApp(polarClient);
 
-    await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/billing/checkout")
-      .send({
-        actorUserId: "user-finance-admin",
-        actorRole: "admin",
-        planSlug: "starter",
-        successUrl: "http://127.0.0.1:4173/billing/success",
-      });
+    await request(app.getHttpServer()).post("/organizations/tenant-west-africa/billing/checkout").send({
+      actorUserId: "user-finance-admin",
+      actorRole: "admin",
+      planSlug: "starter",
+      successUrl: "http://127.0.0.1:4173/billing/success",
+    });
     await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/billing/runtime-cost-events")
       .send({
@@ -948,29 +1123,25 @@ describe("BillingController", () => {
         providers: { stt: "assemblyai-streaming" },
         usage: { sttMinutes: 36_000 },
       });
-    await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/billing/telephony-minute-events")
-      .send({
-        actorUserId: "user-ops-lead",
-        actorRole: "admin",
-        callSessionId: "budget-call",
-        provider: "twilio",
-        providerConnectionId: "budget-connection",
-        startedAt: "2026-05-22T12:00:00.000Z",
-        endedAt: "2026-05-22T12:01:01.000Z",
-        outcome: "completed",
-      });
-    await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/billing/usage-events")
-      .send({
-        actorUserId: "user-ops-lead",
-        actorRole: "admin",
-        idempotencyKey: "budget-premium-runtime",
-        name: "zara_premium_runtime",
-        feature: "premium_runtime_minutes",
-        units: 2,
-        occurredAt: "2026-05-22T12:00:00.000Z",
-      });
+    await request(app.getHttpServer()).post("/organizations/tenant-west-africa/billing/telephony-minute-events").send({
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      callSessionId: "budget-call",
+      provider: "twilio",
+      providerConnectionId: "budget-connection",
+      startedAt: "2026-05-22T12:00:00.000Z",
+      endedAt: "2026-05-22T12:01:01.000Z",
+      outcome: "completed",
+    });
+    await request(app.getHttpServer()).post("/organizations/tenant-west-africa/billing/usage-events").send({
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      idempotencyKey: "budget-premium-runtime",
+      name: "zara_premium_runtime",
+      feature: "premium_runtime_minutes",
+      units: 2,
+      occurredAt: "2026-05-22T12:00:00.000Z",
+    });
 
     const policyResponse = await request(app.getHttpServer())
       .patch("/organizations/tenant-west-africa/billing/budget-policy")
@@ -1019,8 +1190,7 @@ describe("BillingController", () => {
       ]),
     );
 
-    const stateResponse = await request(app.getHttpServer())
-      .get("/organizations/tenant-west-africa/billing/state");
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/billing/state");
 
     expect(stateResponse.body.billing.budgetPolicy).toMatchObject({
       monthlyBudgetUsd: 10,
@@ -1076,10 +1246,47 @@ describe("BillingController", () => {
   });
 });
 
+function polarCustomerState() {
+  return {
+    type: "customer.state_changed",
+    timestamp: "2026-09-03T00:00:00Z",
+    data: {
+      id: "polar_customer_wire",
+      created_at: "2026-09-03T00:00:00Z",
+      modified_at: null,
+      metadata: {},
+      external_id: "tenant-west-africa",
+      email: "billing-test@example.com",
+      email_verified: false,
+      type: "individual",
+      name: "Test Café",
+      billing_address: null,
+      tax_id: null,
+      organization_id: "polar_merchant_not_zara_tenant",
+      deleted_at: null,
+      active_subscriptions: [],
+      granted_benefits: [],
+      active_meters: [],
+      avatar_url: "https://example.com/avatar.png",
+    },
+  };
+}
+
+function signedWebhookHeaders(body: string, id = "evt-signed-wire", timestamp = new Date()) {
+  const secret = Buffer.from(process.env.POLAR_WEBHOOK_SECRET!, "utf8").toString("base64");
+  return {
+    "content-type": "application/json",
+    "webhook-id": id,
+    "webhook-timestamp": String(Math.floor(timestamp.getTime() / 1000)),
+    "webhook-signature": new Webhook(secret).sign(id, timestamp, body),
+  };
+}
+
 async function createTestingApp(
   polarClient: BillingPolarClient,
   options: {
     tenantAuth?: boolean | undefined;
+    rawBody?: boolean | undefined;
     legacyUsageFixture?: boolean | undefined;
     billingLedgerRepository?: ReturnType<typeof createWebhookReceiptRepository> | undefined;
     subscriptionProductIds?: Partial<Record<"starter" | "growth" | "scale", string>> | undefined;
@@ -1100,7 +1307,9 @@ async function createTestingApp(
     .useValue(options.legacyUsageFixture ?? true)
     .compile();
 
-  const app: INestApplication = moduleRef.createNestApplication();
+  const app: INestApplication = moduleRef.createNestApplication({
+    rawBody: options.rawBody ?? true,
+  });
   if (options.tenantAuth !== false) {
     installTestTenantAuth(app);
   }
@@ -1172,10 +1381,7 @@ function createWebhookReceiptRepository() {
       const key = `${input.organizationId}:${input.eventId}`;
       const existing = receipts.get(key);
       if (existing !== undefined) {
-        if (
-          existing.eventType !== input.eventType
-          || existing.payloadHash !== input.payloadHash
-        ) {
+        if (existing.eventType !== input.eventType || existing.payloadHash !== input.payloadHash) {
           throw new Error("Webhook replay payload does not match the original event.");
         }
         return { duplicate: true };
@@ -1187,21 +1393,24 @@ function createWebhookReceiptRepository() {
       return { duplicate: false };
     },
     async markPolarWebhookProcessed() {},
+    async markPolarWebhookFailed() {},
     async findPolarMappingByProviderId(providerId: string) {
       const mapping = {
         "polar-credit_pack-payg-5-usd": ["credit_pack", "payg-5-usd"],
-        "polar_product_starter": ["product", "starter"],
-        "polar_product_growth": ["product", "growth"],
+        polar_product_starter: ["product", "starter"],
+        polar_product_growth: ["product", "growth"],
         "polar-catalog-product-7f31": ["product", "growth"],
         "polar-benefit-premium": ["benefit", "premium-realtime"],
       }[providerId];
-      return mapping === undefined ? null : {
-        catalogId: "catalog-2026-08-v1",
-        mappingType: mapping[0],
-        internalKey: mapping[1],
-        providerId,
-        environment: "sandbox",
-      };
+      return mapping === undefined
+        ? null
+        : {
+            catalogId: "catalog-2026-08-v1",
+            mappingType: mapping[0],
+            internalKey: mapping[1],
+            providerId,
+            environment: "sandbox",
+          };
     },
     async applyPaidPaygOrder(input: unknown) {
       paidPaygOrders.push(input);

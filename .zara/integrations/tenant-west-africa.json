@@ -1,0 +1,494 @@
+{
+  "schemaVersion": 1,
+  "organizationId": "tenant-west-africa",
+  "pendingConnects": [],
+  "connections": [
+    {
+      "id": "integration_connection_4c5072ad-5145-4c3b-8df0-6cdf63c55045",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_01ce1c68-9bf7-4d23-8c8f-0df9e3e462f7",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_d8e5c741-3744-44e7-a03e-d1102d153085",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_3f8076ca-7f80-44a4-86f2-14a8e9f79b3d",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_9600bacb-79ab-40c7-909e-fe7ddc986aa9",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_32da1946-6cce-4351-a144-53b84d482b94",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_4fa15950-1321-4c16-9b46-d0cd94e63030",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_cff50bba-4de8-4aff-af85-a2b375390db2",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_1741771e-433b-4f40-b263-e74d7d426a5d",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_5951a1e6-650e-4de7-bd7e-ca1d21abacc9",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_570c6343-34c4-42c7-ac0c-19c14e4ec64f",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_eb6c246e-5583-4932-b277-38701711102b",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_e2f26b15-014c-42d1-83fd-bcf3ffafb9bf",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_a01196d7-f5f0-40a8-8637-6a7273f1317d",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_a5db1499-9dad-41ac-afa3-6a7fa90fe757",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_0c1d8dca-00c1-40b4-820f-0010fa4221ec",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_2f974bc4-0f40-478a-b63e-dadf69d82b89",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_a6a5a70a-1208-4819-af0a-8f3b6b3b075a",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_9118ce84-6dd1-46cc-8ffa-b9bb4456703e",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_5f76c2bb-ba64-41d6-9d2b-ad3a1afbdf03",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_aca58999-e7f9-49b2-b82b-a229d16a2fbd",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_f2655695-096d-44e2-bf24-c79b4f3c0b19",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_89755e2e-e1ab-421a-837d-4fc2eb48d7ef",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_b8461c74-64ab-4b0a-a4a2-d34794d23c81",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_f043080f-9bda-4b7c-b71d-27fae70b78c7",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_9786d738-4d3c-41fb-b5dc-6e99d2bafde6",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_15af5552-68f8-4d5c-9a8c-095cd5821223",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_03aa8ce7-12e3-4792-8aab-9f2c30594c38",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_dee3ccaa-7e53-4877-b51b-37e0b84b6441",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_ceb8d071-7c97-4506-8c7c-1fca77b0cfa7",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "integration_connection_5ebb1bae-ea31-44de-b9ab-fc28860c556b",
+      "organizationId": "tenant-west-africa",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-admin",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-default"
+      },
+      "credentialReference": {
+        "id": "integration_credential_b6ee81b8-d652-415e-b656-422267404917",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@tuzzy.example / ...3456"
+      },
+      "accountLabel": "tuzzy.zendesk.com",
+      "connectedAt": "2026-06-26T12:00:00.000Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_225f46ef-52f2-482d-a57b-6115201999db",
+          "action": "connected",
+          "actorUserId": "user-admin",
+          "at": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "connectionId": "integration_connection_4c5072ad-5145-4c3b-8df0-6cdf63c55045",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "8qROugrQ8HNqeKP2",
+        "authTag": "JINGv3b9yBJkJ3ViEeESnQ==",
+        "ciphertext": "So7dHuKlqWBhfEgIazd5J3XKzHmvvC5jSPli3RG8fd8trXawauSlcYJemMhCvdj1nSRBfQD/r0srI6QtN3f0aDaq3dp8Bl7luVNDK5SKAgBBTANtoZKqg8ZZ3TPWSw032OzjQyqxMGWlnSi6OQLcFIAz9txEhlZO/Ldv+8QKQRVH9hNwcZcDx2OsGZeMuOB6COLhqmw7BTMkibM+NcDWRHnOmLsXRL0AZnrUMRc="
+      }
+    },
+    {
+      "connectionId": "integration_connection_3f8076ca-7f80-44a4-86f2-14a8e9f79b3d",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "HiHbGncpOWAvIRz9",
+        "authTag": "I6K2H9F9krdHlXdrwJP/Cw==",
+        "ciphertext": "A7hSjSZE+aF56sfSpquwFyuN4ae+DhkDFBSTVpro2+/nfPTJ/Y+3LXonMHB5tL1wRP6/Oe+ZsoOUWH1UAYESUn7+MLzO2uL7/HttBjgS1vVVXlUUui0Wd6uuJ/zfuitd/B+2FAyQDjotHcdp9jfYtHi5KM3ma0yiPxSk1ZfyuXbXJ2myhzOJYaMMzQ3xTSVIar1SfkY+7PBNnavyzGeP96hEJNARk0SlHVR6WR0="
+      }
+    },
+    {
+      "connectionId": "integration_connection_4fa15950-1321-4c16-9b46-d0cd94e63030",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "7bqgF68o9pnGUJWd",
+        "authTag": "2ckajZ1MjrneQ4mSayFAsQ==",
+        "ciphertext": "K6jhyS9NgTuhgsz5v5UsXGKRv/1IzK2wLIVM4N6q4uVw+Q/Qw2kGQ1WniqmOBlBaM7KkGZHm5qt5nhwEPuCn9gABF6PT+vcyRYmaCAlKCYWcdnvq9j4nr8Vh32rt9Vn6ZjuOO4wqmfb3WyNQbjMhCyUvySopHQCDmLvSsvIhjFzK/fvaZlonO4n9ixG/KG0GKekumHTAY0f9zUVILUhG9Vvs/127bxP0ubUQaWw="
+      }
+    },
+    {
+      "connectionId": "integration_connection_5951a1e6-650e-4de7-bd7e-ca1d21abacc9",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "2qoQhcOxzLRufXxw",
+        "authTag": "I/8u8MTdykqvNGVoLfqltw==",
+        "ciphertext": "LN+b59WBUonkpGrqBvX5LF5t+oS1AR8L59QLYUqB/z9LzjWFePXoswYyoLyr+j5FTSbN8dkVhmhr/cC6t7ViyoIs23X0jcGyuXH5bRs1sfSyfhS0DOVvOJcukA9E/vmu0Rg+5xjbepr0gtLsDTxS/YXWJgaMXOkO1CaAQCeN6jAojm+yRZfTjJKkGZwm1nYVjisED4mZtIOP1SLd+SJySIxIXWSoAgODHzL69x4="
+      }
+    },
+    {
+      "connectionId": "integration_connection_e2f26b15-014c-42d1-83fd-bcf3ffafb9bf",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "ua0yJFxoMUHDwuqz",
+        "authTag": "sKHx2wL829dwdxLbseD+hA==",
+        "ciphertext": "yfUhl458XtNx0h/S4MB8gs1hoE47i4NxxnKmvHnH9SeFg1uu4EbBmwqjZt+8uxA7kwNEorXueFD74/6TpBBYY11l2f3xytiadQyaOYa1h3DNrfcnYS8moLnQ+HkuKg8qGaHyQzG4bDV/nnYZ57FlENAiIG5/qECx15MNQKKW2BPCkG97NEYWmGbxGNHUR1Vzw7jH1Ahcr34ATBoowg3QnMa/E0g1AuLcGbhhTS0="
+      }
+    },
+    {
+      "connectionId": "integration_connection_0c1d8dca-00c1-40b4-820f-0010fa4221ec",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "g7KknRu6ZYqnHvgg",
+        "authTag": "U5wMnmEQZvLQC6D78jcfOA==",
+        "ciphertext": "UbohWtAldfLtDiXyfxt1kgn7LT/j2OuYBXvpRayn2PZhuq6M6YXuTVXf5leKXnY9Mwhpq+33g/pByFY8rXtPX8Ar3Ge8IHBqZ2jKWyQ/csZbYiUFYPDVDhNNG9Je8bKsfZDdxlGKyszKtqsz2IV4u7YKcrnqS4GNKHe5PXQu8PngEfqcEA1Q6+g/+nmrQ4SMCRndwJMz4OSSVAICt6tr0zA2PH60ZuwrIdBR/mA="
+      }
+    },
+    {
+      "connectionId": "integration_connection_9118ce84-6dd1-46cc-8ffa-b9bb4456703e",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "rgn7/52V8aB7cS9O",
+        "authTag": "PnPVxh9h3/N4uJJUnXWMCw==",
+        "ciphertext": "jt5+6n9Zecl6rsE75F3wRheE6LEoBL6LnkMCvhWRFs0toH6nL61V9FN3o4RmufQd3i/aeEspUld5J2BO+mU5Ry2hodQQn5r1mtSFiXUG0iuRLA96mvc/XXl+ELbgKUpWWyvKAE2/f4HksTQMgWE+l8gUoeaWcCK6X0jg9AtknxM8d2PNF0xnM0T7rGt6vuIKvjJKeLRO7hgwb1/J4F1+ioiOLxwdhq+/S9bi5nA="
+      }
+    },
+    {
+      "connectionId": "integration_connection_f2655695-096d-44e2-bf24-c79b4f3c0b19",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "16wKbFYb+G/fjENP",
+        "authTag": "cuLGjQz/b1ngEZPA0+5H5g==",
+        "ciphertext": "XBGeAdx6536X+N1509Ukq/9OM8U+p2+Wtg+9+dpctESVhcKTtmqdCWCMtzo2uvu99edKnW3MREPYW1e6O4SWYkjEZ5V+43BeZBjcUWiLbDQFS6We6Wy95inc7OVTpFsliy9ZXE2NEFs0Rxjn/DPidAzE+1JJ9CiGGJLqnKYY6bDxzRRKqSkIX6J2QyzF28fTidJkRQ63ntWAm1zFn3iYjKVpNRTppRKVFAVfQGQ="
+      }
+    },
+    {
+      "connectionId": "integration_connection_f043080f-9bda-4b7c-b71d-27fae70b78c7",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "fUvNGSWwU7Fodf2p",
+        "authTag": "yYvZuzynst+yRIlhXMrBXw==",
+        "ciphertext": "JT7CKk0Tw0bt4B52FmGNjFs0PflgwQFYH8SHmkIidSzACoAo8dVBH1ac9VA7ivcgm1Hw/W7Lmv39ubCwuBDgIe5+MQotsUkZaI2d8prNK5lQhhkOelvBFIe9Vuqelj6fUzBmFCYmKYQaLhfxqH7k1rhe/vy6sDCUZilXfcXGPCVshuQxUmwJ/QObxfdRfge90UL6+QAx2xt6kl3sg3Tz0ycDieXEcPEeC1wwT08="
+      }
+    },
+    {
+      "connectionId": "integration_connection_03aa8ce7-12e3-4792-8aab-9f2c30594c38",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "Mk2Ga6nS/1JTDwQ4",
+        "authTag": "heBZuHLCvC0YPLMhR0o49g==",
+        "ciphertext": "g+4xrNqUR3qDF8u0bMMzoLgHoHhPBw+QCQRiK3igzS6lXy5ITlRgatApyhvXVlAW+H62yRWVKz+ajzHb9JFcU+8bARVjGdLtECWoI1M7qK5Mt8Nko68MhfOqjJVloqzBlXqIJy+yo4hUBW7caipWiwFblbGzfI4CgI5CYbyctnfVFSUeMElJXJw48cDcro45svrtcZ+8v56rlihn/TzOhQzL7DZag0IXn6CNtX4="
+      }
+    },
+    {
+      "connectionId": "integration_connection_5ebb1bae-ea31-44de-b9ab-fc28860c556b",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "Gwo7MFdXMJev9R/Z",
+        "authTag": "6JmPy1STojsqLbUaIA5sUw==",
+        "ciphertext": "ergYoypyQRvwFcK5on8ooO2hiARAOxypZIFMJiazpJ5igfJSFh8vtn4r7NbAaR7lHUgUg00H4cXZLTuj0hfBhayRp+dPHyTR7lKdregPBVnFbG8OmdbOzOkkwV6sWoDHC+YyE0dYVEzkY1xvbYXGGdI6Q3R76hPl9eDOp9fseMN2r64sGtMdn+0ROPliE8o13woiSur6zFIEjJVRmei++9qP7n/UipsGwYdHVqs="
+      }
+    }
+  ],
+  "toolGrants": []
+}

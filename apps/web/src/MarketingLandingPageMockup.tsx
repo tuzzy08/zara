@@ -164,7 +164,10 @@ function HeroControlSurface() {
         <div className="signal-toggle-bank">
           {["VAD", "MEM", "TOOLS", "SAFE"].map((label, index) => <span key={label}><i className={index === 1 ? "is-reverse" : undefined} /><small>{label}</small></span>)}
         </div>
-        <div className="signal-control-readout"><strong>01:42.8</strong><span>TURN 08 / ROUTE SCHEDULING</span></div>
+        <div className="signal-control-readout">
+        <strong>01:42.8</strong>
+        {/* <span>TURN 08 / ROUTE SCHEDULING</span> */}
+        </div>
       </div>
     </div>
   );
@@ -208,7 +211,7 @@ export function MarketingLandingPageMockup() {
       <section className="signal-hero signal-grid" aria-labelledby="signal-hero-title">
         <picture><source media="(max-width: 640px)" srcSet="/marketing/zara-switchboard-hero-960.webp" /><img className="signal-hero-media" src="/marketing/zara-switchboard-hero-1672.webp" alt="Analog voice-routing switchboard" /></picture>
         <div className="signal-hero-scrim" />
-        <div className="signal-hero-meta"><span>VOICE OPERATIONS / 2026</span><span>BUILD · TEST · OPERATE</span></div>
+        {/* <div className="signal-hero-meta"><span>VOICE OPERATIONS / 2026</span><span>BUILD · TEST · OPERATE</span></div> */}
         <div className="signal-hero-copy"><p className="signal-kicker">VOICE OPERATIONS PLATFORM</p><h1 id="signal-hero-title">Build the system behind every call</h1><p>Design, test, and operate voice agents that route, resolve, and hand off with control.</p><NavLink className="signal-button signal-button-light" to="/signup">Build a workflow <span>↗</span></NavLink></div>
         <HeroControlSurface />
         <div className="signal-scroll-cue"><span>SCROLL TO EXPLORE</span><i /></div>

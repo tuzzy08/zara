@@ -1,0 +1,60 @@
+
+> zara@0.1.0 test:unit
+> vitest run --config vitest.unit.config.ts --reporter=default
+
+
+ RUN  v4.1.5 C:/Users/Lenovo/Desktop/New folder/zara
+
+ ✓ packages/core/src/deployment-docs.test.ts (9 tests) 35ms
+ ✓ packages/auth-client/src/index.test.ts (24 tests) 416ms
+     ✓ does not instantiate Better Auth React or organization plugin clients in the browser auth boundary  312ms
+ ✓ packages/core/src/test-layer-config.test.ts (1 test) 1346ms
+     ✓ exposes disjoint unit, API/integration, and UI-smoke commands with inventory evidence  1338ms
+ ✓ packages/core/src/runtime-profiles.test.ts (3 tests) 129ms
+ ✓ packages/core/src/pstn-sandwich-runtime.test.ts (7 tests) 161ms
+ ✓ packages/core/src/workflow.test.ts (27 tests) 176ms
+ ✓ packages/core/src/live-call-session.test.ts (12 tests) 223ms
+ ✓ packages/core/src/pstn-premium-realtime-runtime.test.ts (6 tests) 238ms
+ ✓ packages/core/src/runtime.test.ts (25 tests) 365ms
+ ✓ packages/core/src/production-devops-docs.test.ts (4 tests) 21ms
+ ✓ apps/platform-admin/src/deployment-config.test.ts (1 test) 27ms
+ ✓ apps/web/src/apiClient.test.ts (2 tests) 115ms
+ ✓ packages/core/src/workspace-workflow.test.ts (3 tests) 93ms
+ ✓ packages/core/src/sandbox.test.ts (5 tests) 161ms
+ ✓ packages/core/src/ci-quality-gates.test.ts (8 tests) 56ms
+ ✓ apps/web/src/defaultSandboxWorkflow.test.ts (1 test) 96ms
+ ✓ packages/core/src/telephony.test.ts (22 tests) 164ms
+ ✓ apps/web/src/sandboxRuntimeManifest.test.ts (1 test) 110ms
+ ✓ apps/web/src/workflowBuilderToolCatalog.test.ts (20 tests) 72ms
+ ✓ apps/web/src/runtimeManifestDisplay.test.ts (1 test) 79ms
+ ✓ apps/web/src/liveSandboxTransport.test.ts (4 tests) 24ms
+ ✓ apps/web/src/liveSandboxEventFormatting.test.ts (16 tests) 95ms
+ ✓ packages/core/src/realtime-tool-bridge.test.ts (8 tests) 42ms
+ ✓ apps/web/src/styles.test.ts (1 test) 18ms
+ ✓ packages/core/src/provider-registry.test.ts (15 tests) 71ms
+ ✓ packages/core/src/intent-routing.test.ts (8 tests) 32ms
+ ✓ packages/core/src/workspace.test.ts (9 tests) 34ms
+ ✓ packages/core/src/turn-runtime-packet.test.ts (7 tests) 32ms
+ ✓ packages/core/src/agent-runtime-context.test.ts (4 tests) 25ms
+ ✓ apps/web/src/integrationSetupPresets.test.ts (4 tests) 27ms
+ ✓ packages/core/src/agent-action.test.ts (4 tests) 19ms
+ ✓ packages/core/src/env.test.ts (5 tests) 21ms
+ ✓ apps/web/src/integrationProviderBranding.test.ts (1 test) 17ms
+ ✓ apps/web/src/liveSandboxAudio.test.ts (6 tests) 44ms
+ ✓ apps/web/src/telephonyCallsPageModel.test.ts (3 tests) 16ms
+ ✓ apps/web/src/workflowBuilderWorkbench.test.ts (2 tests) 18ms
+ ✓ apps/web/src/workspaceState.test.ts (2 tests) 17ms
+ ✓ apps/web/src/workflowBuilderPublish.test.ts (2 tests) 15ms
+ ✓ apps/web/src/reusableAgents.test.ts (4 tests) 130ms
+ ✓ apps/web/src/workflowSandboxRegistry.test.ts (7 tests) 141ms
+ ✓ packages/core/src/index.test.ts (3 tests) 16ms
+ ✓ apps/web/src/liveSandboxReplay.test.ts (1 test) 13ms
+ ✓ apps/web/src/workflowBuilderTheme.test.ts (2 tests) 15ms
+ ✓ apps/web/src/workflowBuilderIds.test.ts (2 tests) 17ms
+ ✓ apps/web/src/DashboardScreen.test.ts (2 tests) 14ms
+
+ Test Files  45 passed (45)
+      Tests  304 passed (304)
+   Start at  13:24:16
+   Duration  16.49s (transform 9.68s, setup 0ms, import 25.00s, tests 5.00s, environment 21.40s)
+

@@ -1,0 +1,137 @@
+
+> zara@0.1.0 test:ui-smoke
+> vitest run --config vitest.ui-smoke.config.ts --reporter=default
+
+
+ RUN  v4.1.5 C:/Users/Lenovo/Desktop/New folder/zara
+
+ ✓ apps/platform-admin/src/index.test.tsx (15 tests) 2646ms
+     ✓ renders safe platform-admin session and MFA states  350ms
+     ✓ renders an independent staff shell with platform operations routes  631ms
+     ✓ renders platform-owned premium realtime provider and turn policy controls  358ms
+     ✓ renders platform-staff AI observability and runtime eval gate status  392ms
+ ✓ apps/web/src/TenantAgentsScreen.test.tsx (3 tests) 4897ms
+     ✓ lets operators create a reusable concrete agent for the active workspace  2618ms
+     ✓ reloads the reusable-agent list when the active workspace changes  861ms
+     ✓ lets builders assign a connected catalog tool to a reusable agent toolbelt  1412ms
+ ✓ apps/web/src/useLiveSandboxSession.test.tsx (6 tests) 3244ms
+     ✓ preserves transcript and event replay after ending until reset is requested  2506ms
+ ✓ apps/web/src/SandboxScreen.test.tsx (4 tests) 4185ms
+     ✓ lists published workflows from the active organization  1169ms
+     ✓ renders the published browser sandbox as voice only  1813ms
+     ✓ keeps sandbox utilities without rendering redundant side cards  809ms
+     ✓ selects published workflow deep links by published version id  388ms
+ ✓ apps/web/src/TelephonyScreen.test.tsx (4 tests) 7399ms
+     ✓ loads saved workflows for the active organization and saves imported-number routes there  4053ms
+     ✓ shows operation feedback while SIP provider changes are in flight  1541ms
+     ✓ renders the approved provider setup surface and opens the Twilio credential dialog  1042ms
+     ✓ keeps heartbeat and number import actions on configured Twilio connections  758ms
+ ✓ apps/web/src/AppAgentsRoute.test.tsx (1 test) 1679ms
+     ✓ mounts reusable agents at /agents and points the Agents nav there  1674ms
+ ✓ apps/web/src/MarketingLandingPageMockup.test.tsx (1 test) 3001ms
+     ✓ presents the approved monochrome voice-operations story  2994ms
+ ✓ apps/web/src/WorkflowBuilder.test.tsx (26 tests) 28213ms
+     ✓ prepares live sandbox sessions with the active organization and actor  1050ms
+     ✓ shows concise node tools without legacy route, handoff, or visual tool-node creation  2598ms
+     ✓ does not expose the stale tool catalog loading path when adding workflow nodes  1272ms
+     ✓ keeps only agent details expanded and marks collapsed panels with missing required details  1122ms
+     ✓ applies reusable agents to selected workflow agent nodes  1047ms
+     ✓ loads specialist classes into builder-created agent inspectors without exposing model config  1064ms
+     ✓ exposes saved workflow loading from the builder toolbar  500ms
+     ✓ deletes the selected saved workflow from the builder toolbar  957ms
+     ✓ preserves an in-progress draft canvas when the builder remounts  801ms
+     ✓ lets builder-created agent nodes multi-assign tools from a selected integration  1453ms
+     ✓ keeps normal agents distinct from router agents without a behavior selector  1178ms
+     ✓ uses distinct visual affordances for agent and router-agent presets  630ms
+     ✓ adds a Router Agent preset as a normal agent with routing enabled  1125ms
+     ✓ keeps agent configuration free of tenant-local specialist metadata controls  1236ms
+     ✓ preserves existing handoff branches without tenant branch-copy controls  535ms
+     ✓ keeps node validation scoped to the selected node and clears router branch validation when a target appears  1331ms
+     ✓ starts blank and requires a workflow name when no workflow has been published  2325ms
+     ✓ keeps placeholder canvas labels out of missing-agent validation  778ms
+     ✓ creates exit nodes with route-neutral closing copy  780ms
+     ✓ requires publishing before a workflow can run in sandbox  1870ms
+     ✓ opens sandbox after publishing a new workflow while saved workflows exist  1914ms
+     ✓ opens sandbox after overwriting a server-normalized published workflow  1408ms
+     ✓ shows the actual entry agent in the published sandbox header  690ms
+     ✓ keeps the builder visible after clearing the canvas  385ms
+ ❯ apps/web/src/app.test.tsx (73 tests | 1 failed) 109234ms
+     × renders the voice-agent agency landing for signed-out visitors 2642ms
+     ✓ renders a dedicated auth page at /login for signed-out visitors 105ms
+     ✓ composes lightweight tenant surfaces with shared ui primitives  395ms
+     ✓ composes tenant operational pages with shared ui primitives  1946ms
+     ✓ requests a password reset from the signed-out login screen 262ms
+     ✓ submits reset tokens from the reset-password route 163ms
+     ✓ gates tenant routes behind login and supports sign out  1894ms
+     ✓ loads auth context once for a stable signed-in session  625ms
+     ✓ opens the tenant shell from server-owned auth context when Better Auth omits organization details  405ms
+     ✓ opens the tenant shell from server-owned auth context when no Better Auth session snapshot is mounted  366ms
+     ✓ exposes tenant signup from /signup  449ms
+     ✓ keeps signup recoverable after a partial onboarding failure  380ms
+     ✓ shows duplicate tenant-name onboarding errors without entering the tenant app 131ms
+     ✓ shows an organization chooser for multi-tenant users before tenant routes render  556ms
+     ✓ renders the tenant shell and lets the user toggle dark mode from the profile menu  879ms
+     ✓ ignores the last active workspace when the signed-in user cannot access it  425ms
+     ✓ renders the dashboard with real workspace metrics instead of sidebar section links  653ms
+     ✓ renders tenant integrations controls instead of the dashboard placeholder  972ms
+     ✓ renders tenant integration tools from the API catalog without server-owned metadata  431ms
+     ✓ lets tenant admins configure Zendesk credentials without an API URL field  1639ms
+     ✓ lets tenant admins configure Slack destinations from the provider setup modal  1815ms
+     ✓ shows scoped integration connections and promotes workspace-owned connections without adding grants  874ms
+     ✓ lets tenant admins delete integration connections and reconnect Zendesk with API credentials  1921ms
+     ✓ shows integration capability setup lanes from catalog metadata and grants  761ms
+     ✓ shows a Zendesk credential action after deleting the last Zendesk connection  991ms
+     ✓ lets tenant admins start a catalog OAuth connection when no connection exists  744ms
+     ✓ keeps workflow-scoped capability grant controls disabled on the integrations page  372ms
+     ✓ does not render integrations workflow pickers even when saved workflows exist  394ms
+     ✓ keeps integration capability configuration panels out of provider rows  494ms
+     ✓ keeps guided setup presets out of the integrations page  798ms
+     ✓ keeps missing-scope capability grant reconnect controls out of the integrations page  493ms
+     ✓ renders tenant memory controls instead of the dashboard placeholder  2335ms
+     ✓ configures Confluence and SharePoint provider-import knowledge sources without raw provider URLs  852ms
+     ✓ configures Freshdesk Solutions and Salesforce Knowledge provider imports with stable source selections  895ms
+     ✓ renders tenant billing and Polar payment controls instead of the dashboard placeholder  317ms
+     ✓ creates and switches workspaces from the tenant shell  638ms
+     ✓ does not load invitation management data on workflow pages  436ms
+     ✓ lets builders preview and select approved Cartesia voices from the agent inspector  2264ms
+     ✓ shows provider-native voices without tenant model-provider controls for premium realtime agents  1210ms
+     ✓ lets admins request and manage cloned voices from the agent inspector  2888ms
+     ✓ opens an inline sandbox drawer for the current published workflow  2495ms
+     ✓ starts workflow sandbox sessions in the server-owned active workspace  1674ms
+     ✓ keeps the server-owned active workspace when workspace membership state is stale  1768ms
+     ✓ waits for auth workspace access before opening the workflow sandbox  1142ms
+     ✓ does not expose the balanced runtime profile as a workflow option 273ms
+     ✓ publishes builder manifests against the browser sandbox path until a phone route is selected  2141ms
+     ✓ launches the shared Phone test sandbox from the workflow page after a number is routed  6344ms
+     ✓ loads sandbox workflows only from the active workspace  2912ms
+     ✓ renders the sandbox runtime surface with consolidated utilities and live telemetry  544ms
+     ✓ exposes clear published browser and Phone test sandbox modes  352ms
+     ✓ starts a protected Phone test waiting session from the unified sandbox  3285ms
+     ✓ expires a protected Phone test automatically when the waiting window closes  2897ms
+     ✓ refreshes Phone test state while waiting for Twilio webhook logs  4283ms
+     ✓ keeps premium realtime PSTN inside the unified Phone test sandbox with native-provider labeling  1967ms
+     ✓ shows standardized number states on Calls and launches the shared Phone test sandbox  2081ms
+     ✓ prints incoming Twilio call logs on the Calls page  431ms
+     ✓ starts continuous voice capture without a manual send-turn step  476ms
+     ✓ shows agent playback feedback while sandbox audio is playing  502ms
+     ✓ marks the end call button as destructive while a sandbox call is active  559ms
+     ✓ exposes the same active end call affordance in the workflow sandbox drawer  2665ms
+     ✓ blocks voice recording and shows a provider setup error when sandbox keys are missing  3151ms
+     ✓ surfaces premium runtime policy on published workflows in sandbox  2054ms
+     ✓ reconnects a published sandbox session after refresh and replays the saved timeline  767ms
+     ✓ shows an active sandbox monitor and replays a redacted timeline  975ms
+     ✓ shows the escalation queue and lets an operator accept a pending escalation  853ms
+     ✓ lets operators connect a BYO Twilio account, import numbers, route a workflow, and run an inbound dispatch test  6190ms
+     ✓ explains that live activation requires a successful Phone test first  4779ms
+     ✓ lets operators delete a telephony connection and clears its imported inventory  2161ms
+     ✓ lets operators delete an individual imported phone number  2216ms
+     ✓ surfaces telephony heartbeats, credential rotation, and loopback execution sessions  5970ms
+     ✓ lets workspace admins manage workspace settings, members, and audit history  2488ms
+     ✓ lets workspace admins invite and revoke pending teammates for the selected workspace  1067ms
+     ✓ lets signed-in users send verification email and revoke other sessions from settings  956ms
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  1 failed | 132 passed (133)
+   Start at  13:26:06
+   Duration  132.35s (transform 31.18s, setup 0ms, import 56.99s, tests 164.49s, environment 68.78s)
+

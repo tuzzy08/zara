@@ -66,11 +66,11 @@
   color: white;
   backdrop-filter: blur(14px);
 }
-.signal-brand { display: inline-flex; width: max-content; align-items: center; gap: 11px; font-family: "Courier New", monospace; font-size: 12px; font-weight: 700; letter-spacing: .32em; }
-.signal-nav { display: flex; gap: clamp(18px, 3vw, 46px); color: #b5b5ae; font-size: 11px; text-transform: uppercase; }
+.signal-brand { display: inline-flex; width: max-content; align-items: center; gap: 11px; font-family: "Courier New", monospace; font-size: 20px; font-weight: 700; letter-spacing: .32em; }
+.signal-nav { display: flex; gap: clamp(18px, 3vw, 46px); color: #b5b5ae; font-size: 14px; text-transform: uppercase; }
 .signal-nav a, .signal-header-actions a { transition: color 180ms var(--signal-ease); }
 .signal-nav a:hover, .signal-header-actions a:hover { color: white; }
-.signal-header-actions { display: flex; align-items: center; justify-self: end; gap: 22px; font-size: 11px; text-transform: uppercase; }
+.signal-header-actions { display: flex; align-items: center; justify-self: end; gap: 22px; font-size: 14px; text-transform: uppercase; }
 .signal-mobile-pricing { display: none; }
 .signal-header-cta { border: 1px solid #bdbdb7; padding: 10px 13px; }
 
@@ -87,7 +87,7 @@
 .signal-hero-scrim { background: linear-gradient(90deg, #050505 0 28%, transparent 68%), linear-gradient(0deg, #050505 0%, transparent 48%), radial-gradient(circle at 76% 44%, transparent 0 18%, rgb(0 0 0 / 67%) 70%); }
 .signal-hero::after,
 .signal-closing::after { position: absolute; z-index: 1; inset: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.88' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.24'/%3E%3C/svg%3E"); content: ""; mix-blend-mode: soft-light; opacity: .28; pointer-events: none; }
-.signal-hero-meta { position: absolute; z-index: 3; top: 105px; right: var(--signal-pad); left: var(--signal-pad); display: flex; justify-content: space-between; font-family: "Courier New", monospace; font-size: 9px; letter-spacing: .08em; }
+.signal-hero-meta { position: absolute; z-index: 3; top: 105px; right: var(--signal-pad); left: var(--signal-pad); display: flex; justify-content: space-between; font-family: "Courier New", monospace; font-size: 11px; letter-spacing: .08em; }
 .signal-hero-copy { z-index: 4; grid-column: 1 / 7; align-self: end; padding: 0 4vw clamp(90px, 11vh, 130px) var(--signal-pad); animation: signal-enter 800ms var(--signal-ease) both; }
 .signal-hero-copy h1 { max-width: 760px; margin: 13px 0 22px; font-size: clamp(62px, 6.6vw, 112px); font-stretch: condensed; font-weight: 300; letter-spacing: -.075em; line-height: .88; }
 .signal-hero-copy > p:not(.signal-kicker) { max-width: 500px; margin: 0 0 30px; color: #bebeb7; font-size: clamp(14px, 1.2vw, 18px); line-height: 1.55; }
@@ -102,19 +102,19 @@
   grid-column: 7 / 13;
   align-self: center;
   min-width: 0;
-  margin: 90px var(--signal-pad) 0 2vw;
+  margin: 0 var(--signal-pad) 0 2vw;
   border: 1px solid rgb(255 255 255 / 36%);
   background: rgb(5 5 5 / 78%);
   box-shadow: 0 35px 90px rgb(0 0 0 / 60%), inset 0 0 0 1px rgb(255 255 255 / 4%);
   backdrop-filter: blur(10px);
   animation: signal-control-float 8s ease-in-out infinite alternate;
 }
-.signal-control-header { display: flex; min-height: 48px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--signal-line-dark); padding: 0 18px; font-family: "Courier New", monospace; font-size: 9px; letter-spacing: .08em; }
+.signal-control-header { display: flex; min-height: 48px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--signal-line-dark); padding: 0 18px; font-family: "Courier New", monospace; font-size: 12px; letter-spacing: .08em; }
 .signal-control-header i { display: inline-flex; align-items: center; gap: 8px; color: #d7d7d1; font-style: normal; }
 .signal-control-header i::before { width: 7px; height: 7px; border-radius: 50%; background: #63e6a4; box-shadow: 0 0 4px #63e6a4, 0 0 14px rgb(99 230 164 / 78%); content: ""; animation: signal-lamp 1.8s steps(2) infinite; }
 .signal-control-body { display: grid; grid-template-columns: minmax(0, 1fr) 136px; }
 .signal-control-routing { min-height: 380px; border-right: 1px solid var(--signal-line-dark); padding: 17px; }
-.signal-control-label { font-family: "Courier New", monospace; font-size: 8px; color: #898982; }
+.signal-control-label { font-family: "Courier New", monospace; font-size: 11px; color: #898982; }
 .signal-route-map { position: relative; height: 235px; margin-top: 20px; border: 1px solid var(--signal-line-dark); background-image: radial-gradient(circle, rgb(255 255 255 / 17%) 1px, transparent 1px); background-size: 14px 14px; }
 .signal-route-map svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .signal-route-edges path { fill: none; stroke-dasharray: 5 8; stroke-linecap: round; stroke-width: 2.25; vector-effect: non-scaling-stroke; animation: signal-dash 3s linear infinite; }
@@ -131,7 +131,7 @@
 .signal-dial { position: relative; display: block; width: 60px; height: 60px; border: 1px solid #888; border-radius: 50%; background: repeating-conic-gradient(from 0deg, #777 0 1deg, transparent 1deg 10deg), radial-gradient(circle, #161616 0 55%, transparent 57%); }
 .signal-dial i { position: absolute; top: 8px; left: 50%; width: 1px; height: 18px; background: white; transform-origin: 0 22px; animation: signal-dial 7s ease-in-out infinite alternate; }
 .signal-dial-1 i { animation-duration: 9s; animation-delay: -2s; }.signal-dial-2 i { animation-duration: 11s; animation-delay: -4s; }
-.signal-dial-unit small { margin-top: 9px; color: #85857f; font-size: 7px; }
+.signal-dial-unit small { margin-top: 9px; color: #85857f; font-size: 11px; }
 .signal-toggle-bank { grid-column: 1; display: grid; grid-template-columns: repeat(4, 1fr); border-right: 1px solid var(--signal-line-dark); border-top: 1px solid var(--signal-line-dark); }
 .signal-toggle-bank > span { display: grid; place-items: center; border-right: 1px solid var(--signal-line-dark); padding: 14px 5px; }
 .signal-toggle-bank i { position: relative; display: block; width: 14px; height: 33px; border: 1px solid #81817b; background: #111; }
@@ -140,7 +140,7 @@
 .signal-toggle-bank small { margin-top: 7px; color: #8a8a84; font-size: 7px; }
 .signal-control-readout { display: grid; align-content: center; border-top: 1px solid var(--signal-line-dark); padding: 12px; }
 .signal-control-readout strong { font-family: "Courier New", monospace; font-size: 17px; font-weight: 400; }
-.signal-control-readout span { margin-top: 6px; color: #777; font-family: "Courier New", monospace; font-size: 6px; }
+.signal-control-readout span { margin-top: 6px; color: #777; font-family: "Courier New", monospace; font-size: 11px; }
 .signal-scroll-cue { position: absolute; z-index: 4; right: var(--signal-pad); bottom: 20px; display: flex; align-items: center; gap: 12px; font-family: "Courier New", monospace; font-size: 8px; writing-mode: vertical-rl; }
 .signal-scroll-cue i { width: 1px; height: 62px; overflow: hidden; background: #555; }
 .signal-scroll-cue i::after { display: block; width: 1px; height: 25px; background: white; content: ""; animation: signal-scroll 1.8s var(--signal-ease) infinite; }

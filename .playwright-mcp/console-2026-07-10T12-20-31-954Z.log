@@ -1,0 +1,13 @@
+[     522ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=cb8f1faf:14090
+[    1552ms] [WARNING] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[    2400ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[  451572ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4173/@vite/client:968
+[  725600ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=cb8f1faf:14090
+[  735048ms] [WARNING] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[  737461ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[  765329ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=cb8f1faf:14090
+[  767768ms] [WARNING] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[  771010ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[ 1558571ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[ 1559529ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
+[ 1560543ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:4173/node_modules/.vite/deps/three.module-DfMaIAWH.js?v=cb8f1faf:1728
