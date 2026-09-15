@@ -34,6 +34,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Outbound dispatch can block tenant DNC destinations and unknown destination timezones, while audited emergency overrides can bypass safe calling windows.
 - Prompt injection defenses for tools and knowledge.
 - Runtime model prompts keep system instructions separate from untrusted tool output, session memory, retrieved knowledge, CRM notes, and website content.
+- Platform rules apply to text and realtime providers. Tenant configuration is encoded as data within that boundary. Transfer summaries never enter provider response instructions. Realtime continuation uses fixed instructions and separate conversation data.
+- Text action requests use provider JSON schemas restricted to assigned tools and configured handoff targets. The server validates the resulting action again. A schema does not replace permissions, input checks, or approval gates.
 - Runtime validates structured agent action output and ignores unsupported graph commands from the model instead of speaking or obeying them.
 - Runtime validates tool requests, approval gates, timeout/rate-limit failures, partial tool output, and transfer language compatibility as packet-backed policy states before model projection.
 - Redaction runs before live-session event and memory storage when the manifest enables transcript redaction.

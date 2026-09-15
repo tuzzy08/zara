@@ -7,11 +7,14 @@ import type {
   PremiumRealtimeSession,
 } from "@zara/core";
 import { resolveRuntimeAgent } from "@zara/core";
+import { OpenAiRealtimeUsageRecorder } from "../billing/openai-realtime-usage-recorder";
+import type { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
 
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
 import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
 import { buildPremiumRealtimeAgentPrompt } from "./premium-realtime-agent-prompt";
+import type { RuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 
 export const premiumRealtimeProviderTransportToken = Symbol("premiumRealtimeProviderTransport");
 
@@ -60,11 +63,14 @@ function isLoopbackHost(hostname: string) {
 }
 
 export interface PremiumRealtimeProviderTransportConnectInput {
+  /** Server-resolved PSTN execution identity. Never derive this from actorUserId. */
+  callSessionId?: string | null;
   organizationId: string;
   workspaceId: string;
   actorUserId: string;
   session: PremiumRealtimeSession;
   manifest: CompiledRuntimeManifest;
+  promptPolicy?: RuntimePromptPolicy | undefined;
 }
 
 export interface PremiumRealtimeProviderConnection {
@@ -98,6 +104,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       options?: { headers?: Record<string, string> | undefined },
     ) => WebSocketLike = (url, options) => new WebSocket(url, options),
     private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly usageRepository?: ProviderUsageRecordingRepository,
   ) {}
 
   async connect(input: PremiumRealtimeProviderTransportConnectInput): Promise<PremiumRealtimeProviderConnection> {
@@ -120,6 +127,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
     const systemPrompt = buildPremiumRealtimeAgentPrompt({
       manifest: input.manifest,
       agent: activeAgentConfig,
+      policy: input.promptPolicy,
     });
 
     if (providerConfig.provider === "gemini-live") {
@@ -140,6 +148,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       throw new Error("OpenAI transport received a non-OpenAI premium realtime session contract.");
     }
     const config = resolveLiveSandboxProviderConfig(this.env);
+    const projectId = this.env.OPENAI_PROJECT_ID?.trim() || null;
     if (endpoint.mode === "live" && config.openAiApiKey.length === 0) {
       throw new Error("OpenAI Realtime is not configured. Missing: OPENAI_API_KEY.");
     }
@@ -158,25 +167,67 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       outputAudioFormat: providerConfig.media.output.type === "audio/pcmu" ? "pcmu" : "pcm",
       turnDetection: providerConfig.turnDetection,
     });
-    const socket = this.websocketFactory(url.toString(), {
-      headers: endpoint.mode === "simulator"
-        ? {
-            "X-Zara-Simulator-Call-Id": input.actorUserId.replace(/^pstn:/u, ""),
-            "X-Zara-Simulator-Agent-Id": input.session.activeAgentId,
-            "X-Zara-Simulator-Model": providerConfig.model,
-            ...(endpoint.token === undefined ? {} : { "X-Zara-Simulator-Token": endpoint.token }),
-          }
-        : {
-            Authorization: `Bearer ${config.openAiApiKey}`,
-            "OpenAI-Safety-Identifier": input.actorUserId,
-          },
-    });
-    const connection = await WebSocketProviderConnection.open(
-      socket,
-      (message) => parseMessageType(message) === "session.updated",
-    );
-    connection.send(adapter.createSessionUpdateMessage());
-    return connection;
+    let connectionId: string | null = null;
+    if (endpoint.mode === "live" && this.usageRepository !== undefined) {
+      try {
+        connectionId = await this.usageRepository.beginConnection({ organizationId: input.organizationId,
+          callSessionId: input.callSessionId ?? null,
+          sessionId: input.session.sessionId, externalScopeId: projectId, provider: "openai",
+          model: providerConfig.model, occurredAt: new Date().toISOString() });
+      } catch {
+        throw new Error("Provider connection recording failed.");
+      }
+    }
+    const sessionUpdate = adapter.createSessionUpdateMessage();
+    const recorder = endpoint.mode === "live" && this.usageRepository !== undefined
+      ? new OpenAiRealtimeUsageRecorder(this.usageRepository, {
+          organizationId: input.organizationId, sessionId: input.session.sessionId,
+          connectionId,
+          externalScopeId: projectId, model: providerConfig.model,
+          transcriptionModel: sessionUpdate.session.audio.input.transcription.model,
+        })
+      : undefined;
+    let finishing: Promise<void> | undefined;
+    const finish = (code: number): Promise<void> => {
+      if (recorder === undefined || connectionId === null) return Promise.resolve();
+      return finishing ??= (async () => {
+        const endedAt = new Date().toISOString();
+        const { providerSessionId } = await recorder.drain();
+        await this.usageRepository!.finishConnection(input.organizationId, connectionId!, {
+          endedAt, providerSessionId, outcome: code === 1000 ? "closed" : "failed",
+        });
+      })();
+    };
+    let socket: WebSocketLike | undefined;
+    try {
+      socket = this.websocketFactory(url.toString(), {
+        headers: endpoint.mode === "simulator"
+          ? {
+              "X-Zara-Simulator-Call-Id": input.actorUserId.replace(/^pstn:/u, ""),
+              "X-Zara-Simulator-Agent-Id": input.session.activeAgentId,
+              "X-Zara-Simulator-Model": providerConfig.model,
+              ...(endpoint.token === undefined ? {} : { "X-Zara-Simulator-Token": endpoint.token }),
+            }
+          : {
+              Authorization: `Bearer ${config.openAiApiKey}`,
+              "OpenAI-Safety-Identifier": input.actorUserId,
+              ...(projectId === null ? {} : { "OpenAI-Project": projectId }),
+            },
+      });
+      const connection = await WebSocketProviderConnection.open(
+        socket,
+        (message) => parseMessageType(message) === "session.updated",
+        recorder === undefined ? undefined : message => recorder.record(message),
+        finish,
+      );
+      connection.send(sessionUpdate);
+      return connection;
+    } catch (error) {
+      const recordedFailure = finish(1011);
+      socket?.close(1011, "Provider connection failed.");
+      await recordedFailure.catch(() => undefined);
+      throw error;
+    }
   }
 
   private async connectGemini(
@@ -270,9 +321,19 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
   private constructor(
     private readonly socket: WebSocketLike,
     private readonly isReadyMessage: (message: string) => boolean,
+    observeMessage?: (message: string) => Promise<void>,
+    private readonly observeTerminal?: (code: number) => Promise<void>,
   ) {
     this.socket.on("message", (message) => {
       const text = message.toString();
+      if (this.terminalEvent !== null) return;
+      if (observeMessage !== undefined) {
+        void observeMessage(text).catch(() => {
+          const reason = "Provider usage recording failed.";
+          this.recordTerminal({ code: 1011, reason }, new Error(reason));
+          this.socket.close(1011, reason);
+        });
+      }
       const isReadyAcknowledgement = !this.ready && this.isReadyMessage(text);
       if (isReadyAcknowledgement) {
         this.ready = true;
@@ -301,9 +362,11 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
   static open(
     socket: WebSocketLike,
     isReadyMessage: (message: string) => boolean = () => false,
+    observeMessage?: (message: string) => Promise<void>,
+    observeTerminal?: (code: number) => Promise<void>,
   ): Promise<WebSocketProviderConnection> {
     return new Promise((resolve, reject) => {
-      const connection = new WebSocketProviderConnection(socket, isReadyMessage);
+      const connection = new WebSocketProviderConnection(socket, isReadyMessage, observeMessage, observeTerminal);
       if (socket.readyState === WebSocket.OPEN) {
         resolve(connection);
         return;
@@ -382,6 +445,8 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
       return;
     }
     this.terminalEvent = event;
+    // A failed final write leaves the durable start unresolved. Never invent a clean finish.
+    void this.observeTerminal?.(event.code).catch(() => undefined);
     this.closeHandler?.(event);
   }
 }

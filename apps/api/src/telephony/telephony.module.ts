@@ -7,6 +7,7 @@ import { DatabaseModule } from "../database/database.module";
 import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
 import {
   createConfiguredPstnCallObservabilityRecorder,
+  createConfiguredRuntimeObservabilityRecorder,
   pstnCallObservabilityRecorderToken,
 } from "../runtime-observability/runtime-observability";
 import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
@@ -53,6 +54,20 @@ import {
 } from "../realtime-worker/pstn-premium-worker-availability";
 import { PstnRealtimeWorkerRegistry } from "../realtime-worker/pstn-realtime-worker-registry";
 import { TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-call-start.service";
+import { PstnSandwichCallExecution } from "./pstn-sandwich-call-execution";
+import type { TelephonyIncrementalRepository } from "./telephony-incremental.repository";
+import { PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY, type PublishedWorkflowManifestRepository } from "../workflows/published-workflow-manifest.repository";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
+import { VoiceLibraryModule } from "../voice-library/voice-library.module";
+import { VoiceLibraryService } from "../voice-library/voice-library.service";
+import { AssemblyAiSttProvider } from "../sandbox-live-sessions/assemblyai-stt.provider";
+import { CartesiaTtsProvider } from "../sandbox-live-sessions/cartesia-tts.provider";
+import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
+import { createLiveSandboxTextModelProvider } from "../sandbox-live-sessions/sandbox-text-model-provider-factory";
+import { RuntimeAgentToolExecutionModule } from "../sandbox-live-sessions/runtime-agent-tool-execution.module";
+import { RuntimeAgentToolExecutorService } from "../sandbox-live-sessions/runtime-agent-tool-executor.service";
+import { GeminiIntentClassifierProvider, UnavailableLiveSandboxIntentClassifierProvider } from "../sandbox-live-sessions/sandbox-intent-classifier.provider";
 
 @Module({
   imports: [
@@ -63,6 +78,8 @@ import { TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-c
     PremiumRealtimeConversationPolicyModule,
     PublishedWorkflowManifestReadModule,
     RuntimePromptPolicyModule,
+    VoiceLibraryModule,
+    RuntimeAgentToolExecutionModule,
   ],
   controllers: [TelephonyController],
   providers: [
@@ -77,6 +94,30 @@ import { TrustedPaygTelephonyCallStartService } from "./trusted-payg-telephony-c
     TwilioMediaStreamsWebSocketBridge,
     TelephonyShutdownLifecycle,
     PremiumPstnDispatchSnapshotResolver,
+    {
+      provide: PstnSandwichCallExecution,
+      useFactory: (repository: TelephonyIncrementalRepository, manifests: PublishedWorkflowManifestRepository,
+        database: PostgresPoolService, policy: RuntimePromptPolicyService, voices: VoiceLibraryService,
+        toolExecutor: RuntimeAgentToolExecutorService) =>
+        new PstnSandwichCallExecution({ repository, manifests, toolExecutor, promptPolicyService: policy,
+          observability: createConfiguredRuntimeObservabilityRecorder(process.env), createProviders: () => {
+          const config = resolveLiveSandboxProviderConfig(process.env);
+          if (!config.assemblyAiApiKey || !config.cartesiaApiKey) throw new Error("Standard PSTN speech providers are not configured.");
+          const usageRecorder = new ProviderUsageRecordingRepository(database.pool);
+          return {
+            intentClassifier: config.geminiApiKey ? new GeminiIntentClassifierProvider({ apiKey: config.geminiApiKey,
+              baseUrl: config.geminiBaseUrl, modelId: config.intentClassifierModelId }) : new UnavailableLiveSandboxIntentClassifierProvider(),
+            stt: new AssemblyAiSttProvider({ apiKey: config.assemblyAiApiKey, usageRecorder }),
+            model: createLiveSandboxTextModelProvider(config, {
+              usageRecorder, openAiProjectId: process.env.OPENAI_PROJECT_ID,
+            }),
+            tts: new CartesiaTtsProvider({ apiKey: config.cartesiaApiKey, apiVersion: config.cartesiaApiVersion,
+              resolveVoiceId: input => voices.resolveProviderVoiceId(input) }),
+          };
+        } }),
+      inject: [TELEPHONY_INCREMENTAL_REPOSITORY, PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY,
+        PostgresPoolService, RuntimePromptPolicyService, VoiceLibraryService, RuntimeAgentToolExecutorService],
+    },
     {
       provide: PstnPremiumCallExecution,
       useValue: {

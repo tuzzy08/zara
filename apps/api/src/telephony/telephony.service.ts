@@ -3409,6 +3409,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             resolvedConversationPolicy:
               unresolvedPremiumSnapshot.resolution
                 .resolvedConversationPolicy,
+            promptPolicyRevision:
+              unresolvedPremiumSnapshot.resolution.promptPolicyRevision,
+            promptPolicyHash:
+              unresolvedPremiumSnapshot.resolution.promptPolicyHash,
             workerTarget: {
               workerId: premiumWorkerTarget.workerId,
               releaseId: premiumWorkerTarget.releaseId,

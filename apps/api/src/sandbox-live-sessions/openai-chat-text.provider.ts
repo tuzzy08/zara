@@ -1,13 +1,18 @@
 import type { ModelTier, SandwichTextModelProvider } from "@zara/core";
+import type { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { buildAgentActionResponseSchema, unwrapAgentActionResponse } from "./agent-action-response-schema";
+import { assertTextModelRequestBudget, selectBoundedUntrustedContext } from "./sandbox-text-request-budget";
 
 import {
   buildSandboxTextSystemPrompt,
   buildSandboxTextTurnPrompt,
   buildSandboxUntrustedContextMessage,
-  type SandboxTextPromptPolicy,
 } from "./sandbox-text-model-prompts";
 
 interface OpenAiChatCompletionResponse {
+  id?: string;
+  created?: number;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   choices?: Array<{
     message?: {
       content?: string | null;
@@ -20,10 +25,11 @@ interface OpenAiChatCompletionResponse {
 
 export interface OpenAiChatTextProviderConfig {
   apiKey: string;
+  projectId?: string | undefined;
+  usageRecorder?: ProviderUsageRecordingRepository | undefined;
   baseUrl?: string | undefined;
   fetch?: typeof fetch | undefined;
   modelByTier?: Partial<Record<Exclude<ModelTier, "rules">, string>> | undefined;
-  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined;
 }
 
 export class OpenAiChatTextProvider implements SandwichTextModelProvider {
@@ -49,18 +55,40 @@ export class OpenAiChatTextProvider implements SandwichTextModelProvider {
   }
 
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+    const model = resolveOpenAiModel(input, this.modelByTier);
+    const messages = buildMessages(input);
+    const recordingId = await this.config.usageRecorder?.begin({
+      organizationId: input.manifest.tenantId, sessionId: input.callSessionId ?? null,
+      externalScopeId: this.config.projectId?.trim() || null, provider: "openai", model,
+      occurredAt: new Date().toISOString(),
+    });
+    const requestBody = {
+      model,
+      messages,
+      max_completion_tokens: input.agentActionMode === true ? 1_024 : 512,
+      ...(input.agentActionMode === true ? {
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "zara_agent_action",
+            strict: true,
+            schema: buildAgentActionResponseSchema(input.agentContext),
+          },
+        },
+      } : {}),
+    };
+    assertTextModelRequestBudget(requestBody, requestBody.max_completion_tokens);
     const response = await this.fetchImplementation(
       `${this.config.baseUrl ?? "https://api.openai.com"}/v1/chat/completions`,
       {
         method: "POST",
+        ...(input.abortSignal === undefined ? {} : { signal: input.abortSignal }),
         headers: {
           Authorization: `Bearer ${this.config.apiKey}`,
           "Content-Type": "application/json",
+          ...(this.config.projectId?.trim() ? { "OpenAI-Project": this.config.projectId.trim() } : {}),
         },
-        body: JSON.stringify({
-          model: resolveOpenAiModel(input, this.modelByTier),
-          messages: await buildMessages(input, this.config.getPromptPolicy),
-        }),
+        body: JSON.stringify(requestBody),
       },
     );
     const payload = await response.json() as OpenAiChatCompletionResponse;
@@ -69,25 +97,39 @@ export class OpenAiChatTextProvider implements SandwichTextModelProvider {
       throw new Error(payload.error?.message ?? "OpenAI chat completion failed.");
     }
 
+    if (recordingId !== undefined && payload.usage != null
+      && typeof payload.id === "string" && payload.id.trim().length > 0
+      && typeof payload.created === "number" && Number.isFinite(new Date(payload.created * 1000).getTime())
+      && [payload.usage.prompt_tokens, payload.usage.completion_tokens, payload.usage.total_tokens]
+        .every(value => Number.isSafeInteger(value) && value >= 0)
+      && payload.usage.prompt_tokens + payload.usage.completion_tokens === payload.usage.total_tokens) {
+      await this.config.usageRecorder!.complete(input.manifest.tenantId, recordingId, {
+        providerRequestId: payload.id, occurredAt: new Date(payload.created * 1000).toISOString(),
+        totals: { inputTokens: payload.usage.prompt_tokens, outputTokens: payload.usage.completion_tokens, requestCount: 1 },
+      });
+    }
+
     const text = payload.choices?.[0]?.message?.content?.trim() ?? "";
 
     if (text.length === 0) {
       throw new Error("OpenAI chat completion returned no text.");
     }
 
-    yield text;
+    yield input.agentActionMode === true ? unwrapAgentActionResponse(text, input.agentContext) : text;
   }
 }
 
-async function buildMessages(
-  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
-  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined,
-) {
-  const promptPolicy = await getPromptPolicy?.();
+function buildMessages(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
   const messages = [
     {
       role: "system",
-      content: buildSandboxTextSystemPrompt(input.manifest, input.activeAgent, promptPolicy),
+      content: buildSandboxTextSystemPrompt(
+        input.manifest,
+        input.activeAgent,
+        input.promptPolicy,
+        input.context.language,
+        input,
+      ),
     },
     {
       role: "user",
@@ -95,10 +137,11 @@ async function buildMessages(
     },
   ];
 
-  if (input.untrustedContext !== undefined && input.untrustedContext.length > 0) {
+  const untrustedContext = selectBoundedUntrustedContext(input.untrustedContext, input.agentContext);
+  if (untrustedContext.length > 0) {
     messages.push({
       role: "user",
-      content: buildSandboxUntrustedContextMessage(input.untrustedContext),
+      content: buildSandboxUntrustedContextMessage(untrustedContext),
     });
   }
 

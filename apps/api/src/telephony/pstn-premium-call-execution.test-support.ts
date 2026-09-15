@@ -1,6 +1,8 @@
 import type { CompiledRuntimeManifest, PstnAudioFrame } from "@zara/core";
 import type { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability.js";
 import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models.js";
+import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models.js";
+import { hashRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.repository.js";
 import { computeTelephonyPremiumDispatchSnapshotChecksum } from "./telephony-incremental.repository.js";
 import { PstnPremiumCallExecution } from "./pstn-premium-call-execution.js";
 
@@ -21,6 +23,8 @@ export function createPremiumDispatchSnapshot(
     resolvedConversationPolicy: structuredClone(
       defaultPremiumRealtimeConversationPolicy,
     ),
+    promptPolicyRevision: defaultRuntimePromptPolicy.version,
+    promptPolicyHash: hashRuntimePromptPolicy(defaultRuntimePromptPolicy),
     workerTarget: {
       workerId: "worker-test-1",
       releaseId: "release-test-1",
@@ -60,6 +64,27 @@ export function createPremiumManifest() {
             name: "Jane",
             businessName: "Tuzzy Labs",
             instructions: "Help callers with support questions.",
+            defaultModelTier: "standard",
+            runtimeProfileOverride: "premium-realtime",
+            realtimeProvider: "openai-realtime",
+            languagePolicy: {
+              defaultLanguage: "en",
+              supportedLanguages: ["en"],
+              allowMidCallSwitching: false,
+            },
+          },
+        },
+      }, {
+        id: "agent-james",
+        kind: "agent",
+        label: "James",
+        position: { x: 320, y: 0 },
+        config: {
+          role: {
+            kind: "support",
+            name: "James",
+            businessName: "Tuzzy Labs",
+            instructions: "Help callers with billing questions.",
             defaultModelTier: "standard",
             runtimeProfileOverride: "premium-realtime",
             realtimeProvider: "openai-realtime",

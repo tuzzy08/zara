@@ -228,6 +228,23 @@ Twilio stream custom parameters may carry runtime metadata such as `zaraRuntimeP
 
 ## PSTN Sandwich Turn Loop
 
+### Connected API execution — 2026-09-09
+
+The API now connects authorized `pstn-sandwich` Media Streams to per-call AssemblyAI STT, the shared text-model router, and per-call Cartesia TTS. This local connection work is tracked under [ZAR-269](https://linear.app/zara-voice/issue/ZAR-269/run-shadow-billing-reconcile-draft-invoices-and-release-real-charges). It closes the gap between the synthetic core baseline and the Twilio socket. It does not constitute a live phone qualification or billing release.
+
+- Load the tenant-scoped routed dispatch and its exact published manifest before opening providers. Require the number, workspace, route mode, and a matching cost-optimized or balanced profile.
+- Wait for AssemblyAI `Begin`. Batch three 20 ms phone frames into 60 ms mu-law chunks and pace them at real time. Bound input to 32,000 audio bytes per call.
+- Use AssemblyAI turn and speech-start events. Zara does not add local voice activity detection. Speech start cancels model/TTS work and clears the current Twilio playback generation.
+- Use shared intent routing, model routing, action parsing, tool permission checks, and transfer packets. Limit one turn to two tool requests. Wait for the matching playback marks before continuing a transfer or ending a terminal workflow.
+- Use the existing 160-byte playback framing and 50-frame acknowledgement window. Standard calls share a 32 MiB queued-playback limit. Keep at most two pending final turns and 12 recent transcript entries in memory.
+- Apply a two-second readiness limit, five-second inbound-media limit, eight-second intent/model limit, two-second first-audio limit, and 30-second speech/playback completion limit. Timeout and overflow close the call; they do not select the premium path.
+- Send transcript and response checkpoints to the phone-test system. Use the shared redacted turn-trace exporter. Do not persist raw audio or transcript text in usage records.
+- On stop, cancel timers and non-side-effect work, release playback memory, close TTS, and drain STT termination usage plus any in-flight tool operation. Preserve the existing durable bridge finalization and retry path. Failed calls retain a failed lifecycle result.
+
+Tests use real Zara routing, provider adapters, tool permissions, and the Twilio socket with fake external services. Live provider payload compatibility, call quality, deployed usage coverage, and release evidence still require controlled qualification. Existing provider settings are unchanged.
+
+Provider transition risk: [AssemblyAI's current model list](https://www.assemblyai.com/docs/streaming/select-the-speech-model) uses `universal-3-5-pro`. Its [transition notice](https://github.com/AssemblyAI/assemblyai-skill/blob/main/skills/assemblyai/SKILL.md) says the existing `u3-rt-pro` setting redirects to that model from 2 September 2026. Confirm and approve the effective model during live qualification. This pass does not change the shared model setting.
+
 The `pstn-sandwich` turn loop is:
 
 1. Receive inbound mu-law media frames from the provider bridge.

@@ -521,6 +521,50 @@ describe("turn runtime packet", () => {
     expect(context.recentTranscript.length).toBeLessThan(3);
   });
 
+  it("keeps the latest required tool result when it compacts older results", () => {
+    const packet = createTurnRuntimePacket({
+      ids: { tenantId: "tenant-1", workspaceId: "workspace-1", callSessionId: "session-1",
+        turnId: "turn-1", manifestId: "manifest-1", manifestVersion: 1 },
+      timing: { startedAt: "2026-09-15T00:00:00.000Z" },
+      callerInput: { latestCallerTurn: "Did the last action succeed?", source: "voice" },
+      graph: { entryNodeId: "entry" },
+      safety: { maxModelContextBytes: 360 },
+      toolCalls: ["old", "latest"].map((name, index) => ({
+        request: { type: "call_tool" as const, toolCallId: name, toolAssignmentId: name,
+          arguments: {}, reason: "x" },
+        result: { toolCallId: name, toolAssignmentId: name, toolId: name, toolName: name,
+          status: "completed" as const, summary: name.repeat(100), durationMs: index,
+          idempotencyKey: name },
+      })),
+    });
+
+    const context = createAgentTurnContext(packet);
+    expect(context.toolResults.at(-1)?.toolName).toBe("latest");
+    expect(context.latestCallerTurn).toBe("Did the last action succeed?");
+  });
+
+  it("keeps the latest compact tool outcome when its summary is generic", () => {
+    const packet = createTurnRuntimePacket({
+      ids: { tenantId: "tenant-1", workspaceId: "workspace-1", callSessionId: "session-1",
+        turnId: "turn-1", manifestId: "manifest-1", manifestVersion: 1 },
+      timing: { startedAt: "2026-09-15T00:00:00.000Z" },
+      callerInput: { latestCallerTurn: "Was my order updated?", source: "voice",
+        recentTranscript: [{ speaker: "caller", text: "old ".repeat(200) }] },
+      graph: { entryNodeId: "entry" }, safety: { maxModelContextBytes: 420 },
+      toolCalls: [{
+        request: { type: "call_tool", toolCallId: "latest", toolAssignmentId: "order-update",
+          arguments: {}, reason: "Update order" },
+        result: { toolCallId: "latest", toolAssignmentId: "order-update", toolId: "order.update",
+          toolName: "Update order", status: "completed", summary: "Completed",
+          safeOutput: { orderId: "order-123", status: "updated" }, durationMs: 1, idempotencyKey: "latest" },
+      }],
+    });
+
+    expect(createAgentTurnContext(packet).toolResults[0]).toMatchObject({
+      status: "completed", safeOutput: { orderId: "order-123", status: "updated" },
+    });
+  });
+
   it("records packet warnings as diagnostics and packet events", () => {
     const packet = createTurnRuntimePacket({
       ids: {

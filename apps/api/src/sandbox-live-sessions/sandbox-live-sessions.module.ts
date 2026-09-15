@@ -1,8 +1,10 @@
 import { Module } from "@nestjs/common";
+import { DatabaseModule } from "../database/database.module";
+import { PostgresPoolService } from "../database/postgres-pool.service";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
 
 import { IntegrationsRuntimeModule } from "../integrations/integrations-runtime.module";
 import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
-import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
   createConfiguredRuntimeObservabilityRecorder,
   runtimeObservabilityRecorderToken,
@@ -34,6 +36,7 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
 
 @Module({
   imports: [
+    DatabaseModule,
     IntegrationsRuntimeModule,
     RuntimeAgentToolExecutionModule,
     RuntimePromptPolicyModule,
@@ -50,13 +53,14 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
     },
     {
       provide: liveSandboxTextModelProviderToken,
-      useFactory: (runtimePromptPolicyService: RuntimePromptPolicyService) => {
+      useFactory: (database: PostgresPoolService) => {
         const config = resolveLiveSandboxProviderConfig(process.env);
         return createLiveSandboxTextModelProvider(config, {
-          getPromptPolicy: () => runtimePromptPolicyService.getPromptPolicy(),
+          usageRecorder: new ProviderUsageRecordingRepository(database.pool),
+          openAiProjectId: process.env.OPENAI_PROJECT_ID,
         });
       },
-      inject: [RuntimePromptPolicyService],
+      inject: [PostgresPoolService],
     },
     {
       provide: liveSandboxIntentClassifierProviderToken,
@@ -76,7 +80,7 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
     },
     {
       provide: liveSandboxSttProviderToken,
-      useFactory: () => {
+      useFactory: (database: PostgresPoolService) => {
         const config = resolveLiveSandboxProviderConfig(process.env);
 
         if (config.liveSandboxSttProvider === "cartesia-ink-2") {
@@ -96,8 +100,10 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
 
         return new AssemblyAiSttProvider({
           apiKey: config.assemblyAiApiKey,
+          usageRecorder: new ProviderUsageRecordingRepository(database.pool),
         });
       },
+      inject: [PostgresPoolService],
     },
     {
       provide: liveSandboxTtsProviderToken,

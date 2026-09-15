@@ -1898,6 +1898,8 @@ function premiumDispatchSnapshot(
       compiledDefinitionHash: "manifest-definition-hash",
     } as unknown as CompiledRuntimeManifest,
     resolvedConversationPolicy: structuredClone(defaultPremiumRealtimeConversationPolicy),
+    promptPolicyRevision: 1,
+    promptPolicyHash: "a".repeat(64),
     workerTarget: {
       workerId: "worker-test-1",
       releaseId: "release-test-1",

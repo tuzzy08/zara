@@ -269,6 +269,10 @@ LLM-as-judge runtime evals require a minimum score of 0.8 for each configured qu
 
 The eval command uses the separate `ls.vitest.config.ts` config with `.eval.ts` files. Evals import from `langsmith/vitest` and use the `langsmith/vitest/reporter` reporter when LangSmith tracking is enabled.
 
+`npm run eval:runtime` passes fixture inputs through production provider adapters, action parsing, tool checks, and route resolution. Provider responses are scripted for this deterministic check. The executor does not receive expected answers. A changed classifier result must fail its score. The missing-input score checks that the server rejects an incomplete tool request; it does not claim that a live model asked the right question. The corrected executor uses dataset version `v2` by default, so its results remain distinct from the original reference-only gate.
+
+`npm run eval:prompts` is a separate live-provider check with synthetic inputs. It checks missing-input questions, injected tool instructions, failed tools, conversation history, conflicting tenant instructions, and allowed or blocked language changes. Set `OPENAI_API_KEY` and `GEMINI_API_KEY`. Optional `OPENAI_PROMPT_EVAL_MODEL` and `GEMINI_PROMPT_EVAL_MODEL` select exact models. Failures identify the provider, model, policy revision, and policy hash. Missing credentials fail this command. Ordinary tests do not load these live tests. These short checks supplement the release evaluation dataset; they do not prove all model behaviour.
+
 Regular local and CI test commands must continue to pass without LangSmith credentials. Eval jobs should support:
 
 - local dry-run without upload

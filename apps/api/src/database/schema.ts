@@ -37,8 +37,33 @@ import type {
 import type { TelephonyPremiumDispatchSnapshot } from "../telephony/telephony-incremental.repository";
 import type { EncryptedTelephonySecretEnvelope } from "../telephony/telephony-secret-vault";
 import type { PaygCallChargeContext } from "../billing/billing-payg-call-charge-policy";
+import type { RuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 
 export const tenantStatus = pgEnum("tenant_status", ["active", "suspended", "archived"]);
+
+export const providerUsageRequests = pgTable("provider_usage_requests", {
+  id: text("id").primaryKey(),
+  connectionId: text("connection_id"),
+  tenantId: text("tenant_id").notNull(),
+  sessionId: text("session_id"),
+  externalScopeId: text("external_scope_id"),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  result: jsonb("result"),
+});
+
+export const providerUsageConnections = pgTable("provider_usage_connections", {
+  id: text("id").primaryKey(),
+  callSessionId: text("call_session_id"),
+  tenantId: text("tenant_id").notNull(),
+  sessionId: text("session_id"),
+  externalScopeId: text("external_scope_id"),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  result: jsonb("result"),
+});
 
 export const authUsers = pgTable(
   "user",
@@ -2070,3 +2095,45 @@ export const billingChargeReleaseControls = pgTable(
     }).onDelete("restrict").onUpdate("cascade"),
   }),
 );
+
+export const runtimePromptPolicyRevisions = pgTable(
+  "runtime_prompt_policy_revisions",
+  {
+    version: integer("version").primaryKey(),
+    policy: jsonb("policy").$type<RuntimePromptPolicy>().notNull(),
+    policyHash: text("policy_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    versionCheck: check(
+      "runtime_prompt_policy_revision_version_check",
+      sql`${table.version} >= 1 and (${table.policy}->>'version')::integer = ${table.version}`,
+    ),
+    hashCheck: check(
+      "runtime_prompt_policy_revision_hash_check",
+      sql`${table.policyHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+  }),
+);
+
+export const runtimePromptPolicyCurrent = pgTable(
+  "runtime_prompt_policy_current",
+  {
+    singleton: boolean("singleton").primaryKey().default(true),
+    version: integer("version")
+      .notNull()
+      .references(() => runtimePromptPolicyRevisions.version),
+  },
+  (table) => ({
+    singletonCheck: check("runtime_prompt_policy_current_singleton_check", sql`${table.singleton}`),
+  }),
+);
+
+export const runtimePromptPolicySessionPins = pgTable("runtime_prompt_policy_session_pins", {
+  sessionKey: text("session_key").primaryKey(),
+  revision: integer("revision")
+    .notNull()
+    .references(() => runtimePromptPolicyRevisions.version),
+  policyHash: text("policy_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});

@@ -759,14 +759,16 @@ function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): A
       continue;
     }
 
-    const toolResultWithSafeOutput = nextContext.toolResults.find((result) => result.safeOutput !== undefined);
+    const toolResultWithSafeOutput = nextContext.toolResults
+      .slice(0, -1)
+      .find((result) => result.safeOutput !== undefined);
     if (toolResultWithSafeOutput !== undefined) {
       delete toolResultWithSafeOutput.safeOutput;
       continue;
     }
 
-    if (nextContext.toolResults.length > 0) {
-      nextContext.toolResults.pop();
+    if (nextContext.toolResults.length > 1) {
+      nextContext.toolResults.shift();
       continue;
     }
 
@@ -782,6 +784,21 @@ function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): A
 
     if (nextContext.intent !== undefined) {
       delete nextContext.intent;
+      continue;
+    }
+
+    const latestToolResult = nextContext.toolResults[0];
+    if (latestToolResult?.safeOutput !== undefined && latestToolResult.safeOutput["truncated"] !== true) {
+      latestToolResult.safeOutput = {
+        truncated: true,
+        preview: JSON.stringify(latestToolResult.safeOutput).slice(0, 120),
+      };
+      latestToolResult.summary = `${latestToolResult.summary.slice(0, 80)} [Latest tool output truncated; do not repeat the action.]`;
+      continue;
+    }
+
+    if (latestToolResult !== undefined && latestToolResult.summary.length > 80) {
+      latestToolResult.summary = `${latestToolResult.summary.slice(0, 77)}...`;
       continue;
     }
 

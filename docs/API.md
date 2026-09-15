@@ -184,6 +184,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - PATCH /platform-admin/runtime/route-policy
 - GET /platform-admin/runtime/prompt-policy
 - PATCH /platform-admin/runtime/prompt-policy
+- POST /platform-admin/runtime/prompt-policy/revisions/:revision/promote
 - GET /platform-admin/runtime/premium-realtime-policy
 - PATCH /platform-admin/runtime/premium-realtime-policy
 - PATCH /platform-admin/organizations/:orgId/billing-controls
@@ -270,10 +271,16 @@ Behavior rules:
 
 Platform admins can inspect and update the runtime prompt policy used by live sandbox text providers:
 
+The same policy also supplies realtime prompts. Sessions retain the selected revision and hash across turns and transfers. Policy updates apply to new sessions. Production revisions use Postgres with atomic version checks; a stale `expectedVersion` returns a conflict.
+
 - `GET /platform-admin/runtime/prompt-policy`
 - `PATCH /platform-admin/runtime/prompt-policy`
 
 The policy contains global platform guardrails plus agent class templates keyed by platform-owned agent classes. Each class template owns the base prompt, routing profile, default sandwich text provider/tier/model ID, and default premium realtime provider/model ID. Updates require `expectedVersion` and `reason`, are restricted to mutating platform runtime policy, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text and raw model IDs are not copied into audit metadata; audit metadata stores version, guardrail count, changed class keys, and reason.
+
+`POST /platform-admin/runtime/prompt-policy/revisions/:revision/promote` restores the selected policy content as a new revision. The body contains `expectedVersion` and `reason`. Staff mutation permission is required. A stale version returns a conflict. Promotion restores the exact old class catalog, including removal of classes added later. The audit record identifies the source and new revision. Existing sessions keep their saved revision.
+
+Reusable-agent creation and workflow validation reject instructions longer than 12,000 characters. Workflow validation applies the same limit to each language-specific prompt.
 
 ## Platform Premium Realtime Conversation Policy Contract
 

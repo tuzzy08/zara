@@ -31,6 +31,8 @@ export interface LiveSandboxSessionRecord {
   createdAt: string;
   expiresAt: string;
   status: LiveSandboxSessionStatus;
+  promptPolicyRevision: number;
+  promptPolicyHash: string;
   endedAt?: string | undefined;
   memory?: LiveSandboxSessionMemoryState | undefined;
 }

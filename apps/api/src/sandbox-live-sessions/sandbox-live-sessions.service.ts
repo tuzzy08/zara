@@ -34,6 +34,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
 import { applyRuntimePromptPolicyModelDefaultsToManifest } from "../runtime-prompt-policy/runtime-prompt-policy.model-defaults";
+import type { RuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
   runtimeObservabilityRecorderToken,
@@ -116,6 +117,7 @@ export class SandboxLiveSessionsService {
   private readonly logger = new Logger(SandboxLiveSessionsService.name);
   private readonly sessionsByOrganizationId = new Map<string, Map<string, LiveSandboxSessionRecord>>();
   private readonly manifestsBySessionKey = new Map<string, CompiledRuntimeManifest>();
+  private readonly promptPoliciesBySessionKey = new Map<string, RuntimePromptPolicy>();
   private readonly frontierBySessionKey = new Map<string, string[]>();
   private readonly bufferedAudioFramesBySessionKey = new Map<string, string[]>();
   private readonly streamingSttSessionsBySessionKey = new Map<string, LiveSandboxSttStreamingSession>();
@@ -168,17 +170,18 @@ export class SandboxLiveSessionsService {
     input: CreateLiveSandboxSessionRequest,
   ): Promise<LiveSandboxSessionResponse> {
     this.assertVoiceInputMode(input);
-    const manifest = applyRuntimePromptPolicyModelDefaultsToManifest(
-      input.manifest,
-      await this.runtimePromptPolicyService.getPromptPolicy(),
-    );
     this.assertUserCanAccessWorkspace({
       organizationId,
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId,
     });
-    this.assertManifestWorkspace(manifest, input.workspaceId);
-    this.assertConcreteEntryAgent(manifest, input.entryAgentId);
+    this.assertManifestWorkspace(input.manifest, input.workspaceId);
+    this.assertConcreteEntryAgent(input.manifest, input.entryAgentId);
+    const sessionId = `sandbox-live-${randomUUID()}`;
+    const promptPolicySelection = await this.runtimePromptPolicyService.selectPromptPolicyForSession(
+      `sandbox:${organizationId}:${sessionId}`,
+    );
+    const manifest = applyRuntimePromptPolicyModelDefaultsToManifest(input.manifest, promptPolicySelection.policy);
     this.assertProviderStackReady({ ...input, manifest });
     this.assertSelectedTextModelReady({ ...input, manifest });
     this.assertSttProviderSupportsManifest(manifest);
@@ -186,7 +189,6 @@ export class SandboxLiveSessionsService {
 
     const createdAt = input.now ?? new Date().toISOString();
     const expiresAt = addMinutes(createdAt, input.ttlMinutes ?? defaultTtlMinutes);
-    const sessionId = `sandbox-live-${randomUUID()}`;
     const transportToken = createSignedTransportToken({
       organizationId,
       workspaceId: input.workspaceId,
@@ -211,6 +213,8 @@ export class SandboxLiveSessionsService {
       createdAt,
       expiresAt,
       status: "ready",
+      promptPolicyRevision: promptPolicySelection.revision,
+      promptPolicyHash: promptPolicySelection.hash,
       memory: {
         status: "active",
         entries: [],
@@ -223,6 +227,7 @@ export class SandboxLiveSessionsService {
     const sessionKey = getSessionKey(organizationId, sessionId);
     this.sequenceBySessionKey.set(sessionKey, 0);
     this.manifestsBySessionKey.set(sessionKey, cloneManifest(manifest));
+    this.promptPoliciesBySessionKey.set(sessionKey, promptPolicySelection.policy);
     this.frontierBySessionKey.set(sessionKey, [manifest.entryNodeId]);
     this.bufferedAudioFramesBySessionKey.set(sessionKey, []);
     this.eventsBySessionKey.set(sessionKey, []);
@@ -1547,6 +1552,7 @@ export class SandboxLiveSessionsService {
       transcription = await this.sttProvider.transcribeTurn({
         audioFramesBase64,
         sampleRateHz: input.sampleRateHz,
+        usageScope: { organizationId: input.organizationId, sessionId: input.sessionId },
         onPartial: (event) => {
           this.publishSessionEvent({
             organizationId: input.organizationId,
@@ -1624,6 +1630,7 @@ export class SandboxLiveSessionsService {
     const manifest = this.manifestsBySessionKey.get(sessionKey);
     const stream = this.sttProvider.createStreamingSession({
       sampleRateHz: input.sampleRateHz,
+      usageScope: { organizationId: input.organizationId, sessionId: input.sessionId },
       ...(manifest !== undefined ? { config: buildStreamingSttConfiguration(manifest) } : {}),
       onPartial: (event) => {
         const observedAt = Date.now();
@@ -1654,6 +1661,9 @@ export class SandboxLiveSessionsService {
         });
       },
       onError: (error) => {
+        if (this.streamingSttSessionsBySessionKey.get(sessionKey) !== stream) {
+          return;
+        }
         this.handleStreamingSttError({
           organizationId: input.organizationId,
           sessionId: input.sessionId,
@@ -1919,10 +1929,14 @@ export class SandboxLiveSessionsService {
     getPacket: () => TurnRuntimePacket;
     setPacket: (packet: TurnRuntimePacket) => void;
   }): SandwichTextModelProvider {
+    const promptPolicy = this.promptPoliciesBySessionKey.get(getSessionKey(input.organizationId, input.sessionId));
+    if (promptPolicy === undefined) {
+      throw new Error("Live sandbox session prompt policy is not available.");
+    }
     return {
       streamText: (modelInput) => this.streamAgentActionText({
         ...input,
-        modelInput,
+        modelInput: { ...modelInput, promptPolicy },
       }),
     };
   }
@@ -1944,6 +1958,7 @@ export class SandboxLiveSessionsService {
     if (!hasAgentActions) {
       yield* this.textModelProvider.streamText({
         ...input.modelInput,
+        callSessionId: packet.ids.callSessionId,
         agentContext: createAgentTurnContext(packet),
         agentActionMode: false,
       });
@@ -1955,6 +1970,7 @@ export class SandboxLiveSessionsService {
     while (true) {
       const rawModelText = await collectText(this.textModelProvider.streamText({
         ...input.modelInput,
+        callSessionId: packet.ids.callSessionId,
         agentContext: createAgentTurnContext(packet),
         agentActionMode: true,
       }));

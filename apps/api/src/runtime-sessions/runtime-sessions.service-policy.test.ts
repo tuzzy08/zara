@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { RealtimeToolDeclaration } from "@zara/core";
+import { vi } from "vitest";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
 import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { hashRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.repository";
 import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-policy/premium-realtime-conversation-policy.models";
 import { baseProviderMessageInput, createSession, basePacket, buildRoutePolicyManifest, removeRealtimeProviderFields, buildStaleRoleSnapshotRoutePolicyManifest, withTargetRealtimeConfig, openAiHandoffMessage, buildRoutePolicyManifestWithFrontDeskTool, getDefaultBillingTemplate, createLoop } from "./runtime-sessions.service.test-support";
 
@@ -73,30 +75,35 @@ describe("RuntimeSessionsService policy", () => {
 
   it("uses platform prompt-policy realtime defaults when a premium agent has no provider fields", async () => {
       const billingTemplate = getDefaultBillingTemplate();
-      const service = new RuntimeSessionsService(createLoop(), {
-        getPromptPolicy: async () => ({
-          schemaVersion: 1,
-          version: 1,
-          guardrails: ["Keep callers inside platform policy."],
-          updatedBy: "system",
-          updatedAt: "2026-06-14T09:00:00.000Z",
-          agentClassTemplates: {
-            ...defaultRuntimePromptPolicy.agentClassTemplates,
-            billing: {
-              ...billingTemplate,
-              modelDefaults: {
-                text: {
-                  provider: "google-gemini",
-                  modelTier: "standard",
-                  modelId: "gemini-billing-default",
-                },
-                realtime: {
-                  provider: "gemini-live",
-                  modelId: "gemini-live-billing-default",
-                },
+      const promptPolicy = {
+        schemaVersion: 1 as const,
+        version: 4,
+        guardrails: ["Keep callers inside platform policy."],
+        updatedBy: "system",
+        updatedAt: "2026-06-14T09:00:00.000Z",
+        agentClassTemplates: {
+          ...defaultRuntimePromptPolicy.agentClassTemplates,
+          billing: {
+            ...billingTemplate,
+            modelDefaults: {
+              text: {
+                provider: "google-gemini" as const,
+                modelTier: "standard" as const,
+                modelId: "gemini-billing-default",
+              },
+              realtime: {
+                provider: "gemini-live" as const,
+                modelId: "gemini-live-billing-default",
               },
             },
           },
+        },
+      };
+      const service = new RuntimeSessionsService(createLoop(), {
+        selectPromptPolicy: async () => ({
+          revision: promptPolicy.version,
+          hash: hashRuntimePromptPolicy(promptPolicy),
+          policy: promptPolicy,
         }),
       });
       const manifest = buildRoutePolicyManifest();
@@ -139,6 +146,12 @@ describe("RuntimeSessionsService policy", () => {
 
       expect(session.runtime).toBe("gemini-live");
       expect(session.model).toBe("gemini-live-billing-default");
+      expect(session).toMatchObject({
+        promptPolicyRevision: 4,
+        promptPolicyHash: hashRuntimePromptPolicy(promptPolicy),
+      });
+      expect(service.getRegisteredSession(session.sessionId)?.promptPolicy.guardrails)
+        .toEqual(["Keep callers inside platform policy."]);
       expect(service.getRegisteredSession(session.sessionId)?.manifest.graph.nodes
         .find((graphNode) => graphNode.id === "agent-billing")?.config["role"]).toMatchObject({
           realtimeProvider: "gemini-live",
@@ -191,7 +204,7 @@ describe("RuntimeSessionsService policy", () => {
       expect(service.getRegisteredSession(session.sessionId)?.conversationPolicy.version).toBe(12);
     });
 
-  it("starts a worker session from immutable resolved policy without reading mutable policy stores", async () => {
+  it("starts a worker session with resolved conversation policy and one selected prompt policy", async () => {
       const policy = structuredClone(defaultPremiumRealtimeConversationPolicy);
       policy.version = 27;
       policy.providers.openaiRealtime.defaultModel =
@@ -199,9 +212,11 @@ describe("RuntimeSessionsService policy", () => {
       const service = new RuntimeSessionsService(
         createLoop(),
         {
-          getPromptPolicy: async () => {
-            throw new Error("mutable prompt policy must not be read");
-          },
+          selectPromptPolicy: async () => ({
+            revision: defaultRuntimePromptPolicy.version,
+            hash: hashRuntimePromptPolicy(defaultRuntimePromptPolicy),
+            policy: structuredClone(defaultRuntimePromptPolicy),
+          }),
         },
         {
           getPolicy: async () => {
@@ -214,6 +229,8 @@ describe("RuntimeSessionsService policy", () => {
       const session = await service.createRealtimeSessionFromSnapshot({
         manifest,
         conversationPolicy: policy,
+        promptPolicyRevision: defaultRuntimePromptPolicy.version,
+        promptPolicyHash: hashRuntimePromptPolicy(defaultRuntimePromptPolicy),
         activeAgentId: "agent-front",
         budgetAllowed: true,
         mediaProfile: "pstn",
@@ -221,7 +238,7 @@ describe("RuntimeSessionsService policy", () => {
         workspaceId: "workspace-customer-success",
         actorUserId: "pstn:call-1",
         now: "2099-06-14T09:30:00.000Z",
-      });
+  });
 
       expect(session.providerConfig).toMatchObject({
         model: "gpt-realtime-worker-snapshot",
@@ -231,6 +248,39 @@ describe("RuntimeSessionsService policy", () => {
         service.getRegisteredSession(session.sessionId)?.conversationPolicy.version,
       ).toBe(27);
     });
+
+  it("rehydrates the exact prompt revision from a durable worker snapshot", async () => {
+    const pinnedPolicy = {
+      ...structuredClone(defaultRuntimePromptPolicy),
+      version: 7,
+      guardrails: ["PINNED CALL RULE"],
+    };
+    const pinnedHash = hashRuntimePromptPolicy(pinnedPolicy);
+    const getPromptPolicySelection = vi.fn().mockResolvedValue({
+      revision: 7,
+      hash: pinnedHash,
+      policy: pinnedPolicy,
+    });
+    const restartedService = new RuntimeSessionsService(createLoop(), { getPromptPolicySelection });
+
+    const session = await restartedService.createRealtimeSessionFromSnapshot({
+      manifest: buildRoutePolicyManifest(),
+      conversationPolicy: structuredClone(defaultPremiumRealtimeConversationPolicy),
+      promptPolicyRevision: 7,
+      promptPolicyHash: pinnedHash,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "pstn:call-1",
+      now: "2099-06-14T09:30:00.000Z",
+    });
+
+    expect(getPromptPolicySelection).toHaveBeenCalledWith(7, pinnedHash);
+    expect(session).toMatchObject({ promptPolicyRevision: 7, promptPolicyHash: pinnedHash });
+    expect(restartedService.getRegisteredSession(session.sessionId)?.promptPolicy?.guardrails)
+      .toEqual(["PINNED CALL RULE"]);
+  });
 
   it("keeps the call-start conversation policy snapshot across a cross-provider handoff", async () => {
       const policy = structuredClone(defaultPremiumRealtimeConversationPolicy);

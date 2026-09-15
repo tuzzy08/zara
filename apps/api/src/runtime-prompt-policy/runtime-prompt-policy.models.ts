@@ -81,11 +81,22 @@ export interface RuntimePromptPolicy {
   updatedAt: string;
 }
 
+export interface RuntimePromptPolicySelection {
+  revision: number;
+  hash: string;
+  policy: RuntimePromptPolicy;
+}
+
 export interface UpdateRuntimePromptPolicyInput {
   expectedVersion: number;
   reason: string;
   guardrails?: string[] | undefined;
   agentClassTemplates?: Record<string, UpdateRuntimePromptPolicyAgentClassTemplateInput> | undefined;
+}
+
+export interface PromoteRuntimePromptPolicyRevisionInput {
+  expectedVersion: number;
+  reason: string;
 }
 
 export interface CreateRuntimePromptPolicyAgentClassInput extends UpdateRuntimePromptPolicyAgentClassTemplateInput {

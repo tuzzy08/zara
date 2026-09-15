@@ -45,6 +45,12 @@ import { PremiumRealtimeConversationPolicyService } from "../premium-realtime-po
 import { applyRuntimePromptPolicyModelDefaultsToManifest } from "../runtime-prompt-policy/runtime-prompt-policy.model-defaults";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
+  defaultRuntimePromptPolicy,
+  type RuntimePromptPolicy,
+  type RuntimePromptPolicySelection,
+} from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { hashRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.repository";
+import {
   createOneTimeStreamToken,
   hashOneTimeStreamToken,
   resolveOneTimeStreamTokenSecret,
@@ -83,6 +89,8 @@ export interface CreateRealtimeSessionRequest {
 export interface CreateRealtimeSessionFromSnapshotRequest
   extends CreateRealtimeSessionRequest {
   conversationPolicy: PremiumRealtimeConversationPolicy;
+  promptPolicyRevision: number;
+  promptPolicyHash: string;
 }
 
 export interface RegisteredPremiumRealtimeSession {
@@ -95,6 +103,7 @@ export interface RegisteredPremiumRealtimeSession {
   transcript: string;
   packet: TurnRuntimePacket;
   conversationPolicy: PremiumRealtimeConversationPolicy;
+  promptPolicy: RuntimePromptPolicy;
 }
 
 export interface ProcessPremiumRealtimeProviderMessageRequest {
@@ -120,6 +129,7 @@ interface PendingOpenAiHandoffContinuation {
   output: Record<string, unknown>;
   providerSessionTransition: PremiumRealtimeProviderSessionTransition;
   expectedSourceResponseMetadata: Record<string, string>;
+  promptPolicy: RuntimePromptPolicy;
   expectedSourceResponseId?: string | undefined;
 }
 
@@ -127,6 +137,47 @@ interface PremiumRealtimeTransportTokenRecord {
   tokenHash: string;
   expiresAt: string;
   consumedAt?: string | undefined;
+}
+
+async function selectRuntimePromptPolicy(
+  service:
+    | Pick<RuntimePromptPolicyService, "selectPromptPolicy">
+    | Pick<RuntimePromptPolicyService, "getPromptPolicy">
+    | Pick<RuntimePromptPolicyService, "getPromptPolicySelection">
+    | undefined,
+): Promise<RuntimePromptPolicySelection> {
+  if (service === undefined) {
+    const policy = structuredClone(defaultRuntimePromptPolicy);
+    return { revision: policy.version, hash: hashRuntimePromptPolicy(policy), policy };
+  }
+  if ("selectPromptPolicy" in service) {
+    return service.selectPromptPolicy();
+  }
+  if (!("getPromptPolicy" in service)) {
+    throw new Error("Runtime prompt policy selection is unavailable.");
+  }
+  const policy = await service.getPromptPolicy();
+  return { revision: policy.version, hash: hashRuntimePromptPolicy(policy), policy };
+}
+
+async function resolveRuntimePromptPolicySelection(
+  service:
+    | Pick<RuntimePromptPolicyService, "selectPromptPolicy">
+    | Pick<RuntimePromptPolicyService, "getPromptPolicy">
+    | Pick<RuntimePromptPolicyService, "getPromptPolicySelection">
+    | undefined,
+  revision: number,
+  expectedHash: string,
+) {
+  if (service !== undefined && "getPromptPolicySelection" in service) {
+    return service.getPromptPolicySelection(revision, expectedHash);
+  }
+  const policy = structuredClone(defaultRuntimePromptPolicy);
+  const hash = hashRuntimePromptPolicy(policy);
+  if (revision !== policy.version || expectedHash !== hash) {
+    throw new Error("Runtime prompt policy revision is unavailable.");
+  }
+  return { revision, hash, policy };
 }
 
 @Injectable()
@@ -143,7 +194,10 @@ export class RuntimeSessionsService {
       "processOpenAiProviderMessage" | "processGeminiProviderMessage"
     >,
     @Optional()
-    private readonly runtimePromptPolicyService?: Pick<RuntimePromptPolicyService, "getPromptPolicy">,
+    private readonly runtimePromptPolicyService?:
+      | Pick<RuntimePromptPolicyService, "selectPromptPolicy">
+      | Pick<RuntimePromptPolicyService, "getPromptPolicy">
+      | Pick<RuntimePromptPolicyService, "getPromptPolicySelection">,
     @Optional()
     private readonly conversationPolicyService?: Pick<PremiumRealtimeConversationPolicyService, "getPolicy">,
   ) {}
@@ -155,9 +209,15 @@ export class RuntimeSessionsService {
   async createRealtimeSessionFromSnapshot(
     input: CreateRealtimeSessionFromSnapshotRequest,
   ): Promise<PremiumRealtimeSession> {
+    const promptPolicySelection = await resolveRuntimePromptPolicySelection(
+      this.runtimePromptPolicyService,
+      input.promptPolicyRevision,
+      input.promptPolicyHash,
+    );
     return this.createRealtimeSessionInternal(input, {
       manifest: structuredClone(input.manifest),
       conversationPolicy: structuredClone(input.conversationPolicy),
+      promptPolicySelection,
     });
   }
 
@@ -166,6 +226,7 @@ export class RuntimeSessionsService {
     resolvedSnapshot?: {
       manifest: CompiledRuntimeManifest;
       conversationPolicy: PremiumRealtimeConversationPolicy;
+      promptPolicySelection: RuntimePromptPolicySelection;
     },
   ): Promise<PremiumRealtimeSession> {
     if (input.realtimeAvailable === false) {
@@ -173,13 +234,15 @@ export class RuntimeSessionsService {
     }
 
     try {
+      const promptPolicySelection = resolvedSnapshot?.promptPolicySelection
+        ?? await selectRuntimePromptPolicy(this.runtimePromptPolicyService);
       const manifest = resolvedSnapshot?.manifest ??
         (this.runtimePromptPolicyService === undefined
-        ? input.manifest
-        : applyRuntimePromptPolicyModelDefaultsToManifest(
-            input.manifest,
-            await this.runtimePromptPolicyService.getPromptPolicy(),
-          ));
+          ? input.manifest
+          : applyRuntimePromptPolicyModelDefaultsToManifest(
+              input.manifest,
+              promptPolicySelection.policy,
+            ));
       const conversationPolicy = resolvedSnapshot?.conversationPolicy ??
         (this.conversationPolicyService === undefined
         ? structuredClone(defaultPremiumRealtimeConversationPolicy)
@@ -206,6 +269,8 @@ export class RuntimeSessionsService {
         activeAgentId: input.activeAgentId,
         budgetAllowed: input.budgetAllowed,
         resolvedProviderConfig,
+        promptPolicyRevision: promptPolicySelection.revision,
+        promptPolicyHash: promptPolicySelection.hash,
         ...(input.now !== undefined ? { now: () => input.now! } : {}),
         ...(input.ttlMinutes !== undefined ? { ttlMinutes: input.ttlMinutes } : {}),
       });
@@ -248,6 +313,7 @@ export class RuntimeSessionsService {
           workspaceId,
         }),
         conversationPolicy: structuredClone(conversationPolicy),
+        promptPolicy: structuredClone(promptPolicySelection.policy),
       });
 
       return session;
@@ -378,9 +444,17 @@ export class RuntimeSessionsService {
       });
     }
 
+    const registeredPromptPolicy = this.sessions.get(input.session.sessionId)?.promptPolicy;
+    const activeAgentConfig = resolvePremiumRealtimeActiveAgentConfig(input.manifest, input.activeAgentId);
     const adapter = new OpenAiRealtimeAdapter({
       model: input.session.model,
-      systemPrompt: "",
+      systemPrompt: activeAgentConfig === undefined
+        ? ""
+        : buildPremiumRealtimeAgentPrompt({
+            manifest: input.manifest,
+            agent: activeAgentConfig,
+            policy: registeredPromptPolicy ?? defaultRuntimePromptPolicy,
+          }),
       tools: input.session.toolDeclarations,
     });
     const pendingOpenAiHandoffContinuation = this.pendingOpenAiHandoffContinuations.get(input.sessionId);
@@ -509,6 +583,7 @@ export class RuntimeSessionsService {
           routeEvents: routeResult.routeEvents,
           output: routeResult.output,
           handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken === true,
+          promptPolicy: registeredSession.promptPolicy ?? defaultRuntimePromptPolicy,
         });
     const handoffAnnouncementText = resolveHandoffContinuationAnnouncementText({
       routeEvents: routeResult.routeEvents,
@@ -534,6 +609,7 @@ export class RuntimeSessionsService {
         output: routeResult.output,
         providerSessionTransition: targetSessionResolution.transition,
         expectedSourceResponseMetadata,
+        promptPolicy: registeredSession.promptPolicy ?? defaultRuntimePromptPolicy,
       });
       return {
         packet: input.packet,
@@ -895,6 +971,7 @@ function buildProviderHandoffToolMessages(input: {
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
   handoffAnnouncementAlreadySpoken: boolean;
+  promptPolicy: RuntimePromptPolicy;
 }): Array<Record<string, unknown>> {
   if (input.provider === "gemini-live") {
     return [
@@ -919,6 +996,7 @@ function buildProviderHandoffToolMessages(input: {
           routeEvents: input.routeEvents,
           output: input.output,
           handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
+          promptPolicy: input.promptPolicy,
         })
       : [(input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage()]),
   ];
@@ -936,7 +1014,6 @@ function completePendingOpenAiHandoffContinuation(
     ...(input.sourceResponseId !== undefined ? { sourceResponseId: input.sourceResponseId } : {}),
     continuation: {
       instruction: buildHandoffContinuationResponseInstructions({
-        activeAgentName: resolveRuntimeAgent(pending.manifest, pending.activeAgentId)?.name,
         routeEvents: pending.routeEvents,
         output: pending.output,
         handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
@@ -957,6 +1034,7 @@ function completePendingOpenAiHandoffContinuation(
           routeEvents: pending.routeEvents,
           output: pending.output,
           handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
+          promptPolicy: pending.promptPolicy,
         })
       : [],
   };
@@ -1105,6 +1183,7 @@ function buildOpenAiPreResponseMessages(input: {
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
   handoffAnnouncementAlreadySpoken: boolean;
+  promptPolicy: RuntimePromptPolicy;
 }) {
   const activeAgentConfig = resolvePremiumRealtimeActiveAgentConfig(input.manifest, input.activeAgentId);
   const systemPrompt = activeAgentConfig === undefined
@@ -1112,6 +1191,7 @@ function buildOpenAiPreResponseMessages(input: {
     : buildPremiumRealtimeAgentPrompt({
         manifest: input.manifest,
         agent: activeAgentConfig,
+        policy: input.promptPolicy,
       });
   const adapter = new OpenAiRealtimeAdapter({
     model: input.session.model,
@@ -1126,7 +1206,6 @@ function buildOpenAiPreResponseMessages(input: {
     adapter.createSessionUpdateMessage(),
     adapter.createResponseCreateMessage({
       instructions: buildHandoffContinuationResponseInstructions({
-        activeAgentName: activeAgentConfig?.name,
         routeEvents: input.routeEvents,
         output: input.output,
         handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
@@ -1136,20 +1215,14 @@ function buildOpenAiPreResponseMessages(input: {
 }
 
 function buildHandoffContinuationResponseInstructions(input: {
-  activeAgentName?: string | undefined;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
   handoffAnnouncementAlreadySpoken: boolean;
 }) {
-  const activeAgentName = input.activeAgentName?.trim() || "the active agent";
-  const callerNeedSummary = typeof input.output.callerNeedSummary === "string"
-    && input.output.callerNeedSummary.trim().length > 0
-    ? input.output.callerNeedSummary.trim()
-    : undefined;
   const announcementText = resolveHandoffContinuationAnnouncementText(input);
 
   return [
-    `You are now ${activeAgentName}.`,
+    "Continue as the configured active agent.",
     ...(announcementText === undefined
       ? []
       : input.handoffAnnouncementAlreadySpoken
@@ -1162,7 +1235,7 @@ function buildHandoffContinuationResponseInstructions(input: {
     announcementText !== undefined && !input.handoffAnnouncementAlreadySpoken
       ? "Immediately after that sentence, continue helping the caller as the active agent in this same response."
       : "Continue helping the caller as the active agent in this same response.",
-    ...(callerNeedSummary === undefined ? [] : [`Caller need: ${trimTerminalPunctuation(callerNeedSummary)}.`]),
+    "Continue from the handoff context supplied as conversation data.",
     "Use your agent instructions and available tools. If you need an invoice, account, order, or ticket reference, ask for that next.",
   ].join(" ");
 }
@@ -1198,10 +1271,6 @@ function resolvePremiumRealtimeActiveAgentConfig(
   return Array.isArray(manifest.graph?.nodes)
     ? resolveRuntimeAgent(manifest, activeAgentId)
     : undefined;
-}
-
-function trimTerminalPunctuation(value: string): string {
-  return value.trim().replace(/[.!?]+$/u, "");
 }
 
 function buildSourceHandoffAnnouncementResponseInstructions(announcementText: string) {
@@ -1446,6 +1515,8 @@ function resolvePremiumRealtimeHandoffTargetSession(input: {
     manifest: input.manifest,
     activeAgentId: targetAgent.agentId,
     budgetAllowed: true,
+    promptPolicyRevision: input.sourceSession.promptPolicyRevision,
+    promptPolicyHash: input.sourceSession.promptPolicyHash,
     resolvedProviderConfig: resolvePremiumRealtimeProviderSessionConfig({
       policy: input.conversationPolicy,
       mediaProfile: input.sourceSession.providerConfig.mediaProfile,
@@ -1504,7 +1575,6 @@ function resolvePremiumRealtimeHandoffTargetSession(input: {
       },
       continuation: {
         instruction: buildHandoffContinuationResponseInstructions({
-          activeAgentName: targetAgent.name,
           routeEvents: input.routeEvents,
           output: input.output,
           handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,

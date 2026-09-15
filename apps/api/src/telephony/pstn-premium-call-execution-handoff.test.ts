@@ -84,7 +84,9 @@ describe("PstnPremiumCallExecution handoff", () => {
       expect(harness.connections[1]!.sent).toEqual([
         {
           type: "response.create",
-          response: { instructions: "Continue as James without repeating the handoff announcement." },
+          response: { instructions: expect.stringMatching(
+            /# Platform Rules[\s\S]+# Business Configuration[\s\S]+# Response Directive[\s\S]+Continue as James/,
+          ) },
         },
       ]);
       expect(harness.connections[0]!.closedReasons).toEqual(["provider_agent_handoff"]);

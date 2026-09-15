@@ -194,7 +194,7 @@ export class OpenAiRealtimeAdapter {
       session: {
         type: "realtime",
         model: this.config.model,
-        instructions: appendLanguageInstructions(this.config.systemPrompt, this.config.language),
+        instructions: this.config.systemPrompt,
         output_modalities: ["audio"],
         audio: {
           input: {
@@ -523,6 +523,9 @@ export class OpenAiRealtimeAdapter {
     metadata?: Record<string, string> | undefined;
   }) {
     const instructions = input?.instructions?.trim();
+    const responseInstructions = instructions === undefined || instructions.length === 0
+      ? undefined
+      : `${this.config.systemPrompt}\n\n# Response Directive\n${instructions}`;
     const metadata = validateOpenAiResponseMetadata(input?.metadata);
 
     return {
@@ -530,10 +533,10 @@ export class OpenAiRealtimeAdapter {
         ? { event_id: createClientEventId("response_create", input.providerCallId) }
         : {}),
       type: "response.create",
-      ...((instructions !== undefined && instructions.length > 0) || metadata !== undefined
+      ...(responseInstructions !== undefined || metadata !== undefined
         ? {
             response: {
-              ...(instructions !== undefined && instructions.length > 0 ? { instructions } : {}),
+              ...(responseInstructions !== undefined ? { instructions: responseInstructions } : {}),
               ...(metadata !== undefined ? { metadata } : {}),
             },
           }
@@ -859,30 +862,4 @@ function redactProviderErrorMessage(message: string) {
 
 function createClientEventId(kind: "function_call_output" | "response_create", providerCallId: string) {
   return `zara_${kind}_${providerCallId.replace(/[^a-zA-Z0-9._:-]/g, "_")}`;
-}
-
-function appendLanguageInstructions(systemPrompt: string, language: string | undefined) {
-  if (language === undefined || language.trim().length === 0) {
-    return systemPrompt;
-  }
-
-  const normalizedLanguage = language.trim().toLowerCase();
-  if (normalizedLanguage === "en" || normalizedLanguage.startsWith("en-")) {
-    return [
-      systemPrompt,
-      "",
-      "# Language",
-      "- The conversation will be only in English.",
-      "- Do not respond in any other language even if the caller uses another language.",
-      "- If the caller speaks another language, politely explain that support is limited to English.",
-    ].join("\n");
-  }
-
-  return [
-    systemPrompt,
-    "",
-    "# Language",
-    `- The conversation will be only in ${language}.`,
-    `- Do not respond in any language other than ${language}.`,
-  ].join("\n");
 }

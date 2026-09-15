@@ -29,6 +29,7 @@ import {
 } from "./platform-admin.service";
 import type {
   CreateRuntimePromptPolicyAgentClassInput,
+  PromoteRuntimePromptPolicyRevisionInput,
   UpdateRuntimePromptPolicyInput,
 } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import type {
@@ -206,6 +207,20 @@ export class PlatformAdminController {
     assertCanMutate(context);
 
     return this.platformAdminService.updateRuntimePromptPolicy(context, body);
+  }
+
+  @Post("runtime/prompt-policy/revisions/:revision/promote")
+  async promoteRuntimePromptPolicyRevision(
+    @Req() request: Record<string | symbol, unknown>,
+    @Param("revision") revision: string,
+    @Body() body: PromoteRuntimePromptPolicyRevisionInput,
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context);
+    return this.platformAdminService.promoteRuntimePromptPolicyRevision(context, {
+      ...body,
+      revision: Number(revision),
+    });
   }
 
   @Patch("runtime/route-policy")

@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
 import type { TurnRuntimePacket } from "@zara/core";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
+import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { hashRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.repository";
 import { baseProviderMessageInput, basePacket, buildRoutePolicyManifest, buildConcreteAgentConfigRoutePolicyManifest, withTargetRealtimeConfig, withAgentRealtimeConfig, openAiHandoffMessage, openAiResponseDone, openAiResponseCreated, handoffResponseMetadata, createLoop } from "./runtime-sessions.service.test-support";
 
 describe("RuntimeSessionsService handoff", () => {
   it("handles OpenAI internal handoff tool calls without executing connector grants", async () => {
       const loop = createLoop();
-      const service = new RuntimeSessionsService(loop);
+      const promptPolicy = {
+        ...structuredClone(defaultRuntimePromptPolicy),
+        guardrails: ["UNIQUE HANDOFF PLATFORM RULE"],
+      };
+      const service = new RuntimeSessionsService(loop, {
+        selectPromptPolicy: async () => ({
+          revision: promptPolicy.version,
+          hash: hashRuntimePromptPolicy(promptPolicy),
+          policy: promptPolicy,
+        }),
+      });
       const manifest = buildRoutePolicyManifest();
       const session = await service.createRealtimeSession({
         manifest,
@@ -64,7 +76,7 @@ describe("RuntimeSessionsService handoff", () => {
         expect.objectContaining({
           type: "response.create",
           response: {
-            instructions: "Say exactly this handoff message to the caller, then stop: \"I'll connect you with Billing specialist.\"",
+            instructions: expect.stringContaining("Say exactly this handoff message to the caller, then stop: \"I'll connect you with Billing specialist.\""),
             metadata: handoffResponseMetadata(),
           },
         }),
@@ -80,6 +92,7 @@ describe("RuntimeSessionsService handoff", () => {
         activeAgentId: "agent-billing",
         callerNeedSummary: "Francis wants the status of a pending invoice.",
       });
+      expect(JSON.stringify(result.providerMessages[1])).toContain("UNIQUE HANDOFF PLATFORM RULE");
 
       await service.processProviderMessage({
         ...baseProviderMessageInput(),
@@ -164,7 +177,7 @@ describe("RuntimeSessionsService handoff", () => {
         expect.objectContaining({
           type: "session.update",
           session: expect.objectContaining({
-            instructions: expect.stringContaining("You are Billing specialist"),
+            instructions: expect.stringContaining('"name":"Billing specialist"'),
             tools: [
               expect.objectContaining({
                 description: expect.stringContaining("Search invoices"),
@@ -179,6 +192,7 @@ describe("RuntimeSessionsService handoff", () => {
           },
         }),
       ]);
+      expect(JSON.stringify(handoffResult.providerMessages[1])).toContain("UNIQUE HANDOFF PLATFORM RULE");
     });
 
   it("does not repeat the handoff announcement when the OpenAI handoff response already spoke one", async () => {
@@ -245,6 +259,12 @@ describe("RuntimeSessionsService handoff", () => {
       expect(routeContinuationMessage?.response.instructions).toContain(
         "Continue helping the caller as the active agent in this same response.",
       );
+      expect(routeContinuationMessage?.response.instructions).not.toContain(
+        "Francis wants the status of a pending invoice.",
+      );
+      expect(JSON.stringify(result.providerMessages)).toContain(
+        "Francis wants the status of a pending invoice.",
+      );
     });
 
   it("continues OpenAI handoffs with concrete agent config before stale role snapshots", async () => {
@@ -303,7 +323,7 @@ describe("RuntimeSessionsService handoff", () => {
           message.type === "session.update",
       );
       expect(sessionUpdate?.session).toMatchObject({
-        instructions: expect.stringContaining("You are James Billing"),
+        instructions: expect.stringContaining('"name":"James Billing"'),
         audio: {
           output: {
             voice: "verse",
@@ -488,7 +508,7 @@ describe("RuntimeSessionsService handoff", () => {
           callerNeedSummary: "Francis wants the status of a pending invoice.",
         },
         continuation: {
-          instruction: expect.stringContaining("You are now Billing specialist."),
+          instruction: expect.stringContaining("Continue as the configured active agent."),
         },
       });
       expect(result.providerMessages).toEqual([]);

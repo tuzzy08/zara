@@ -33,14 +33,7 @@ describe("OpenAiRealtimeAdapter", () => {
       session: {
         type: "realtime",
         model: "gpt-realtime",
-        instructions: [
-          "Configured prompt",
-          "",
-          "# Language",
-          "- The conversation will be only in English.",
-          "- Do not respond in any other language even if the caller uses another language.",
-          "- If the caller speaks another language, politely explain that support is limited to English.",
-        ].join("\n"),
+        instructions: "Configured prompt",
         output_modalities: ["audio"],
         audio: {
           input: {
@@ -319,7 +312,7 @@ describe("OpenAiRealtimeAdapter", () => {
       event_id: "zara_response_create_openai-call-1",
       type: "response.create",
       response: {
-        instructions: "Tell the caller they are being routed to Billing.",
+        instructions: "Configured prompt\n\n# Response Directive\nTell the caller they are being routed to Billing.",
       },
     });
     expect(adapter.createResponseCreateMessage({
@@ -330,7 +323,7 @@ describe("OpenAiRealtimeAdapter", () => {
     })).toEqual({
       type: "response.create",
       response: {
-        instructions: "Speak the source handoff announcement.",
+        instructions: "Configured prompt\n\n# Response Directive\nSpeak the source handoff announcement.",
         metadata: {
           zara_handoff_transfer_id: "session-1:turn:1:agent-front:agent-billing",
         },

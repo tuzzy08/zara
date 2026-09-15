@@ -2213,6 +2213,9 @@ function assertPremiumDispatchSnapshotIntegrity(snapshot: TelephonyPremiumDispat
     snapshot.resolvedManifest.tenantId !== snapshot.tenantId ||
     snapshot.resolvedManifest.workspaceId !== snapshot.workspaceId ||
     snapshot.resolvedManifest.publishedVersionId !== snapshot.publishedVersionId ||
+    !Number.isSafeInteger(snapshot.promptPolicyRevision) ||
+    snapshot.promptPolicyRevision < 1 ||
+    !/^[a-f0-9]{64}$/.test(snapshot.promptPolicyHash) ||
     !isPremiumWorkerTarget(snapshot.workerTarget) ||
     !isFiniteTimestamp(snapshot.createdAt) ||
     !/^[a-f0-9]{64}$/.test(snapshot.checksum)

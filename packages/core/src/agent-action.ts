@@ -34,6 +34,7 @@ export function parseAgentActionText(text: string, options?: AgentActionParseOpt
   const type = parsed["type"];
 
   if (type === "respond") {
+    assertExactKeys(parsed, ["type", "responseText"]);
     const responseText = parsed["responseText"];
 
     if (typeof responseText !== "string" || responseText.trim().length === 0) {
@@ -47,6 +48,7 @@ export function parseAgentActionText(text: string, options?: AgentActionParseOpt
   }
 
   if (type === "call_tool") {
+    assertExactKeys(parsed, ["type", "toolCallId", "toolAssignmentId", "arguments", "reason"]);
     const toolCallId = parsed["toolCallId"];
     const toolAssignmentId = parsed["toolAssignmentId"];
     const args = parsed["arguments"];
@@ -74,6 +76,7 @@ export function parseAgentActionText(text: string, options?: AgentActionParseOpt
   }
 
   if (type === "handoff_to_agent" && options?.allowHandoffAction === true) {
+    assertExactKeys(parsed, ["type", "targetAgentId", "reason", "callerNeedSummary"]);
     const targetAgentId = parsed["targetAgentId"];
     const reason = parsed["reason"];
     const callerNeedSummary = parsed["callerNeedSummary"];
@@ -98,6 +101,13 @@ export function parseAgentActionText(text: string, options?: AgentActionParseOpt
   }
 
   throw new AgentActionParseError("Unsupported agent action type.");
+}
+
+function assertExactKeys(value: Record<string, unknown>, keys: string[]) {
+  const allowed = new Set(keys);
+  if (Object.keys(value).some((key) => !allowed.has(key))) {
+    throw new AgentActionParseError("Agent action contains unexpected fields.");
+  }
 }
 
 function parseJsonObject(text: string): Record<string, unknown> {

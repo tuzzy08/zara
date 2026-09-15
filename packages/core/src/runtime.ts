@@ -12,6 +12,7 @@ import type {
   TelemetryPolicy,
   TelephonyOwnershipMode,
   TelephonyProvider,
+  TextModelProviderId,
   ToolDefinition,
   VoiceRuntimeKind,
   WorkflowNode,
@@ -209,6 +210,8 @@ export interface SandwichSttProvider {
 
 export interface SandwichTextModelProvider {
   streamText(input: {
+    abortSignal?: AbortSignal | undefined;
+    callSessionId?: ID | undefined;
     manifest: CompiledRuntimeManifest;
     activeAgent: RuntimeAgentDefinition;
     transcript: string;
@@ -217,7 +220,26 @@ export interface SandwichTextModelProvider {
     agentContext?: AgentTurnContext | undefined;
     agentActionMode?: boolean | undefined;
     untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
+    promptPolicy?: SandwichPromptPolicy | undefined;
   }): AsyncIterable<string>;
+}
+
+export interface SandwichPromptPolicy {
+  guardrails: string[];
+  agentClassTemplates: Partial<Record<string, {
+    basePrompt: string;
+    modelDefaults?: {
+      text: {
+        provider: TextModelProviderId;
+        modelTier: Exclude<ModelTier, "rules">;
+        modelId?: string | undefined;
+      };
+      realtime: {
+        provider: RealtimeProviderId;
+        modelId?: string | undefined;
+      };
+    } | undefined;
+  }>>;
 }
 
 export type RuntimeUntrustedContextSource =
@@ -413,6 +435,8 @@ export interface PremiumRealtimeSession {
   runtime: RealtimeProviderId;
   policy: "premium-realtime";
   model: string;
+  promptPolicyRevision: number;
+  promptPolicyHash: string;
   providerConfig: PremiumRealtimeProviderSessionConfig;
   voice: RuntimeTtsVoice;
   transportUrl: string;
@@ -959,6 +983,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       } else if (input.tts.synthesizeStreaming !== undefined) {
         const responseChunks: string[] = [];
         const modelStream = input.model.streamText({
+          callSessionId: turnInput.callSessionId,
           manifest: turnInput.manifest,
           activeAgent,
           transcript,
@@ -1042,6 +1067,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       } else {
         try {
           for await (const chunk of input.model.streamText({
+            callSessionId: turnInput.callSessionId,
             manifest: turnInput.manifest,
             activeAgent,
             transcript,
@@ -1315,6 +1341,8 @@ export function createPremiumRealtimeSession(input: {
   activeAgentId: ID;
   budgetAllowed: boolean;
   resolvedProviderConfig: PremiumRealtimeProviderSessionConfig;
+  promptPolicyRevision?: number | undefined;
+  promptPolicyHash?: string | undefined;
   now?: (() => string) | undefined;
   ttlMinutes?: number | undefined;
 }): PremiumRealtimeSession {
@@ -1346,6 +1374,8 @@ export function createPremiumRealtimeSession(input: {
     runtime: providerConfig.provider,
     policy: "premium-realtime",
     model: providerConfig.model,
+    promptPolicyRevision: input.promptPolicyRevision ?? 0,
+    promptPolicyHash: input.promptPolicyHash ?? "unversioned",
     providerConfig,
     voice: runtimeProfile.ttsVoice,
     transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(`${input.manifest.manifestId}:premium-session`)}/stream`,

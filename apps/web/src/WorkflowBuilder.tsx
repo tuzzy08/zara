@@ -40,6 +40,7 @@ import { Button, Select } from "@zara/ui";
 
 import {
   buildRuntimeManifestPreview,
+  maxAgentInstructionsCharacters,
   createAgentRoleNode,
   createEndNode,
   createHumanEscalationNode,
@@ -3166,6 +3167,8 @@ function AgentRoleInspector({
           <textarea
             aria-invalid={instructionsMissing ? true : undefined}
             value={role.instructions}
+            maxLength={maxAgentInstructionsCharacters}
+            placeholder={"Purpose: What should the agent achieve?\nProcess: What should it ask and do?\nTools: When should it use assigned tools?\nLimits: What must it never promise?\nHandoff: When should it transfer?\nStyle and examples: How should it answer?"}
             rows={6}
             onChange={(event) => onChange({ instructions: event.target.value })}
           />
@@ -4335,6 +4338,7 @@ function AgentRoleLanguageSettings({
         <span>English prompt</span>
         <textarea
           value={languagePrompts.en ?? ""}
+          maxLength={maxAgentInstructionsCharacters}
           rows={3}
           onChange={(event) =>
             onChange({

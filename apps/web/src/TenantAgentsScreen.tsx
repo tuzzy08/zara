@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bot, Plus, Wrench } from "lucide-react";
 import { Button, Card, Empty, Input, Select, Textarea } from "@zara/ui";
-import type { IntegrationProviderCatalogEntry } from "@zara/core";
+import { maxAgentInstructionsCharacters, type IntegrationProviderCatalogEntry } from "@zara/core";
 
 import { TenantPageIntro } from "./TenantPageIntro";
 import { TenantSectionHeader } from "./TenantSectionHeader";
@@ -294,8 +294,9 @@ export function TenantAgentsScreen({ organizationId, organizationName, activeWor
               <Textarea
                 aria-label="Instructions"
                 value={draft.instructions}
+                maxLength={maxAgentInstructionsCharacters}
                 onChange={(event) => updateDraft({ instructions: event.target.value })}
-                placeholder="Describe the agent's job, boundaries, and escalation behavior."
+                placeholder={"Purpose: What should the agent achieve?\nProcess: What should it ask and do?\nTools: When should it use assigned tools?\nLimits: What must it never promise?\nHandoff: When should it transfer?\nStyle and examples: How should it answer?"}
               />
             </label>
           </div>

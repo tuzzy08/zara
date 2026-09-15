@@ -219,6 +219,8 @@ export function createPremiumSnapshotResolution(input: {
     resolvedConversationPolicy: structuredClone(
       defaultPremiumRealtimeConversationPolicy,
     ),
+    promptPolicyRevision: 1,
+    promptPolicyHash: "a".repeat(64),
   };
 }
 

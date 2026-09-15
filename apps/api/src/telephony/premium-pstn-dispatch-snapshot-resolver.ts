@@ -14,6 +14,8 @@ import {
 export interface PremiumPstnDispatchSnapshotResolution {
   resolvedManifest: CompiledRuntimeManifest;
   resolvedConversationPolicy: PremiumRealtimeConversationPolicy;
+  promptPolicyRevision: number;
+  promptPolicyHash: string;
 }
 
 @Injectable()
@@ -27,7 +29,7 @@ export class PremiumPstnDispatchSnapshotResolver {
     @Inject(RuntimePromptPolicyService)
     private readonly promptPolicyService: Pick<
       RuntimePromptPolicyService,
-      "getPromptPolicy"
+      "selectPromptPolicy"
     >,
     @Inject(PremiumRealtimeConversationPolicyService)
     private readonly conversationPolicyService: Pick<
@@ -59,18 +61,20 @@ export class PremiumPstnDispatchSnapshotResolver {
       );
     }
 
-    const [promptPolicy, conversationPolicy] = await Promise.all([
-      this.promptPolicyService.getPromptPolicy(),
+    const [promptPolicySelection, conversationPolicy] = await Promise.all([
+      this.promptPolicyService.selectPromptPolicy(),
       this.conversationPolicyService.getPolicy(),
     ]);
     return {
       resolvedManifest: structuredClone(
         applyRuntimePromptPolicyModelDefaultsToManifest(
           manifest,
-          promptPolicy,
+          promptPolicySelection.policy,
         ),
       ),
       resolvedConversationPolicy: structuredClone(conversationPolicy),
+      promptPolicyRevision: promptPolicySelection.revision,
+      promptPolicyHash: promptPolicySelection.hash,
     };
   }
 }

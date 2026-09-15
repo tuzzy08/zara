@@ -160,6 +160,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         actorUserId: input.registered.actorUserId,
         session: input.registered.session,
         manifest: input.registered.manifest,
+        promptPolicy: input.registered.promptPolicy,
       });
     } catch (error) {
       input.client.send(JSON.stringify({
@@ -189,6 +190,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
               actorUserId: input.registered.actorUserId,
               session: input.registered.session,
               manifest: input.registered.manifest,
+              promptPolicy: input.registered.promptPolicy,
             });
             bindProviderConnection(nextConnection);
             connection.close(1000, "provider_voice_handoff");

@@ -20,6 +20,22 @@ describe("AgentsController", () => {
     vi.unstubAllGlobals();
   });
 
+  it("rejects oversized agent instructions through the API", async () => {
+    const app = await createTestingApp();
+    try {
+      const response = await withTestTenantAuth(request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/agents").send({
+          workspaceId: "workspace-default", name: "Support", businessName: "Eval business",
+          agentClass: "support", instructions: "a".repeat(12_001), defaultLanguage: "en",
+          runtimeProfile: "cost-optimized",
+        }));
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain("12000 characters");
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
+
   it("requires tenant membership for reusable agent routes", async () => {
     const app = await createTestingApp({ tenantAuth: false });
 

@@ -89,8 +89,8 @@ describe("GeminiChatTextProvider", () => {
       }>;
     };
 
-    expect(body.systemInstruction?.parts?.[0]?.text).toContain("Configured voice-agent identity:");
-    expect(body.systemInstruction?.parts?.[0]?.text).toContain("Platform guardrails:");
+    expect(body.systemInstruction?.parts?.[0]?.text).toContain("# Business Configuration");
+    expect(body.systemInstruction?.parts?.[0]?.text).toContain("# Platform Rules");
     expect(body.contents).toEqual([
       {
         role: "user",
@@ -101,7 +101,36 @@ describe("GeminiChatTextProvider", () => {
         ],
       },
     ]);
-    expect(body.contents?.[0]?.parts[0]?.text).toContain("Respond with the exact spoken reply only.");
+    expect(body.systemInstruction?.parts?.[0]?.text).toContain("Respond with the exact spoken reply only.");
+    expect(body.contents?.[0]?.parts[0]?.text).not.toContain("Respond with the exact spoken reply only.");
+    expect(body).toMatchObject({
+      generationConfig: {
+        maxOutputTokens: 512,
+      },
+    });
+  });
+
+  it("uses a response schema for agent actions", async () => {
+    let body: Record<string, unknown> | undefined;
+    const provider = new GeminiChatTextProvider({
+      apiKey: "gemini-test-key",
+      fetch: (async (_url, init) => {
+        body = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"action":{"type":"respond","responseText":"Hello"}}' }] } }] }));
+      }) as typeof fetch,
+    });
+
+    await collect(provider.streamText({
+      manifest: createManifest(), activeAgent: createAgent(), transcript: "Hello",
+      tier: "cheap", context: { callPhase: "greeting" }, agentActionMode: true,
+      agentContext: { latestCallerTurn: "Hello", recentTranscript: [], availableActions: [], toolResults: [] },
+    }));
+
+    expect(body).toMatchObject({ generationConfig: {
+      responseMimeType: "application/json",
+      maxOutputTokens: 1_024,
+      responseJsonSchema: { type: "object", additionalProperties: false },
+    } });
   });
 
   it("throws provider error messages from failed Gemini responses", async () => {

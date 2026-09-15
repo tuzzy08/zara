@@ -1,5 +1,19 @@
 # Data Model
 
+## Runtime Prompt Policy Revisions
+
+Migration `0040_runtime_prompt_policy_revisions.sql` adds three tables:
+
+- `runtime_prompt_policy_revisions`: immutable policy JSON, revision number, content hash, and creation time.
+- `runtime_prompt_policy_current`: one pointer to the current revision. A database function checks the expected version and writes the next revision atomically.
+- `runtime_prompt_policy_session_pins`: one saved revision and hash for each session key. Session keys include the runtime path and organization scope. Reopening the same session selects the saved revision.
+
+On first startup, the Postgres repository imports the current legacy file policy if one exists. Otherwise, it stores the built-in default as the initial revision. Later starts retain the stored policy. Policy reads verify the content hash. Premium PSTN dispatch snapshots also carry the selected revision and hash inside their checksum. A worker must load that exact revision before it starts the provider session.
+
+Rollback promotes an older policy as a new revision. It does not modify history or change active session selections. Apply migration 0040 before starting the updated API.
+
+Drain calls created by the previous release before replacing their workers. Older premium dispatch snapshots do not contain a prompt revision and hash. The updated worker rejects such snapshots; it must not substitute the latest policy for an unknown call-start policy.
+
 ## Core Entities
 
 - organizations

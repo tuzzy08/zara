@@ -91,6 +91,7 @@ export interface LiveSandboxTurnRoutePacketInput {
 }
 
 export interface LiveSandboxIntentClassifierInput {
+  abortSignal?: AbortSignal | undefined;
   nodeId: string;
   modelAlias: "intent-classifier-fast";
   confidenceThreshold: number;

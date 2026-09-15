@@ -7,7 +7,7 @@ export interface RuntimeEvalOutput {
   selectedTargetNodeId?: string | undefined;
   usedFallback?: boolean | undefined;
   toolCallIds?: string[] | undefined;
-  missingInputRequested?: boolean | undefined;
+  missingInputRejected?: boolean | undefined;
   transferTargetAgentId?: string | undefined;
   transferContext?: {
     sourceAgentId?: string | undefined;
@@ -105,14 +105,14 @@ export function scoreRuntimeEvalExample(
     );
   }
 
-  if (reference.expectedMissingInputQuestion !== undefined) {
+  if (reference.expectedMissingInputRejection !== undefined) {
     setScore(
       scores,
       explanations,
       "missingInputBehavior",
-      output.missingInputRequested === reference.expectedMissingInputQuestion
+      output.missingInputRejected === reference.expectedMissingInputRejection
         && (output.toolCallIds ?? []).length === 0,
-      "Expected the agent to ask for missing inputs instead of executing the tool.",
+      "Expected the server to reject a tool request with missing required inputs.",
     );
   }
 
@@ -170,48 +170,6 @@ export function scoreRuntimeEvalExample(
   };
 }
 
-export function createReferenceRuntimeEvalOutput(example: RuntimeEvalExample): RuntimeEvalOutput {
-  return {
-    ...(example.referenceOutputs.selectedIntentKey !== undefined
-      ? { selectedIntentKey: example.referenceOutputs.selectedIntentKey }
-      : {}),
-    ...(example.referenceOutputs.selectedTargetNodeId !== undefined
-      ? { selectedTargetNodeId: example.referenceOutputs.selectedTargetNodeId }
-      : {}),
-    ...(example.referenceOutputs.expectedFallbackUsed !== undefined
-      ? { usedFallback: example.referenceOutputs.expectedFallbackUsed }
-      : {}),
-    ...(example.referenceOutputs.expectedToolCallIds !== undefined
-      ? { toolCallIds: example.referenceOutputs.expectedToolCallIds }
-      : {}),
-    ...(example.referenceOutputs.expectedMissingInputQuestion !== undefined
-      ? { missingInputRequested: example.referenceOutputs.expectedMissingInputQuestion }
-      : {}),
-    ...(example.referenceOutputs.expectedTransferTargetAgentId !== undefined
-      ? { transferTargetAgentId: example.referenceOutputs.expectedTransferTargetAgentId }
-      : {}),
-    ...(example.referenceOutputs.expectedTransferContext !== undefined
-      ? {
-          transferContext: {
-            sourceAgentId: example.referenceOutputs.expectedTransferContext.sourceAgentId,
-            reason: example.referenceOutputs.expectedTransferContext.reasonIncludes,
-            callerNeedSummary: example.referenceOutputs.expectedTransferContext.callerNeedSummaryIncludes,
-            ...(example.referenceOutputs.expectedTransferContext.matchedIntentKey !== undefined
-              ? { matchedIntentKey: example.referenceOutputs.expectedTransferContext.matchedIntentKey }
-              : {}),
-            ...(example.referenceOutputs.expectedTransferContext.safeToolSummaryIncludes !== undefined
-              ? { safeToolSummaries: [example.referenceOutputs.expectedTransferContext.safeToolSummaryIncludes] }
-              : {}),
-          },
-        }
-      : {}),
-    ...(example.referenceOutputs.expectedPolicyWarnings !== undefined
-      ? { policyWarnings: example.referenceOutputs.expectedPolicyWarnings }
-      : {}),
-    redactedTrace: `${example.id} safe redacted trace`,
-  };
-}
-
 export function createLlmJudgeEvaluatorPlan(input: {
   modelAlias: string;
   promptVersion: string;
@@ -253,7 +211,7 @@ export function createLlmJudgeEvaluatorPlan(input: {
 export function resolveRuntimeEvalRunConfig(
   env: Record<string, string | undefined> = process.env,
 ): RuntimeEvalRunConfig {
-  const datasetVersion = env["RUNTIME_EVAL_DATASET_VERSION"]?.trim() || "v1";
+  const datasetVersion = env["RUNTIME_EVAL_DATASET_VERSION"]?.trim() || "v2";
   const modelAlias = env["RUNTIME_EVAL_MODEL_ALIAS"]?.trim() || "local-fixture";
   const releaseVersion = env["ZARA_RELEASE_VERSION"]?.trim() || "local";
   const project = env["LANGSMITH_PROJECT"]?.trim() || "zara-runtime-evals";
@@ -293,8 +251,8 @@ function normalizeOutput(rawOutput: Record<string, unknown>): RuntimeEvalOutput 
     ...(Array.isArray(rawOutput["toolCallIds"])
       ? { toolCallIds: rawOutput["toolCallIds"].filter((value): value is string => typeof value === "string") }
       : {}),
-    ...(typeof rawOutput["missingInputRequested"] === "boolean"
-      ? { missingInputRequested: rawOutput["missingInputRequested"] }
+    ...(typeof rawOutput["missingInputRejected"] === "boolean"
+      ? { missingInputRejected: rawOutput["missingInputRejected"] }
       : {}),
     ...(typeof rawOutput["transferTargetAgentId"] === "string"
       ? { transferTargetAgentId: rawOutput["transferTargetAgentId"] }

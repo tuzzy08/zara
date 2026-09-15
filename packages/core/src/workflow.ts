@@ -429,6 +429,7 @@ export type WorkflowValidationErrorCode =
   | "agent.missing_business_name"
   | "agent.duplicate_name"
   | "agent.missing_instructions"
+  | "agent.instructions_too_long"
   | "agent.missing_model_tier"
   | "agent.missing_default_language"
   | "agent.missing_supported_language"
@@ -446,6 +447,8 @@ export type WorkflowValidationErrorCode =
   | "condition.invalid_fallback"
   | "escalation.missing_queue"
   | "escalation.missing_fallback_message";
+
+export const maxAgentInstructionsCharacters = 12_000;
 
 export interface WorkflowValidationError {
   code: WorkflowValidationErrorCode;
@@ -1518,6 +1521,15 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
         nodeId: node.id,
         message: `Agent role '${node.label}' has no instructions.`,
         suggestion: "Write the operating instructions this specialist should follow before publishing.",
+      });
+    }
+
+    if (instructions.length > maxAgentInstructionsCharacters || Object.values(languagePrompts).some((prompt) => prompt.length > maxAgentInstructionsCharacters)) {
+      errors.push({
+        code: "agent.instructions_too_long",
+        nodeId: node.id,
+        message: `Agent instructions must not exceed ${maxAgentInstructionsCharacters} characters per prompt.`,
+        suggestion: "Shorten the agent instructions or language prompt before publishing.",
       });
     }
 

@@ -56,6 +56,14 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     return this.getOrCreateSocket().then(() => undefined);
   }
 
+  close(reason: "tts_call_stopped" | "tts_interrupted" = "tts_call_stopped"): void {
+    const socket = this.socket;
+    this.socket = null;
+    this.socketPromise = null;
+    this.failActiveContexts(new RuntimeProviderFailure("tts", "interrupted", "Cartesia call stopped."));
+    socket?.close(1000, reason);
+  }
+
   async synthesize(input: SandwichTtsSynthesisInput): Promise<SandwichTtsResult> {
     const output = resolveOutputConfig(input);
     const context = this.createContext(input.abortSignal, output.codec);
@@ -81,14 +89,13 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     const output = resolveOutputConfig(input);
     const context = this.createContext(input.abortSignal, output.codec);
     void context.doneResult.catch(() => {});
-    const socket = await this.getOrCreateSocket();
-
-    void this.sendTextContinuations({
+    void context.firstAudioResult.catch(() => {});
+    void this.getOrCreateSocket().then(socket => this.sendTextContinuations({
       input,
       socket,
       contextId: context.contextId,
       output,
-    }).catch((error) => {
+    })).catch((error) => {
       context.fail(error instanceof Error ? error : new Error("Cartesia text streaming failed."));
     });
 
@@ -102,8 +109,10 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     output: ResolvedCartesiaOutputConfig;
   }) {
     const voice = await this.resolveVoiceSettings(input.input);
+    input.input.abortSignal?.throwIfAborted();
 
     for await (const chunk of input.input.textStream) {
+      input.input.abortSignal?.throwIfAborted();
       if (chunk.length === 0) {
         continue;
       }
@@ -119,6 +128,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
       })));
     }
 
+    input.input.abortSignal?.throwIfAborted();
     input.socket.send(JSON.stringify(this.adapter.createGenerationRequest({
       transcript: "",
       contextId: input.contextId,
@@ -191,7 +201,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
         "Cartesia streaming session was interrupted.",
       );
 
-      this.socket?.close(1000, "tts_interrupted");
+      this.close("tts_interrupted");
       fail(failure);
     };
 
@@ -242,23 +252,26 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
         resolve(socket);
       });
       socket.on("message", (buffer) => {
-        this.handleMessage(String(buffer));
+        if (this.socket === socket) this.handleMessage(String(buffer));
       });
       socket.on("close", (code, reason) => {
         const failure = this.adapter.mapCloseToRuntimeFailure({
           code: Number(code ?? 1006),
           reason: reason instanceof Buffer ? reason.toString("utf8") : String(reason ?? ""),
         });
+        reject(failure);
+        if (this.socket !== socket) return;
         this.failActiveContexts(failure);
         this.socket = null;
         this.socketPromise = null;
       });
       socket.on("error", (error) => {
         const failure = error instanceof Error ? error : new Error("Cartesia websocket error.");
+        reject(failure);
+        if (this.socket !== socket) return;
         this.failActiveContexts(failure);
         this.socket = null;
         this.socketPromise = null;
-        reject(failure);
       });
     });
 
@@ -266,7 +279,14 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
   }
 
   private handleMessage(raw: string) {
-    const parsed = this.adapter.parseMessage(raw);
+    let parsed: ReturnType<CartesiaStreamingAdapter["parseMessage"]>;
+    try {
+      parsed = this.adapter.parseMessage(raw);
+    } catch {
+      this.failActiveContexts(new RuntimeProviderFailure("tts", "failed", "Cartesia sent an invalid message."));
+      this.socket?.close(1002, "invalid_provider_message");
+      return;
+    }
 
     if (parsed === null) {
       return;

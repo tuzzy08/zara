@@ -4,6 +4,7 @@ import type { INestApplication } from "@nestjs/common";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import request from "supertest";
 import {
   compileRuntimeManifest,
@@ -20,6 +21,18 @@ import {
 import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
+import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { usageRecordingTestPool } from "../billing/provider-usage-recording.test-support";
+
+vi.mock("ws", async importOriginal => ({
+  ...await importOriginal<typeof import("ws")>(),
+  default: class {
+    on() { return this; }
+    send() {}
+    close() {}
+  },
+}));
 
 const routingRules: ModelRoutingRule[] = [
   {
@@ -77,6 +90,80 @@ describe("SandboxLiveSessionsController", () => {
       process.env.CARTESIA_API_KEY = originalCartesiaApiKey;
     }
   });
+
+  it("records streaming usage with the server-owned sandbox tenant and session", async () => {
+    const pool = usageRecordingTestPool();
+    const recorder = new ProviderUsageRecordingRepository(pool);
+    const socket = Object.assign(new EventEmitter(), { send() {}, close() { socket.emit("close", 1000); } });
+    let connected = false;
+    const provider = new AssemblyAiSttProvider({ apiKey: "test-key", usageRecorder: recorder,
+      websocketFactory: () => { connected = true; return socket; } });
+    const moduleRef = await Test.createTestingModule({ imports: [SandboxLiveSessionsModule] })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER").useValue(provider)
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER").useValue(createConfiguredProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER").useValue(createConfiguredProvider())
+      .compile();
+    try {
+      const service = moduleRef.get(SandboxLiveSessionsService);
+      const session = await service.createSession("tenant-west-africa", { actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default", source: "draft", inputMode: "voice", entryAgentId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-default") });
+      await service.handleClientTransportMessage({ organizationId: "tenant-west-africa", sessionId: session.sessionId,
+        message: { type: "input.audio.append", audioBase64: Buffer.from("audio").toString("base64"), sampleRateHz: 16_000 } });
+      await vi.waitFor(() => expect(connected).toBe(true));
+      socket.emit("open");
+      socket.emit("message", JSON.stringify({ type: "Begin", id: "assembly-server-session" }));
+      service.closeSessionAudioStream({ organizationId: "tenant-west-africa", sessionId: session.sessionId });
+      socket.emit("message", JSON.stringify({ type: "Termination", audio_duration_seconds: 3, session_duration_seconds: 5 }));
+      socket.close();
+      await vi.waitFor(async () => expect(await recorder.listTenantRequests("tenant-west-africa"))
+        .toMatchObject([{ sessionId: session.sessionId, result: { providerRequestId: "assembly-server-session",
+          totals: { sessionDurationSeconds: 5, audioDurationSeconds: 3 } } }]));
+      expect(await recorder.listTenantRequests("tenant-other")).toEqual([]);
+    } finally { await moduleRef.close(); await pool.end(); }
+  }, 15_000);
+
+  it("does not fail a replacement stream when the old stream's termination times out", async () => {
+    const sockets: Array<EventEmitter & { sent: string[]; send(message: unknown): void; close(): void }> = [];
+    const provider = new AssemblyAiSttProvider({ apiKey: "test-key", websocketFactory: () => {
+      const socket = Object.assign(new EventEmitter(), { sent: [] as string[],
+        send(message: unknown) { socket.sent.push(String(message)); }, close() { socket.emit("close", 1000); } });
+      sockets.push(socket);
+      return socket;
+    } });
+    const moduleRef = await Test.createTestingModule({ imports: [SandboxLiveSessionsModule] })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER").useValue(provider)
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER").useValue(createConfiguredProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER").useValue(createConfiguredProvider()).compile();
+    try {
+      const service = moduleRef.get(SandboxLiveSessionsService);
+      const session = await service.createSession("tenant-west-africa", { actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default", source: "draft", inputMode: "voice", entryAgentId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-default") });
+      const scope = { organizationId: "tenant-west-africa", sessionId: session.sessionId };
+      const audio = { type: "input.audio.append" as const, audioBase64: Buffer.from("audio").toString("base64"), sampleRateHz: 16_000 };
+      await service.handleClientTransportMessage({ ...scope, message: audio });
+      sockets[0]!.emit("open");
+      vi.useFakeTimers();
+      service.closeSessionAudioStream(scope);
+      await service.handleClientTransportMessage({ ...scope, message: audio });
+      sockets[1]!.emit("open");
+      vi.advanceTimersByTime(5_000);
+      expect(sockets[1]!.sent).not.toContain('{"type":"Terminate"}');
+      expect(service.getSessionEvents(scope).some(event => event.type === "call.failed")).toBe(false);
+      service.closeSessionAudioStream(scope);
+      sockets[1]!.close();
+    } finally { vi.useRealTimers(); await moduleRef.close(); }
+  }, 15_000);
+
+  it("requires usage scope on the configured AssemblyAI provider", async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [SandboxLiveSessionsModule] }).compile();
+    try {
+      const provider = moduleRef.get<AssemblyAiSttProvider>("LIVE_SANDBOX_STT_PROVIDER");
+      expect(() => provider.createStreamingSession({ sampleRateHz: 16_000, onFinal() {} }))
+        .toThrow("AssemblyAI usage recording requires tenant and session scope.");
+    } finally { await moduleRef.close(); }
+  }, 15_000);
 
   it("requires tenant membership for tenant live sandbox routes", async () => {
     const moduleRef = await Test.createTestingModule({

@@ -348,6 +348,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
       } else {
         try {
           for await (const chunk of input.model.streamText({
+            callSessionId: sessionSnapshot.callSessionId,
             manifest,
             activeAgent,
             transcript,

@@ -3,15 +3,15 @@ import { expect } from "vitest";
 
 import { loadRuntimeEvalFixtures } from "./runtime-eval-fixtures";
 import {
-  createReferenceRuntimeEvalOutput,
   resolveRuntimeEvalRunConfig,
   scoreRuntimeEvalExample,
 } from "./runtime-evaluators";
+import { executeRuntimeEval } from "./runtime-eval-executor";
 
 const runConfig = resolveRuntimeEvalRunConfig();
 
 ls.describe(
-  "zara.runtime.packet-fixtures.v1",
+  "zara.runtime.packet-fixtures.v2",
   () => {
     loadRuntimeEvalFixtures().forEach((fixture) => {
       ls.test(
@@ -25,8 +25,8 @@ ls.describe(
             packetSchema: runConfig.metadata.packetSchema,
           },
         },
-        () => {
-          const output = createReferenceRuntimeEvalOutput(fixture);
+        async () => {
+          const output = await executeRuntimeEval(fixture.inputs);
           const scorecard = scoreRuntimeEvalExample(fixture, output as Record<string, unknown>);
 
           Object.entries(scorecard.scores).forEach(([key, score]) => {

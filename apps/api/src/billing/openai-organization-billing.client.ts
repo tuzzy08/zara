@@ -21,6 +21,15 @@ export interface OpenAiOrganizationCostFact {
   currency: string;
 }
 
+export interface OpenAiOrganizationTranscriptionFact {
+  bucketStartsAt: string;
+  bucketEndsAt: string;
+  projectId: string;
+  model: string | null;
+  seconds: number;
+  requestCount: number;
+}
+
 export interface OpenAiProjectCycleEvidence {
   usage: OpenAiOrganizationUsageFact[];
   costs: OpenAiOrganizationCostFact[];
