@@ -8,6 +8,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 
 ## Required Controls
 
+Optional TypeSafe requests contain purpose-specific safe evidence only. Keep API credentials server-side. Feature modes default to off; shadow mode still sends data externally. Verify provider retention, region, and data-use terms before customer-data use. Model decisions cannot grant tool rights, activate memory, clear sensitivity blockers, or execute transfers. Source revisions and tenant checks remain server-owned. See [the TypeSafe implementation plan](TypeSafe-Implementation-Plan.md).
+
 - Better Auth sessions and organization membership checks.
 - Password reset and email verification must use Zara-owned account-security routes in front of Better Auth. Reset requests return a normalized success response for known and unknown valid emails, and production auth email delivery must be configured with `ZARA_AUTH_EMAIL_WEBHOOK_URL`.
 - Session management UI/API must expose safe session IDs and metadata only. Better Auth session tokens must not be returned to browser code, and revoking another browser's session must make that browser's next auth-context read signed out.

@@ -1,5 +1,11 @@
 # Data Model
 
+## TypeSafe Decision Evidence
+
+Post-call summaries include `businessResolution` and `sourceRevision`. Lifecycle `outcome` can be `unknown`. Completed calls do not imply resolved requests. Summary revisions retain stable action IDs and prior CRM sync records in the existing process-local store.
+
+Optional memory `assessment` and knowledge `kindAssessment` record the selected value, selected probability, distribution confidence, model, question revision, policy revision, and source revision. These are decision evidence, not retrieval scores or approval rights. Existing records without assessment metadata remain readable. TypeSafe does not activate drafts or change billing records. See [the implementation plan](TypeSafe-Implementation-Plan.md).
+
 ## Billing Delivery Decisions
 
 Migration `0041_billing_delivery_decisions.sql` adds the append-only owner decision table. Each row stores its request ID, ordered sequence, enabled state, server time, actor, reason, prior decision ID, and the catalog/release for an enable. The database rejects updates and deletes. `billing_outbox.delivery_decision_id` links eligible new charge events to their decision. Existing rows retain null links and are not automatically delivered.

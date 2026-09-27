@@ -40,6 +40,12 @@ export class SandboxTextModelRouterProvider implements SandwichTextModelProvider
 
     yield* provider.streamText(effectiveInput);
   }
+
+  resolveRequestedModel(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+    const effectiveInput = applyPromptPolicyModelDefaults(input);
+    const provider = this.providers[effectiveInput.activeAgent.modelProvider ?? "openai"];
+    return provider.resolveRequestedModel?.(effectiveInput);
+  }
 }
 
 function applyPromptPolicyModelDefaults(
@@ -56,10 +62,8 @@ function applyPromptPolicyModelDefaults(
 
   return {
     ...input,
-    tier: defaults.text.modelTier,
     activeAgent: {
       ...input.activeAgent,
-      defaultModelTier: defaults.text.modelTier,
       modelProvider: defaults.text.provider,
       ...(defaults.text.modelId !== undefined ? { modelId: defaults.text.modelId } : {}),
       realtimeProvider: input.activeAgent.realtimeProvider ?? defaults.realtime.provider,

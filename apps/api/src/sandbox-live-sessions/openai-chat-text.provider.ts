@@ -55,7 +55,7 @@ export class OpenAiChatTextProvider implements SandwichTextModelProvider {
   }
 
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-    const model = resolveOpenAiModel(input, this.modelByTier);
+    const { modelId: model } = this.resolveRequestedModel(input);
     const messages = buildMessages(input);
     const recordingId = await this.config.usageRecorder?.begin({
       organizationId: input.manifest.tenantId, sessionId: input.callSessionId ?? null,
@@ -117,6 +117,11 @@ export class OpenAiChatTextProvider implements SandwichTextModelProvider {
 
     yield input.agentActionMode === true ? unwrapAgentActionResponse(text, input.agentContext) : text;
   }
+
+  resolveRequestedModel(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+    const explicitModelId = input.activeAgent.modelProvider !== "google-gemini" ? input.activeAgent.modelId?.trim() : undefined;
+    return { provider: "openai" as const, modelId: resolveModelForTier(input.tier, this.modelByTier, explicitModelId) };
+  }
 }
 
 function buildMessages(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -148,23 +153,16 @@ function buildMessages(input: Parameters<SandwichTextModelProvider["streamText"]
   return messages;
 }
 
-function resolveOpenAiModel(
-  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
-  models: Record<Exclude<ModelTier, "rules">, string>,
-) {
-  const explicitModelId = input.activeAgent.modelProvider !== "google-gemini"
-    ? input.activeAgent.modelId?.trim()
-    : undefined;
-
-  return explicitModelId !== undefined && explicitModelId.length > 0
-    ? explicitModelId
-    : resolveModelForTier(input.tier, models);
-}
-
 export function resolveModelForTier(
   tier: ModelTier,
   models: Record<Exclude<ModelTier, "rules">, string>,
+  explicitModelId?: string,
 ) {
+  const tiers = ["cheap", "standard", "sota"] as const;
+  const requiredTier = tier === "rules" ? "cheap" : tier;
+  if (explicitModelId && tiers.slice(tiers.indexOf(requiredTier)).some((candidate) => models[candidate] === explicitModelId)) {
+    return explicitModelId;
+  }
   switch (tier) {
     case "cheap":
       return models.cheap;

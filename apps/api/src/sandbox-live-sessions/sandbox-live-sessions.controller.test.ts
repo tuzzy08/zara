@@ -20,10 +20,11 @@ import {
 
 import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
-import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
+import { SandboxLiveSessionsService, judgePostCallEvidence } from "./sandbox-live-sessions.service";
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
 import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
 import { usageRecordingTestPool } from "../billing/provider-usage-recording.test-support";
+import { TypeSafeClient } from "../ai-judgements/typesafe-client";
 
 vi.mock("ws", async importOriginal => ({
   ...await importOriginal<typeof import("ws")>(),
@@ -51,6 +52,9 @@ const originalIntegrationStateDirectory = process.env.ZARA_INTEGRATION_STATE_DIR
 const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
 const originalAssemblyAiApiKey = process.env.ASSEMBLYAI_API_KEY;
 const originalCartesiaApiKey = process.env.CARTESIA_API_KEY;
+const originalTypeSafePostCallMode = process.env.TYPESAFE_POST_CALL_MODE;
+const originalTypeSafeApiKey = process.env.TYPESAFE_API_KEY;
+const originalTypeSafeModel = process.env.TYPESAFE_MODEL;
 let tempIntegrationStateDirectory = "";
 
 describe("SandboxLiveSessionsController", () => {
@@ -61,6 +65,15 @@ describe("SandboxLiveSessionsController", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [key, value] of Object.entries({
+      TYPESAFE_POST_CALL_MODE: originalTypeSafePostCallMode,
+      TYPESAFE_API_KEY: originalTypeSafeApiKey,
+      TYPESAFE_MODEL: originalTypeSafeModel,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     if (tempIntegrationStateDirectory.length > 0) {
       rmSync(tempIntegrationStateDirectory, { recursive: true, force: true });
       tempIntegrationStateDirectory = "";
@@ -1226,19 +1239,11 @@ describe("SandboxLiveSessionsController", () => {
       workspaceId: "workspace-default",
       sessionId,
       outcome: "human_escalated",
-      disposition: "callback_requested",
+      businessResolution: "unknown",
+      disposition: "needs_review",
       createdByUserId: "user-ops-lead",
       createdAt: "2026-05-19T17:05:00.000Z",
-      actionItems: [
-        expect.objectContaining({
-          label: "Schedule callback",
-          status: "open",
-        }),
-        expect.objectContaining({
-          label: "Review billing issue",
-          status: "open",
-        }),
-      ],
+      actionItems: [expect.objectContaining({ label: "Review call outcome", status: "open" })],
       crmSync: {
         status: "queued",
         provider: "hubspot",
@@ -1260,12 +1265,129 @@ describe("SandboxLiveSessionsController", () => {
       type: "post_call.summary.created",
       payload: {
         summaryId: summaryResponse.body.summary.summaryId,
-        disposition: "callback_requested",
+        disposition: "needs_review",
         crmSyncStatus: "queued",
       },
     });
 
     await app.close();
+  }, 15_000);
+
+  it("uses post-call judgments for outstanding work and reuses the same source result", async () => {
+    process.env.TYPESAFE_POST_CALL_MODE = "enabled";
+    process.env.TYPESAFE_API_KEY = "test-key";
+    process.env.TYPESAFE_MODEL = "jev-1.13";
+    const evaluate = vi.spyOn(TypeSafeClient.prototype, "evaluate").mockResolvedValue({
+      answers: {
+        resolved: { type: "noul", noul: 0.02 },
+        unresolved: { type: "noul", noul: 0.95 },
+        callback: { type: "noul", noul: 0.01 },
+        ticket: { type: "noul", noul: 0.95 },
+      },
+      model: "jev-1.13",
+      usage: { inputTokens: 22, outputTokens: 3 },
+      latencyMs: 12,
+    });
+    const moduleRef = await Test.createTestingModule({ imports: [SandboxLiveSessionsModule] }).compile();
+    const app = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
+    await app.init();
+    try {
+      const service = moduleRef.get(SandboxLiveSessionsService);
+      const created = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+        .send({ actorUserId: "user-ops-lead", workspaceId: "workspace-default", source: "published",
+          inputMode: "voice", entryAgentId: "agent-front-desk", manifest: createCompiledManifest("workspace-default") });
+      const sessionId = String(created.body.session.sessionId);
+      for (const [type, payload] of [
+        ["turn.transcribed", { transcript: "I need a case opened. Do not call me back. Email ada@example.com." }],
+        ["turn.completed", { transcript: "I need a case opened. Do not call me back. Email ada@example.com.", responseText: "I will review this." }],
+        ["tool.completed", { toolName: "Search cases", summary: "No case exists." }],
+      ] as const) service.publishSessionEvent({ organizationId: "tenant-west-africa", sessionId, type, payload });
+      const path = `/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/summary`;
+      const first = await request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead",
+        crmSyncTarget: { provider: "hubspot", connectionId: "hubspot-oauth-1", objectType: "contact" } });
+      const second = await request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead" });
+      expect(first.status).toBe(201);
+      expect(first.body.summary).toMatchObject({ outcome: "unknown", businessResolution: "unresolved",
+        disposition: "ticket_required", actionItems: [expect.objectContaining({ label: "Create ticket" })] });
+      expect(first.body.summary.summaryText.match(/I need a case opened/g)).toHaveLength(1);
+      expect(second.body.summary.summaryId).toBe(first.body.summary.summaryId);
+      expect(evaluate).toHaveBeenCalledTimes(1);
+      service.publishSessionEvent({ organizationId: "tenant-west-africa", sessionId,
+        type: "turn.completed", payload: { transcript: "The case is still open.", responseText: "We will review it." } });
+      const changed = await request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead",
+        crmSyncTarget: { provider: "hubspot", connectionId: "hubspot-oauth-1", objectType: "contact" } });
+      expect(changed.body.summary.summaryId).not.toBe(first.body.summary.summaryId);
+      expect(changed.body.summary.sourceRevision).not.toBe(first.body.summary.sourceRevision);
+      expect(changed.body.summary.actionItems[0].id).toBe(first.body.summary.actionItems[0].id);
+      expect(changed.body.summary.crmSync.status).toBe("skipped");
+      const statuses = await request(app.getHttpServer()).get(
+        `/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/crm-sync`);
+      expect(statuses.body.crmSyncStatuses).toEqual(expect.arrayContaining([
+        expect.objectContaining({ summaryId: first.body.summary.summaryId, status: "queued" }),
+      ]));
+      expect(evaluate).toHaveBeenCalledTimes(2);
+      expect(evaluate.mock.calls[0]?.[0].state).toMatchObject({
+        turns: [
+          expect.objectContaining({ speaker: "caller", text: "I need a case opened. Do not call me back. Email [redacted-email]." }),
+          expect.objectContaining({ speaker: "agent", text: "I will review this." }),
+        ],
+      });
+      expect(JSON.stringify(evaluate.mock.calls[0]?.[0].state)).not.toContain("turn.transcribed");
+      expect(JSON.stringify(evaluate.mock.calls[0]?.[0].state)).not.toContain("ada@example.com");
+      evaluate.mockRejectedValueOnce(new Error("provider key and raw response must stay private"));
+      const failed = await request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead", reanalyze: true });
+      expect(failed.body.summary).toMatchObject({ businessResolution: "unknown", disposition: "needs_review",
+        crmSync: { status: "skipped" } });
+      expect(JSON.stringify(failed.body)).not.toContain("provider key");
+      let resolveEvaluation!: (value: Awaited<ReturnType<TypeSafeClient["evaluate"]>>) => void;
+      const deferred = new Promise<Awaited<ReturnType<TypeSafeClient["evaluate"]>>>((resolve) => { resolveEvaluation = resolve; });
+      evaluate.mockReturnValueOnce(deferred);
+      const racing = request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead", reanalyze: true }).then((response) => response);
+      await vi.waitFor(() => expect(evaluate).toHaveBeenCalledTimes(4));
+      service.publishSessionEvent({ organizationId: "tenant-west-africa", sessionId,
+        type: "turn.completed", payload: { transcript: "Correction: do not open that case.", responseText: "I understand." } });
+      resolveEvaluation(await evaluate.mock.results[0]!.value);
+      expect((await racing).status).toBe(409);
+    } finally { await app.close(); }
+  }, 15_000);
+
+  it("keeps shadow judgments out of the applied post-call result", async () => {
+    vi.spyOn(TypeSafeClient.prototype, "evaluate").mockResolvedValue({
+      answers: { resolved: { type: "noul", noul: 0.01 }, unresolved: { type: "noul", noul: 0.99 },
+        callback: { type: "noul", noul: 0.99 }, ticket: { type: "noul", noul: 0.01 } },
+      model: "jev-1.13", usage: { inputTokens: 5, outputTokens: 4 }, latencyMs: 8,
+    });
+    const client = new TypeSafeClient({ apiKey: "test-key", model: "jev-1.13" });
+    const result = await judgePostCallEvidence({ turns: [{ id: 1, speaker: "caller", text: "Call me tomorrow." }],
+      tools: [], lifecycle: [] }, "shadow", client);
+    expect(result.decision).toEqual({ resolution: "unknown", callback: false, ticket: false });
+    expect(result.metadata).toMatchObject({ result: "shadow", callbackProbability: 0.99 });
+  });
+
+  it("queues one explicit CRM target after a cached summary without a target", async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [SandboxLiveSessionsModule] }).compile();
+    const app = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
+    await app.init();
+    try {
+      const created = await request(app.getHttpServer()).post("/organizations/tenant-west-africa/sandbox/live-sessions")
+        .send({ actorUserId: "user-ops-lead", workspaceId: "workspace-default", source: "published",
+          inputMode: "voice", entryAgentId: "agent-front-desk", manifest: createCompiledManifest("workspace-default") });
+      const path = `/organizations/tenant-west-africa/sandbox/live-sessions/${created.body.session.sessionId}/summary`;
+      const first = await request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead" });
+      const target = { provider: "hubspot", connectionId: "hubspot-oauth-1", objectType: "contact" };
+      const second = await request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead", crmSyncTarget: target });
+      const third = await request(app.getHttpServer()).post(path).send({ actorUserId: "user-ops-lead", crmSyncTarget: target });
+      expect(first.body.summary.crmSync.status).toBe("skipped");
+      expect(second.body.summary).toMatchObject({ summaryId: first.body.summary.summaryId,
+        crmSync: { ...target, status: "queued" } });
+      expect(third.body.summary.summaryId).toBe(first.body.summary.summaryId);
+      const events = await request(app.getHttpServer()).get(
+        `/organizations/tenant-west-africa/sandbox/live-sessions/${created.body.session.sessionId}/events`);
+      expect(events.body.events.filter((event: { type: string }) => event.type === "post_call.crm_sync.queued")).toHaveLength(1);
+    } finally { await app.close(); }
   }, 15_000);
 
   it("redacts configured transcript storage and restricts original sensitive values from events memory and summaries", async () => {

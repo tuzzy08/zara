@@ -10,6 +10,18 @@ import { ProviderUsageRecordingRepository } from "../billing/provider-usage-reco
 import { usageRecordingTestPool } from "../billing/provider-usage-recording.test-support";
 
 describe("OpenAiChatTextProvider", () => {
+  it.each(["gpt-4.1-mini", "unmapped-pinned-model"])("keeps a sota route above the explicit model %s", async (modelId) => {
+    let requestedModel: unknown;
+    const provider = new OpenAiChatTextProvider({ apiKey: "test-key", fetch: async (_url, init) => {
+      requestedModel = JSON.parse(String(init?.body)).model;
+      return Response.json({ choices: [{ message: { content: "Hello" } }] });
+    } });
+    const input = { manifest: createManifest(), activeAgent: { ...createAgent(), modelProvider: "openai" as const, modelId },
+      transcript: "Hello", tier: "sota" as const, context: { callPhase: "greeting" as const } };
+    await collect(provider.streamText(input));
+    expect(requestedModel).toBe("gpt-4.1");
+    expect(provider.resolveRequestedModel(input)).toEqual({ provider: "openai", modelId: "gpt-4.1" });
+  });
   it("keeps a failed provider request unresolved", async () => {
     const pool = usageRecordingTestPool();
     try {
@@ -169,7 +181,7 @@ describe("OpenAiChatTextProvider", () => {
     expect(calls).toBe(0);
   });
 
-  it("uses an explicit OpenAI model id from the active role before tier defaults", async () => {
+  it("uses an explicit OpenAI model when server configuration maps it to the required tier", async () => {
     const recordedBodies: unknown[] = [];
     const fetchMock = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       recordedBodies.push(JSON.parse(String(init?.body)));
@@ -206,7 +218,7 @@ describe("OpenAiChatTextProvider", () => {
       activeAgent: {
         ...createAgent(),
         modelProvider: "openai",
-        modelId: "gpt-4.1-mini-2026-01-01",
+        modelId: "gpt-4.1",
       },
       transcript: "hello",
       tier: "sota",
@@ -216,7 +228,7 @@ describe("OpenAiChatTextProvider", () => {
     }));
 
     expect(recordedBodies[0]).toMatchObject({
-      model: "gpt-4.1-mini-2026-01-01",
+      model: "gpt-4.1",
     });
   });
 

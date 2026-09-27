@@ -25,6 +25,14 @@ import {
 } from "./runtime-observability";
 
 describe("runtime observability", () => {
+  it("records agent action origin without inventing a confidence score", () => {
+    const packet = recordRuntimePacketIntent(createObservedPacket(), { at: "2026-05-27T09:00:02.000Z", nodeId: "agent-front", matchedBranchId: "branch-billing", intentKey: "billing", label: "Billing", decisionOrigin: "agent_action", reason: "The caller asked for billing.", usedFallback: false, targetNodeId: "agent-billing" });
+    const exportPlan = buildRuntimeTraceExport({ config: createEnabledConfig(), traceId: "trace-action", packet, manifest: createManifest() });
+    const span = exportPlan.spans.find((item) => item.name === "intent.decided");
+    expect(span?.attributes).toMatchObject({ "zara.intent_decision_origin": "agent_action", "zara.intent_decision_version": "intent-decision.v2" });
+    expect(span?.attributes).not.toHaveProperty("zara.intent_confidence");
+  });
+
   it("builds packet-backed spans and a redacted LangSmith projection", () => {
     const packet = createObservedPacket();
     const exportPlan = buildRuntimeTraceExport({

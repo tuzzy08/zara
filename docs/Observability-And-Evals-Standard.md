@@ -267,6 +267,10 @@ LLM-as-judge runtime evals require a minimum score of 0.8 for each configured qu
 
 ## Eval Execution
 
+`npm run eval:typesafe` is a separate paid, synthetic provider check. It requires server-side `TYPESAFE_API_KEY` and `TYPESAFE_MODEL`. Expected labels stay in the scorer, outside provider input. Deterministic contract tests do not prove semantic quality. The initial synthetic cases are not a release qualification set. Keep feature modes off until held-out quality, cost, latency, privacy, and rollback checks pass. See [the TypeSafe plan](TypeSafe-Implementation-Plan.md).
+
+`post_call.analysis.judged` records bounded decision scores, model, token usage, elapsed time, source revision, and question/policy revisions. Usage measures provider consumption only; it does not create customer charges. Unknown intent confidence must not be recorded as zero or one, and transcription confidence is a separate signal.
+
 The eval command uses the separate `ls.vitest.config.ts` config with `.eval.ts` files. Evals import from `langsmith/vitest` and use the `langsmith/vitest/reporter` reporter when LangSmith tracking is enabled.
 
 `npm run eval:runtime` passes fixture inputs through production provider adapters, action parsing, tool checks, and route resolution. Provider responses are scripted for this deterministic check. The executor does not receive expected answers. A changed classifier result must fail its score. The missing-input score checks that the server rejects an incomplete tool request; it does not claim that a live model asked the right question. The corrected executor uses dataset version `v2` by default, so its results remain distinct from the original reference-only gate.

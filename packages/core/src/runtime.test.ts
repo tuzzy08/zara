@@ -831,6 +831,25 @@ describe("runtime manifest compiler", () => {
 });
 
 describe("model routing policy engine", () => {
+  it("keeps the high-risk safety floor when a cheap rule matches", () => {
+    const manifest = compileManifest({ modelRouting: [{ id: "cheap", when: { callPhase: "resolution" }, useTier: "cheap", reason: "Routine work." }] });
+    const decision = selectModelRoutingDecision({ manifest, activeAgentId: "agent-front-desk", context: { callPhase: "resolution", confidence: 0.2, toolRisk: "high" } });
+    expect(decision).toMatchObject({ tier: "sota", source: "safety_override" });
+  });
+
+  it("does not treat clear speech as clear intent for a high-risk action", () => {
+    const manifest = compileManifest({ modelRouting: [{ id: "cheap", when: { callPhase: "resolution" }, useTier: "cheap", reason: "Routine work." }] });
+    const decision = selectModelRoutingDecision({ manifest, activeAgentId: "agent-front-desk", context: { callPhase: "resolution", confidence: 0.99, toolRisk: "high" } });
+    expect(decision).toMatchObject({ tier: "sota", source: "safety_override" });
+    expect(decision.log.context.confidence).toBe(0.99);
+    expect(decision.log.context.intentConfidence).toBeUndefined();
+  });
+
+  it("keeps missing speech confidence unknown in the routing log", () => {
+    const decision = selectModelRoutingDecision({ manifest: compileManifest(), activeAgentId: "agent-front-desk", context: { callPhase: "greeting" } });
+    expect(decision.log.context.confidence).toBeUndefined();
+  });
+
   it("does not route or resolve runtime profiles from stale role snapshots without a concrete graph agent", () => {
     const manifest = withoutGraphAgent(compileManifest(), "agent-front-desk");
 
@@ -1124,6 +1143,9 @@ describe("cost optimized sandwich runtime adapter", () => {
         },
       },
       model: {
+        resolveRequestedModel() {
+          return { provider: "google-gemini", modelId: "gemini-actual-request" };
+        },
         streamText() {
           return streamChunks("I can check that for you.");
         },
@@ -1152,7 +1174,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     expect(result.events.find((event) => event.type === "routing.model_selected")?.payload)
       .toMatchObject({
         provider: "google-gemini",
-        modelId: "gemini-3.5-flash",
+        modelId: "gemini-actual-request",
       });
   });
 

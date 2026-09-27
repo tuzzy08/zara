@@ -7,8 +7,31 @@ import type {
 } from "@zara/core";
 
 import { SandboxTextModelRouterProvider } from "./sandbox-text-model-router.provider";
+import { OpenAiChatTextProvider } from "./openai-chat-text.provider";
+import { GeminiChatTextProvider } from "./gemini-chat-text.provider";
 
 describe("SandboxTextModelRouterProvider", () => {
+  it("resolves the actual model using the same defaults and tier as the request", async () => {
+    let requestedUrl: string | undefined;
+    const router = new SandboxTextModelRouterProvider({
+      openai: new OpenAiChatTextProvider({ apiKey: "key" }),
+      "google-gemini": new GeminiChatTextProvider({ apiKey: "key", fetch: async (url) => {
+        requestedUrl = String(url);
+        return Response.json({ candidates: [{ content: { parts: [{ text: "Hello" }] } }] });
+      } }),
+    });
+    const input: Parameters<SandwichTextModelProvider["streamText"]>[0] = {
+      manifest: createManifest(), activeAgent: createAgent(), transcript: "Hello", tier: "sota", context: { callPhase: "greeting" },
+      promptPolicy: { guardrails: [], agentClassTemplates: { receptionist: { basePrompt: "Help callers", modelDefaults: {
+        text: { provider: "google-gemini", modelTier: "cheap", modelId: "gemini-3.1-flash-lite" },
+        realtime: { provider: "gemini-live" },
+      } } } },
+    };
+    const selection = router.resolveRequestedModel(input);
+    await collect(router.streamText(input));
+    expect(selection).toEqual({ provider: "google-gemini", modelId: "gemini-3.1-pro-preview" });
+    expect(requestedUrl).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent");
+  });
   it("routes Gemini agents to the Gemini provider", async () => {
     const openAi = createRecordingProvider("openai");
     const gemini = createRecordingProvider("google-gemini");
@@ -131,7 +154,7 @@ describe("SandboxTextModelRouterProvider", () => {
     expect(gemini.calls[0]?.activeAgent.modelId).toBe("gemini-billing-default");
     expect(gemini.calls[0]?.activeAgent.realtimeProvider).toBe("gemini-live");
     expect(gemini.calls[0]?.activeAgent.realtimeModelId).toBe("gemini-live-billing-default");
-    expect(gemini.calls[0]?.tier).toBe("standard");
+    expect(gemini.calls[0]?.tier).toBe("cheap");
   });
 
   it("surfaces selected provider setup errors", async () => {

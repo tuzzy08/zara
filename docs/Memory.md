@@ -37,11 +37,17 @@ Approvers can approve a pending draft as-is or edit the text/confidence before a
 
 ## Post-Call Extraction
 
+Optional TypeSafe extraction uses one bounded request over safe transcript evidence. It requires opt-in and retains source IDs. It copies a supported caller turn into a pending draft; it does not generate fact text or activate memory. Enabled mode abstains on incomplete input, provider failure, or uncertain assessment. Shadow mode returns separate assessments and preserves the existing output. The legacy numeric confidence is the selected probability only for a TypeSafe draft.
+
 Post-call extraction drafts caller/account memory from caller transcript assertions after a call ends. Extraction requires explicit opt-in and returns pending drafts rather than writing approved memory directly.
 
 Each draft links back to the call session, transcript, and transcript event IDs that produced it. The extractor filters sensitive content such as card numbers, passwords, tokens, SSNs, and other secret-like data, and it ignores agent/system assertions so suggestions do not become false caller memory.
 
 ## Tenant Knowledge Memory
+
+Optional TypeSafe classification proposes a primary type for imported and changed-source review drafts. It preserves an approved record's explicit type. Sensitive or oversized source text is not sent. An uncertain new type becomes a review-required general-reference suggestion. Existing sensitivity checks, activation blockers, and high-risk confirmation remain independent of that suggestion. See [implementation and rollout limits](TypeSafe-Implementation-Plan.md).
+
+Approval rejects an older draft when a newer draft exists for the same source document. Document identity uses its source URI, or its title when no URI is available. Other documents from the same import remain available for review. A same-process source change during inference also rejects the late result.
 
 Tenant knowledge memory stores tenant-scoped FAQs, policies, procedures, troubleshooting notes, pricing rules, escalation instructions, legal/compliance rules, and general references for published workflows. Each knowledge record includes one or more published workflow version IDs plus a traceable source with kind, title, optional URI, optional external ID, optional source snapshot ID, optional sensitivity labels, and optional stale timestamp.
 

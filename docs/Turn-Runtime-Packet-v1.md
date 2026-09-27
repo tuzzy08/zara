@@ -293,4 +293,6 @@ Runtime events should be emitted from packet facts, not recomputed from provider
 
 ## Current Status
 
+New intent facts include `decisionVersion: "intent-decision.v2"` and `decisionOrigin` (`classifier`, `agent_action`, `rule`, or `fallback`). `confidence` is present only when the classifier supplied a measured score. Agent actions use `intent.decided`; classifier routes use `intent.classified`. Old facts without the version marker remain legacy evidence and are not treated as calibrated scores. TypeSafe classifier facts can include a safe `providerAssessment` with the model returned by the provider, token use, latency, revisions, and a source hash.
+
 The packet is the current runtime contract for sandwich turns. Connector execution still validates against internal `availableTools`, while model-facing context receives one constrained `availableActions` list for connector tool calls and internal agent handoffs.

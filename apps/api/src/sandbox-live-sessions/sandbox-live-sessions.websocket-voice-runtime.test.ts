@@ -392,8 +392,8 @@ describe("Sandbox live session websocket voice-runtime", () => {
       expect(modelInputs[0]?.agentContext?.intent).toMatchObject({
         intentKey: "billing",
         label: "Billing",
-        confidence: 1,
       });
+      expect(modelInputs[0]?.agentContext?.intent?.confidence).toBeUndefined();
 
       socket.close();
       await nextClose(socket);

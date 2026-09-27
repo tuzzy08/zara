@@ -103,7 +103,10 @@ export interface LangSmithRuntimeTraceProjection {
     intentKey: string | null;
     selectedBranchId: string | null;
     selectedTargetNodeId: string;
-    confidence: number;
+    confidence?: number | undefined;
+    decisionOrigin?: "classifier" | "agent_action" | "rule" | "fallback" | undefined;
+    decisionVersion?: "intent-decision.v2" | undefined;
+    providerAssessment?: NonNullable<TurnRuntimePacket["intent"]>["providerAssessment"];
     usedFallback: boolean;
     reason: string;
   } | undefined;
@@ -1400,12 +1403,15 @@ function buildPacketEventSpans(
           }),
         ];
       case "intent.classified":
+      case "intent.decided":
         return [
-          buildSpanFromEvent("intent.classified", event, baseAttributes, {
+          buildSpanFromEvent(event.type, event, baseAttributes, {
             "zara.intent_key": readNullableString(event.payload["intentKey"]),
             "zara.intent_branch_id": readNullableString(event.payload["matchedBranchId"]),
             "zara.intent_target_node_id": readString(event.payload["targetNodeId"]),
-            "zara.intent_confidence": readNumber(event.payload["confidence"]),
+            ...(event.payload["confidence"] === undefined ? {} : { "zara.intent_confidence": readNumber(event.payload["confidence"]) }),
+            ...(event.payload["decisionOrigin"] === undefined ? {} : { "zara.intent_decision_origin": readString(event.payload["decisionOrigin"]) }),
+            ...(event.payload["decisionVersion"] === undefined ? {} : { "zara.intent_decision_version": readString(event.payload["decisionVersion"]) }),
             "zara.intent_used_fallback": readBoolean(event.payload["usedFallback"]),
           }),
         ];
@@ -1478,7 +1484,10 @@ function buildLangSmithTraceProjection(input: RuntimeTraceExportInput): LangSmit
             intentKey: input.packet.intent.intentKey,
             selectedBranchId: input.packet.intent.matchedBranchId,
             selectedTargetNodeId: input.packet.intent.targetNodeId,
-            confidence: input.packet.intent.confidence,
+            ...(input.packet.intent.confidence !== undefined ? { confidence: input.packet.intent.confidence } : {}),
+            ...(input.packet.intent.decisionOrigin !== undefined ? { decisionOrigin: input.packet.intent.decisionOrigin } : {}),
+            ...(input.packet.intent.decisionVersion !== undefined ? { decisionVersion: input.packet.intent.decisionVersion } : {}),
+            ...(input.packet.intent.providerAssessment !== undefined ? { providerAssessment: { ...input.packet.intent.providerAssessment } } : {}),
             usedFallback: input.packet.intent.usedFallback,
             reason: redactText(input.packet.intent.reason),
           },
@@ -1579,7 +1588,7 @@ function redactValue(value: unknown): unknown {
   return value;
 }
 
-function redactText(value: string) {
+export function redactText(value: string) {
   return value
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
     .replace(/\b(?:\d[ -]*?){13,19}\b/g, "[redacted-payment-card]")

@@ -141,6 +141,9 @@ describe("pstn sandwich runtime", () => {
     const runtime = createPstnSandwichRuntime({
       stt: transcriptStt("Can you check my appointment?"),
       model: {
+        resolveRequestedModel() {
+          return { provider: "google-gemini", modelId: "gemini-actual-request" };
+        },
         streamText() {
           return streamChunks("I can check it now.");
         },
@@ -169,7 +172,7 @@ describe("pstn sandwich runtime", () => {
     expect(result.events.find((event) => event.type === "routing.model_selected")?.payload)
       .toMatchObject({
         provider: "google-gemini",
-        modelId: "gemini-pstn-agent",
+        modelId: "gemini-actual-request",
       });
     expect(ttsInputs[0]?.voiceConfig).toMatchObject({
       voiceId: "voice-pstn-agent",

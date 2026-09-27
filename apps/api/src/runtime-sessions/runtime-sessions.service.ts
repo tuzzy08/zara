@@ -2,9 +2,13 @@ import {
   Inject,
   ConflictException,
   Injectable,
+  Logger,
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
+import { createTypeSafeClient, readTypeSafeMode } from "../ai-judgements/typesafe-client";
+import { evaluateHandoffQuality } from "../sandbox-live-sessions/typesafe-runtime-evaluator";
 import {
   buildRealtimeProviderToolDeclarations,
   createAgentToolAvailableAction,
@@ -15,7 +19,7 @@ import {
   recordRuntimePacketNodeVisit,
   recordRuntimePacketTransfer,
   recordRuntimePacketWarning,
-  resolveAgentRoutePolicyClassification,
+  resolveAgentRoutePolicyAction,
   resolveRuntimeAgent,
   resolveRuntimeAgents,
   type Agent,
@@ -23,7 +27,6 @@ import {
   type AgentRoutePolicyClassificationResolution,
   type AgentTransferContext,
   type CompiledRuntimeManifest,
-  type IntentClassifierOutput,
   type PremiumRealtimeSession,
   type RealtimeVoiceConfig,
   type RealtimeProviderToolDeclaration,
@@ -182,6 +185,11 @@ async function resolveRuntimePromptPolicySelection(
 
 @Injectable()
 export class RuntimeSessionsService {
+  private readonly logger = new Logger(RuntimeSessionsService.name);
+  private readonly handoffQualityMode = readTypeSafeMode(process.env.TYPESAFE_HANDOFF_MODE);
+  private readonly handoffShadowClient = this.handoffQualityMode === "shadow" ? createTypeSafeClient() : undefined;
+  // ponytail: Four shadow requests cap load; use a worker only if measured volume needs it.
+  private readonly handoffShadowPending = new Set<Promise<void>>();
   private readonly sessions = new Map<string, RegisteredPremiumRealtimeSession>();
   private readonly transportTokensBySessionId = new Map<string, PremiumRealtimeTransportTokenRecord>();
   private readonly streamTokenSecret = resolveOneTimeStreamTokenSecret();
@@ -200,7 +208,51 @@ export class RuntimeSessionsService {
       | Pick<RuntimePromptPolicyService, "getPromptPolicySelection">,
     @Optional()
     private readonly conversationPolicyService?: Pick<PremiumRealtimeConversationPolicyService, "getPolicy">,
-  ) {}
+  ) {
+    if (this.handoffQualityMode === "enabled") throw new Error("TypeSafe live handoff checking needs measured rollout evidence; use shadow mode.");
+    if (this.handoffQualityMode === "shadow" && this.handoffShadowClient === undefined) throw new Error("TypeSafe handoff shadow requires credentials and model.");
+  }
+
+  private sampleHandoffQuality(input: ProcessPremiumRealtimeProviderMessageRequest, packet: TurnRuntimePacket): void {
+    const transfer = packet.transfer;
+    const client = this.handoffShadowClient;
+    if (client === undefined || transfer === undefined || this.handoffShadowPending.size >= 4 || Math.random() >= 0.1
+      || input.manifest.telemetry.captureTranscript !== true || input.manifest.telemetry.redactSensitiveData !== true) return;
+    const permittedTargets = input.packet.availableActions
+      .filter((action) => action.kind === "internal_handoff")
+      .flatMap((action) => action.targets)
+      .map((target) => ({ id: target.targetAgentId, name: target.targetAgentName, kind: target.targetAgentKind }));
+    const identity = {
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      turnId: packet.ids.turnId,
+      manifestId: packet.ids.manifestId,
+      manifestVersion: packet.ids.manifestVersion,
+      transferId: transfer.transferId,
+      questionRevision: "handoff-quality.v1",
+      policyRevision: "routing-shadow.v1",
+      sourceHash: createHash("sha256").update(JSON.stringify({ callerInput: packet.callerInput, transfer, permittedTargets })).digest("hex"),
+    };
+    const stillCurrent = () => this.sessions.get(input.sessionId)?.manifest.manifestId === identity.manifestId;
+    const task = evaluateHandoffQuality(client, {
+      latestCallerTurn: packet.callerInput.latestCallerTurn || input.transcript,
+      recentTranscript: packet.callerInput.recentTranscript,
+      selectedTarget: { id: transfer.targetAgent.id, name: transfer.targetAgent.name, kind: transfer.targetAgent.kind },
+      permittedTargets,
+      reason: transfer.reason,
+      callerNeedSummary: transfer.callerNeedSummary,
+      safeToolResults: transfer.recentToolResults.map((tool) => ({ toolName: tool.toolName, status: tool.status, summary: tool.summary, ...(tool.safeOutput === undefined ? {} : { safeOutput: tool.safeOutput }) })),
+    }).then(
+      (result) => { if (stillCurrent()) this.logger.log({ event: "routing.typesafe_handoff_quality_shadow", status: "completed", ...identity, ...result }); },
+      () => { if (stillCurrent()) this.logger.warn({ event: "routing.typesafe_handoff_quality_shadow", status: "failed", ...identity }); },
+    ).catch(() => {});
+    this.handoffShadowPending.add(task);
+    void task.finally(() => this.handoffShadowPending.delete(task));
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await Promise.allSettled(this.handoffShadowPending);
+  }
 
   async createRealtimeSession(input: CreateRealtimeSessionRequest): Promise<PremiumRealtimeSession> {
     return this.createRealtimeSessionInternal(input);
@@ -562,6 +614,9 @@ export class RuntimeSessionsService {
         ? { sourceResponseId: parseOpenAiResponseId(input.rawProviderMessage) }
         : {}),
     });
+    if (this.handoffQualityMode === "shadow" && routeResult.output.status === "completed") {
+      this.sampleHandoffQuality(input, routeResult.packet);
+    }
     const nextSession = targetSessionResolution?.session ?? {
       ...input.session,
       activeAgentId: routeResult.activeAgentId,
@@ -859,21 +914,15 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
       },
     };
   }
-  const classifierOutput: IntentClassifierOutput = {
-    matchedBranchId: matchedBranch.id,
-    intentKey: matchedBranch.intentKey,
-    confidence: 1,
-    reason,
-    usedFallback: false,
-  };
-  const resolution = resolveAgentRoutePolicyClassification({
+  const resolution = resolveAgentRoutePolicyAction({
     routePolicy,
+    branchId: matchedBranch.id,
     sourceAgent,
     targetAgents: resolvePremiumRealtimeRoutePolicyTargetAgents(input.manifest),
     transferId: resolvePremiumRealtimeHandoffToolTransferId(input.packet, routePolicy, targetAgentId),
     callerNeedSummary,
+    reason,
     recentToolResults: collectRecentSafeToolResults(input.packet),
-    output: classifierOutput,
   });
   let packet = recordRuntimePacketIntent(input.packet, {
     at: input.at,

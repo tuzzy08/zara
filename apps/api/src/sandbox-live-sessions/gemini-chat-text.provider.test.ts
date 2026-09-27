@@ -8,6 +8,18 @@ import type {
 import { GeminiChatTextProvider } from "./gemini-chat-text.provider";
 
 describe("GeminiChatTextProvider", () => {
+  it.each(["gemini-3.1-flash-lite", "unmapped-pinned-model"])("keeps a sota route above the explicit model %s", async (modelId) => {
+    let requestedUrl: string | undefined;
+    const provider = new GeminiChatTextProvider({ apiKey: "test-key", fetch: async (url) => {
+      requestedUrl = String(url);
+      return Response.json({ candidates: [{ content: { parts: [{ text: "Hello" }] } }] });
+    } });
+    const input = { manifest: createManifest(), activeAgent: { ...createAgent(), modelProvider: "google-gemini" as const, modelId },
+      transcript: "Hello", tier: "sota" as const, context: { callPhase: "greeting" as const } };
+    await collect(provider.streamText(input));
+    expect(requestedUrl).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent");
+    expect(provider.resolveRequestedModel(input)).toEqual({ provider: "google-gemini", modelId: "gemini-3.1-pro-preview" });
+  });
   it("posts a Gemini generateContent request and yields the returned text", async () => {
     const recordedCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {

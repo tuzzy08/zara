@@ -22,6 +22,7 @@
     "smoke:pstn-protocol": "npm run smoke --workspace @zara/pstn-protocol-simulator",
     "eval:runtime": "vitest run --config ls.vitest.config.ts",
     "eval:prompts": "vitest run --config prompt.vitest.config.ts",
+    "eval:typesafe": "vitest run --config typesafe.vitest.config.ts",
     "lint": "eslint .",
     "preview:web": "npm run preview --workspace @zara/web",
     "start": "npm run start:api",

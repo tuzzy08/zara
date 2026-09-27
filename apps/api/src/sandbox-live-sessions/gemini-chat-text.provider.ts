@@ -52,7 +52,7 @@ export class GeminiChatTextProvider implements SandwichTextModelProvider {
   }
 
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-    const model = resolveGeminiModel(input, this.modelByTier);
+    const { modelId: model } = this.resolveRequestedModel(input);
     const requestBody = buildGeminiRequestBody(input);
     const outputTokens = input.agentActionMode === true ? 1_024 : 512;
     assertTextModelRequestBudget(requestBody, outputTokens);
@@ -84,6 +84,11 @@ export class GeminiChatTextProvider implements SandwichTextModelProvider {
     }
 
     yield input.agentActionMode === true ? unwrapAgentActionResponse(text, input.agentContext) : text;
+  }
+
+  resolveRequestedModel(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+    const explicitModelId = input.activeAgent.modelProvider === "google-gemini" ? input.activeAgent.modelId?.trim() : undefined;
+    return { provider: "google-gemini" as const, modelId: resolveModelForTier(input.tier, this.modelByTier, explicitModelId) };
   }
 }
 
@@ -134,17 +139,4 @@ function buildGeminiRequestBody(input: Parameters<SandwichTextModelProvider["str
         }
       : { maxOutputTokens: 512 },
   };
-}
-
-function resolveGeminiModel(
-  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
-  models: Record<Exclude<ModelTier, "rules">, string>,
-) {
-  const explicitModelId = input.activeAgent.modelProvider === "google-gemini"
-    ? input.activeAgent.modelId?.trim()
-    : undefined;
-
-  return explicitModelId !== undefined && explicitModelId.length > 0
-    ? explicitModelId
-    : resolveModelForTier(input.tier, models);
 }

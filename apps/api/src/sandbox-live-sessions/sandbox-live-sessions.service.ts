@@ -33,6 +33,8 @@ import {
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
+import { createTypeSafeClient, readTypeSafeMode, type TypeSafeClient } from "../ai-judgements/typesafe-client";
+import { evaluateHandoffQuality, evaluateModelAssistance } from "./typesafe-runtime-evaluator";
 import { applyRuntimePromptPolicyModelDefaultsToManifest } from "../runtime-prompt-policy/runtime-prompt-policy.model-defaults";
 import type { RuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
@@ -133,6 +135,17 @@ export class SandboxLiveSessionsService {
   private readonly sequenceBySessionKey = new Map<string, number>();
   private readonly escalationsByOrganizationId = new Map<string, Map<string, LiveSandboxEscalationRecord>>();
   private readonly postCallSummariesBySessionKey = new Map<string, LiveSandboxPostCallSummaryResponse>();
+  private readonly postCallSummariesById = new Map<string, LiveSandboxPostCallSummaryResponse>();
+  private readonly postCallAnalysisInFlight = new Map<string, Promise<LiveSandboxPostCallSummaryResponse>>();
+  private readonly postCallMode = readTypeSafeMode(process.env.TYPESAFE_POST_CALL_MODE);
+  private readonly postCallClient: TypeSafeClient | undefined = this.postCallMode === "off"
+    ? undefined : createTypeSafeClient();
+  private readonly handoffQualityMode = readTypeSafeMode(process.env.TYPESAFE_HANDOFF_MODE);
+  private readonly modelAssistanceMode = readTypeSafeMode(process.env.TYPESAFE_MODEL_ASSISTANCE_MODE);
+  private readonly routingShadowClient = this.handoffQualityMode === "shadow" || this.modelAssistanceMode === "shadow"
+    ? createTypeSafeClient() : undefined;
+  // ponytail: Four shadow requests cap load; use a worker only if measured volume needs it.
+  private readonly routingShadowPending = new Set<Promise<void>>();
   private readonly transportSecurityAudits: LiveSandboxTransportAuditEntry[] = [];
 
   constructor(
@@ -152,7 +165,56 @@ export class SandboxLiveSessionsService {
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
     private readonly runtimeAgentToolExecutor: RuntimeAgentToolExecutorService,
     private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
-  ) {}
+  ) {
+    if (this.postCallMode !== "off" && this.postCallClient === undefined) {
+      throw new Error("TypeSafe post-call mode requires TYPESAFE_API_KEY and TYPESAFE_MODEL.");
+    }
+    if (this.handoffQualityMode === "enabled" || this.modelAssistanceMode === "enabled") {
+      throw new Error("TypeSafe live routing assistance needs measured rollout evidence; use shadow mode.");
+    }
+    if ((this.handoffQualityMode === "shadow" || this.modelAssistanceMode === "shadow") && this.routingShadowClient === undefined) {
+      throw new Error("TypeSafe routing shadow requires TYPESAFE_API_KEY and TYPESAFE_MODEL.");
+    }
+  }
+
+  private scheduleRoutingShadow(input: {
+    organizationId: string;
+    sessionId: string;
+    packet: TurnRuntimePacket;
+    event: string;
+    run: () => Promise<object>;
+    extra?: Record<string, unknown>;
+  }): void {
+    if (this.routingShadowClient === undefined || this.routingShadowPending.size >= 4 || Math.random() >= 0.1) return;
+    const manifest = this.manifestsBySessionKey.get(getSessionKey(input.organizationId, input.sessionId));
+    if (manifest?.telemetry.captureTranscript !== true || manifest.telemetry.redactSensitiveData !== true) return;
+    const identity = {
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      turnId: input.packet.ids.turnId,
+      manifestId: input.packet.ids.manifestId,
+      manifestVersion: input.packet.ids.manifestVersion,
+      questionRevision: input.event.includes("handoff") ? "handoff-quality.v1" : "model-assistance.v1",
+      policyRevision: "routing-shadow.v1",
+      sourceHash: createHash("sha256").update(JSON.stringify({ callerInput: input.packet.callerInput, transfer: input.packet.transfer, selected: input.extra })).digest("hex"),
+    };
+    const current = () => {
+      const session = this.sessionsByOrganizationId.get(input.organizationId)?.get(input.sessionId);
+      return session !== undefined && session.status !== "ended"
+        && session.manifestId === identity.manifestId
+        && this.manifestsBySessionKey.get(getSessionKey(input.organizationId, input.sessionId)) === manifest;
+    };
+    const task = input.run().then(
+      (result) => { if (current()) this.logger.log({ event: input.event, status: "completed", ...identity, ...input.extra, ...result }); },
+      () => { if (current()) this.logger.warn({ event: input.event, status: "failed", ...identity, ...input.extra }); },
+    ).catch(() => {});
+    this.routingShadowPending.add(task);
+    void task.finally(() => this.routingShadowPending.delete(task));
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await Promise.allSettled(this.routingShadowPending);
+  }
 
   private getSttProviderId(): LiveSandboxProviderStack["stt"] {
     return this.sttProvider.providerId ?? "assemblyai-streaming";
@@ -390,23 +452,84 @@ export class SandboxLiveSessionsService {
     return cloneEscalation(escalation);
   }
 
-  createPostCallSummary(input: {
+  async createPostCallSummary(input: {
     organizationId: string;
     sessionId: string;
     actorUserId: string;
     crmSyncTarget?: LiveSandboxPostCallCrmSyncTarget | undefined;
+    reanalyze?: boolean | undefined;
     now?: string | undefined;
-  }): LiveSandboxPostCallSummaryResponse {
+  }): Promise<LiveSandboxPostCallSummaryResponse> {
     const session = this.requireSession(input.organizationId, input.sessionId);
+    this.assertUserCanAccessWorkspace({ organizationId: input.organizationId,
+      workspaceId: session.workspaceId, actorUserId: input.actorUserId });
     this.expireIfNeeded(session);
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+    const evidence = buildPostCallEvidence(events);
+    const sourceRevision = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
+    const previous = this.postCallSummariesBySessionKey.get(sessionKey);
+    const crmAlreadyQueued = [...this.postCallSummariesById.values()].some((summary) =>
+      summary.organizationId === input.organizationId && summary.sessionId === input.sessionId && summary.crmSync.status === "queued");
+    if (previous?.sourceRevision === sourceRevision && !input.reanalyze) {
+      if (input.crmSyncTarget !== undefined && previous.crmSync.status === "skipped" && !crmAlreadyQueued) {
+        const queuedAt = input.now ?? new Date().toISOString();
+        previous.crmSync = { status: "queued", ...input.crmSyncTarget, queuedAt };
+        this.publishSessionEvent({ organizationId: input.organizationId, sessionId: input.sessionId,
+          type: "post_call.crm_sync.queued", at: queuedAt,
+          payload: { summaryId: previous.summaryId, ...input.crmSyncTarget } });
+      }
+      return clonePostCallSummary(previous);
+    }
+    const inFlight = this.postCallAnalysisInFlight.get(sessionKey);
+    if (inFlight !== undefined) {
+      const result = await inFlight;
+      if (result.sourceRevision === sourceRevision) return clonePostCallSummary(result);
+      return this.createPostCallSummary(input);
+    }
+    const pending = this.createPostCallSummaryForEvidence(input, session, events, evidence, sourceRevision, previous, crmAlreadyQueued);
+    this.postCallAnalysisInFlight.set(sessionKey, pending);
+    try {
+      return await pending;
+    } finally {
+      this.postCallAnalysisInFlight.delete(sessionKey);
+    }
+  }
+
+  private async createPostCallSummaryForEvidence(
+    input: { organizationId: string; sessionId: string; actorUserId: string;
+      crmSyncTarget?: LiveSandboxPostCallCrmSyncTarget | undefined; now?: string | undefined },
+    session: LiveSandboxSessionRecord,
+    events: LiveSandboxStreamEvent[],
+    evidence: ReturnType<typeof buildPostCallEvidence>,
+    sourceRevision: string,
+    previous: LiveSandboxPostCallSummaryResponse | undefined,
+    crmAlreadyQueued: boolean,
+  ): Promise<LiveSandboxPostCallSummaryResponse> {
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     const createdAt = input.now ?? new Date().toISOString();
     const summaryId = `post-call-summary-${randomUUID()}`;
-    const outcome = inferPostCallOutcome(events);
-    const disposition = inferPostCallDisposition(events);
-    const actionItems = buildPostCallActionItems(summaryId, events);
-    const crmSync = input.crmSyncTarget === undefined
+    const judgment = await judgePostCallEvidence(evidence, this.postCallMode, this.postCallClient);
+    this.assertUserCanAccessWorkspace({ organizationId: input.organizationId,
+      workspaceId: session.workspaceId, actorUserId: input.actorUserId });
+    const currentEvents = this.eventsBySessionKey.get(sessionKey) ?? [];
+    if (createHash("sha256").update(JSON.stringify(buildPostCallEvidence(currentEvents))).digest("hex") !== sourceRevision) {
+      throw new ConflictException("The call evidence changed during analysis. Request the summary again.");
+    }
+    const decision = judgment.decision;
+    const businessResolution = decision.resolution;
+    const outcome = inferPostCallOutcome(events, businessResolution);
+    // A disposition has one value; action items keep both independent work types.
+    const disposition: LiveSandboxPostCallDisposition = decision.callback ? "callback_requested"
+      : decision.ticket ? "ticket_required"
+      : businessResolution === "resolved" ? "resolved" : "needs_review";
+    const completedActionIds = new Set([...this.postCallSummariesById.values()]
+      .filter((old) => old.organizationId === input.organizationId && old.sessionId === input.sessionId)
+      .flatMap((old) => old.actionItems.filter((item) => item.status === "completed").map((item) => item.id)));
+    const actionItems = buildPostCallActionItems(session.sessionId, decision).map((item) =>
+      completedActionIds.has(item.id)
+        ? { ...item, status: "completed" as const } : item);
+    const crmSync = input.crmSyncTarget === undefined || crmAlreadyQueued
       ? {
           status: "skipped" as const,
           provider: "custom" as const,
@@ -424,6 +547,8 @@ export class SandboxLiveSessionsService {
       workspaceId: session.workspaceId,
       sessionId: session.sessionId,
       outcome,
+      businessResolution,
+      sourceRevision,
       disposition,
       summaryText: buildPostCallSummaryText(events),
       actionItems,
@@ -433,6 +558,13 @@ export class SandboxLiveSessionsService {
     };
 
     this.postCallSummariesBySessionKey.set(sessionKey, summary);
+    this.postCallSummariesById.set(summaryId, summary);
+    if (judgment.metadata !== undefined) {
+      this.publishSessionEvent({ organizationId: input.organizationId, sessionId: input.sessionId,
+        type: "post_call.analysis.judged", at: createdAt,
+        payload: { sourceRevision, mode: this.postCallMode, applicationResult: disposition,
+          questionRevision: "post-call-v1", policyRevision: "post-call-v1", ...judgment.metadata } });
+    }
     this.publishSessionEvent({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
@@ -441,6 +573,8 @@ export class SandboxLiveSessionsService {
       payload: {
         summaryId,
         outcome,
+        businessResolution,
+        sourceRevision,
         disposition,
         crmSyncStatus: summary.crmSync.status,
         actionItemCount: actionItems.length,
@@ -457,14 +591,11 @@ export class SandboxLiveSessionsService {
     const session = this.requireSession(input.organizationId, input.sessionId);
     this.expireIfNeeded(session);
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
-    const summary = this.postCallSummariesBySessionKey.get(sessionKey);
-
-    if (summary === undefined) {
-      return [];
-    }
-
     const events = this.eventsBySessionKey.get(sessionKey) ?? [];
-    return [buildPostCallCrmSyncStatus(summary, session, events)];
+    // ponytail: this in-memory scan is bounded by process lifetime; index summaries when persistence becomes durable.
+    return [...this.postCallSummariesById.values()]
+      .filter((summary) => summary.organizationId === input.organizationId && summary.sessionId === input.sessionId)
+      .map((summary) => buildPostCallCrmSyncStatus(summary, session, events));
   }
 
   retryPostCallCrmSync(input: {
@@ -482,9 +613,9 @@ export class SandboxLiveSessionsService {
     });
     this.expireIfNeeded(session, input.now);
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
-    const summary = this.postCallSummariesBySessionKey.get(sessionKey);
+    const summary = this.postCallSummariesById.get(input.summaryId);
 
-    if (summary === undefined || summary.summaryId !== input.summaryId) {
+    if (summary === undefined || summary.organizationId !== input.organizationId || summary.sessionId !== input.sessionId) {
       throw new NotFoundException(`Post-call summary '${input.summaryId}' was not found.`);
     }
 
@@ -1423,6 +1554,21 @@ export class SandboxLiveSessionsService {
         },
       });
 
+      if (this.modelAssistanceMode === "shadow" && this.routingShadowClient !== undefined && result.routingDecision.tier !== "rules") {
+        const selectedModel = result.events.find((event) => event.type === "routing.model_selected")?.payload;
+        this.scheduleRoutingShadow({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          packet: turnPacket,
+          event: "routing.typesafe_model_assistance_shadow",
+          extra: { currentTier: result.routingDecision.tier, requestedProvider: selectedModel?.provider, requestedModelId: selectedModel?.modelId },
+          run: () => evaluateModelAssistance(this.routingShadowClient!, {
+            latestCallerTurn: result.transcript,
+            recentTranscript: turnPacket.callerInput.recentTranscript,
+            currentTier: result.routingDecision.tier as "cheap" | "standard" | "sota",
+          }),
+        });
+      }
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Live sandbox turn failed.";
@@ -1933,7 +2079,12 @@ export class SandboxLiveSessionsService {
     if (promptPolicy === undefined) {
       throw new Error("Live sandbox session prompt policy is not available.");
     }
+    const resolveRequestedModel = this.textModelProvider.resolveRequestedModel?.bind(this.textModelProvider);
     return {
+      ...(resolveRequestedModel === undefined ? {} : {
+        resolveRequestedModel: (modelInput: Parameters<SandwichTextModelProvider["streamText"]>[0]) =>
+          resolveRequestedModel({ ...modelInput, promptPolicy }),
+      }),
       streamText: (modelInput) => this.streamAgentActionText({
         ...input,
         modelInput: { ...modelInput, promptPolicy },
@@ -2047,6 +2198,30 @@ export class SandboxLiveSessionsService {
           packet,
           at: input.at,
         });
+        const transfer = routeResolution.packet.transfer;
+        const permittedTargets = previousPacket.availableActions
+          .filter((availableAction) => availableAction.kind === "internal_handoff")
+          .flatMap((availableAction) => availableAction.targets)
+          .map((target) => ({ id: target.targetAgentId, name: target.targetAgentName, kind: target.targetAgentKind }));
+        if (this.handoffQualityMode === "shadow" && this.routingShadowClient !== undefined
+          && routeResolution.kind === "routed" && transfer !== undefined) {
+          this.scheduleRoutingShadow({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            packet: routeResolution.packet,
+            event: "routing.typesafe_handoff_quality_shadow",
+            extra: { transferId: transfer.transferId, sourceAgentId: transfer.sourceAgent.id, targetAgentId: transfer.targetAgent.id },
+            run: () => evaluateHandoffQuality(this.routingShadowClient!, {
+              latestCallerTurn: routeResolution.packet.callerInput.latestCallerTurn,
+              recentTranscript: routeResolution.packet.callerInput.recentTranscript,
+              selectedTarget: { id: transfer.targetAgent.id, name: transfer.targetAgent.name, kind: transfer.targetAgent.kind },
+              permittedTargets,
+              reason: transfer.reason,
+              callerNeedSummary: transfer.callerNeedSummary,
+              safeToolResults: transfer.recentToolResults.map((tool) => ({ toolName: tool.toolName, status: tool.status, summary: tool.summary, ...(tool.safeOutput === undefined ? {} : { safeOutput: tool.safeOutput }) })),
+            }),
+          });
+        }
         packet = routeResolution.packet;
         input.setPacket(packet);
         this.frontierBySessionKey.set(
@@ -2967,7 +3142,94 @@ function roundMetric(value: number) {
   return Math.round(value * 10_000) / 10_000;
 }
 
-function inferPostCallOutcome(events: LiveSandboxStreamEvent[]): LiveSandboxPostCallOutcome {
+interface PostCallDecision {
+  resolution: "resolved" | "unresolved" | "unknown";
+  callback: boolean;
+  ticket: boolean;
+}
+
+function buildPostCallEvidence(events: LiveSandboxStreamEvent[]) {
+  const turns: Array<{ id: number; speaker: "caller" | "agent"; text: string }> = [];
+  const tools: Array<{ id: number; status: string; name: string; summary: string }> = [];
+  const pending = new Map<string, number>();
+  const lifecycle: string[] = [];
+  for (const event of events) {
+    if (event.type === "turn.transcribed" || event.type === "turn.completed") {
+      const transcript = readString(event.payload.transcript);
+      if (transcript !== undefined) {
+        const text = redactPostCallText(transcript);
+        if (event.type === "turn.transcribed") {
+          turns.push({ id: event.sequence, speaker: "caller", text });
+          pending.set(text, (pending.get(text) ?? 0) + 1);
+        } else if ((pending.get(text) ?? 0) > 0) {
+          pending.set(text, (pending.get(text) ?? 0) - 1);
+        } else {
+          turns.push({ id: event.sequence, speaker: "caller", text });
+        }
+      }
+      if (event.type === "turn.completed") {
+        const response = readString(event.payload.responseText);
+        if (response !== undefined) turns.push({ id: event.sequence, speaker: "agent", text: redactPostCallText(response) });
+      }
+    } else if (event.type === "tool.completed" || event.type === "tool.failed" || event.type === "tool.approval_required") {
+      tools.push({ id: event.sequence, status: event.type, name: redactPostCallText(readString(event.payload.toolName) ?? "Tool"),
+        summary: redactPostCallText(readString(event.payload.summary) ?? "") });
+    } else if (event.type === "call.failed" || event.type === "escalation.accepted" || event.type === "escalation.failed") {
+      lifecycle.push(event.type);
+    }
+  }
+  return { turns, tools, lifecycle };
+}
+
+export async function judgePostCallEvidence(
+  evidence: ReturnType<typeof buildPostCallEvidence>,
+  mode: "off" | "shadow" | "enabled",
+  client: TypeSafeClient | undefined,
+): Promise<{ decision: PostCallDecision; metadata?: Record<string, unknown> }> {
+  const unknown: PostCallDecision = { resolution: "unknown", callback: false, ticket: false };
+  if (mode === "off" || client === undefined) return { decision: unknown };
+  // Preserve the end of the call: later corrections and refusals must never be cut away.
+  if (evidence.turns.length === 0 || JSON.stringify(evidence).length > 12_000) {
+    return { decision: unknown, metadata: { result: "incomplete_input" } };
+  }
+  try {
+    const result = await client.evaluate({ state: evidence, questions: {
+      resolved: { type: "noul", instructions: "Did the agent confirm that the caller's business request was completed? A call ending, a transfer, an offer, or a promise of future work is not completion.",
+        criteria: { true: "The request was completed with supporting dialogue or a successful tool result.", false: "Completion is absent, refused, failed, or future work remains." } },
+      unresolved: { type: "noul", instructions: "Does a caller business request remain unresolved at the end of the call? Do not count a greeting, a refused offer, or a request that was completed.",
+        criteria: { true: "The caller still needs an answer or action.", false: "No unmet caller business request is established." } },
+      callback: { type: "noul", instructions: "Is a callback still required at the end of the call? Require caller acceptance or a clear caller request. Exclude an agent offer, a refusal, a cancellation, or a completed callback.",
+        criteria: { true: "An accepted callback remains outstanding.", false: "No accepted callback remains outstanding." } },
+      ticket: { type: "noul", instructions: "Is creation of a ticket still required at the end of the call? Exclude offers, refusals, cancellations, and work already completed by a successful ticket tool result.",
+        criteria: { true: "A requested ticket remains outstanding.", false: "No requested ticket remains outstanding." } },
+    } });
+    const resolved = result.answers.resolved;
+    const unresolved = result.answers.unresolved;
+    const callback = result.answers.callback;
+    const ticket = result.answers.ticket;
+    if (resolved?.type !== "noul" || unresolved?.type !== "noul" || callback?.type !== "noul" || ticket?.type !== "noul") throw new Error("Invalid TypeSafe answer.");
+    // These provisional gates require held-out evaluation before enabled mode is used in production.
+    const high = 0.85;
+    const decision: PostCallDecision = {
+      resolution: callback.noul >= high || ticket.noul >= high || unresolved.noul >= high
+        ? "unresolved" : resolved.noul >= high ? "resolved" : "unknown",
+      callback: callback.noul >= high,
+      ticket: ticket.noul >= high,
+    };
+    return { decision: mode === "enabled" ? decision : unknown,
+      metadata: { result: mode === "enabled" ? "applied" : "shadow", model: result.model,
+        latencyMs: result.latencyMs, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens,
+        resolvedProbability: resolved.noul, unresolvedProbability: unresolved.noul,
+        callbackProbability: callback.noul, ticketProbability: ticket.noul } };
+  } catch (error) {
+    return { decision: unknown, metadata: { result: "unavailable",
+      errorCode: error !== null && typeof error === "object" && "code" in error ? String(error.code) : "provider_failed" } };
+  }
+}
+
+function inferPostCallOutcome(
+  events: LiveSandboxStreamEvent[], businessResolution: LiveSandboxPostCallSummaryResponse["businessResolution"],
+): LiveSandboxPostCallOutcome {
   if (events.some((event) => event.type === "call.failed")) {
     return "failed";
   }
@@ -2980,55 +3242,36 @@ function inferPostCallOutcome(events: LiveSandboxStreamEvent[]): LiveSandboxPost
     return "fallback_triggered";
   }
 
-  return "resolved";
-}
-
-function inferPostCallDisposition(events: LiveSandboxStreamEvent[]): LiveSandboxPostCallDisposition {
-  const text = collectPostCallText(events).join(" ").toLowerCase();
-
-  if (text.includes("callback") || text.includes("call back")) {
-    return "callback_requested";
-  }
-
-  if (text.includes("ticket")) {
-    return "ticket_required";
-  }
-
-  if (inferPostCallOutcome(events) === "resolved") {
-    return "resolved";
-  }
-
-  return "needs_review";
+  return businessResolution === "resolved" ? "resolved" : "unknown";
 }
 
 function buildPostCallActionItems(
-  summaryId: string,
-  events: LiveSandboxStreamEvent[],
+  sessionId: string,
+  decision: PostCallDecision,
 ) {
-  const text = collectPostCallText(events).join(" ").toLowerCase();
   const actionItems: LiveSandboxPostCallSummaryResponse["actionItems"] = [];
 
-  if (text.includes("callback") || text.includes("call back")) {
+  if (decision.callback) {
     actionItems.push({
-      id: `${summaryId}:action:callback`,
+      id: `${sessionId}:action:callback`,
       label: "Schedule callback",
       status: "open",
       source: "transcript",
     });
   }
 
-  if (text.includes("billing") || text.includes("invoice")) {
+  if (decision.ticket) {
     actionItems.push({
-      id: `${summaryId}:action:billing`,
-      label: "Review billing issue",
+      id: `${sessionId}:action:ticket`,
+      label: "Create ticket",
       status: "open",
       source: "transcript",
     });
   }
 
-  if (actionItems.length === 0) {
+  if (actionItems.length === 0 && decision.resolution !== "resolved") {
     actionItems.push({
-      id: `${summaryId}:action:review`,
+      id: `${sessionId}:action:review`,
       label: "Review call outcome",
       status: "open",
       source: "transcript",
@@ -3039,16 +3282,12 @@ function buildPostCallActionItems(
 }
 
 function buildPostCallSummaryText(events: LiveSandboxStreamEvent[]) {
-  const transcriptText = collectPostCallText(events)
-    .map(redactPostCallText)
-    .filter((value) => value.length > 0)
+  const evidence = buildPostCallEvidence(events);
+  const transcriptText = evidence.turns
+    .map((turn) => turn.text)
     .join(" ");
-  const toolSummaries = events
-    .filter((event) =>
-      event.type === "tool.completed"
-      || event.type === "tool.failed"
-      || event.type === "tool.approval_required")
-    .map((event) => redactPostCallText(readString(event.payload.summary) ?? readString(event.payload.toolName) ?? "Tool completed."))
+  const toolSummaries = evidence.tools
+    .map((tool) => tool.summary || tool.name)
     .join(" ");
   const baseSummary = [transcriptText, toolSummaries]
     .filter((value) => value.length > 0)
@@ -3317,33 +3556,6 @@ function readCrmSyncDiagnostic(payload: Record<string, unknown>) {
     retryable,
     nextStep: redactPostCallText(nextStep),
   };
-}
-
-function collectPostCallText(events: LiveSandboxStreamEvent[]) {
-  const values: string[] = [];
-
-  for (const event of events) {
-    if (event.type === "turn.transcribed") {
-      const transcript = readString(event.payload.transcript);
-      if (transcript !== undefined) {
-        values.push(transcript);
-      }
-      continue;
-    }
-
-    if (event.type === "turn.completed") {
-      const transcript = readString(event.payload.transcript);
-      const responseText = readString(event.payload.responseText);
-      if (transcript !== undefined) {
-        values.push(transcript);
-      }
-      if (responseText !== undefined) {
-        values.push(responseText);
-      }
-    }
-  }
-
-  return values;
 }
 
 function redactPostCallText(value: string) {

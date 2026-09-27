@@ -1,5 +1,7 @@
 # Architecture
 
+Live sandwich model routing applies the high-risk floor before a matching cheap rule can lower the tier. Speech transcription confidence does not prove intent clarity; missing intent confidence keeps the high-risk floor. The text provider resolves the effective provider and model before execution, and the routing event records that requested pair. Prompt defaults fill missing provider fields without replacing the selected tier. TypeSafe model assistance is sampled after sandwich turns in shadow mode. It cannot change live routing until measured outcome evidence supports a separate rollout.
+
 ## System Shape
 
 Zara has three major planes:

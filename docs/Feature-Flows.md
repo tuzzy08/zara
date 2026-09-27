@@ -112,7 +112,7 @@ The first monitoring depth is now live on the published sandbox surface:
 - reconnect and replay use the same persisted event spine, so the monitor and the active browser tab stay aligned on the same session history
 - escalation requests from live sandbox events now enter a workspace-scoped queue with SLA deadlines, accept/decline actions, and timeout fallback events visible from the sandbox monitor surface
 - telephony-backed human fallback now chooses provider-safe live takeover or callback scheduling and audits the safe message sent to the caller
-- post-call summaries derive a redacted outcome, disposition, and open action items from the same event spine, then optionally queue a CRM sync target without returning raw credentials or sensitive transcript content
+- post-call summaries use redacted evidence from the same event spine; call completion does not prove business resolution. Bounded optional TypeSafe analysis proposes remaining work. Uncertain results require review. Repeat analysis preserves completed actions and existing CRM sync work.
 - CRM sync status is visible from the post-call session record, including failed provider diagnostics, retryability, and queued retry attempts
 - quality reports flag dead ends, low-grounding hallucination risk, slow turns, and escalation misses, then create draft-only improvement suggestions that require human approval
 - AI observability sends packet-derived OpenTelemetry spans to LangSmith when enabled, so internal operators can inspect redacted intent, tool, transfer, model, and policy traces without making LangSmith the tenant event replay or audit source of truth

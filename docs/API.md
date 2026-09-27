@@ -490,7 +490,9 @@ Post-call summary response body:
   - `organizationId`
   - `workspaceId`
   - `sessionId`
-  - `outcome`: `resolved`, `human_escalated`, `fallback_triggered`, or `failed`
+  - `outcome`: `resolved`, `human_escalated`, `fallback_triggered`, `failed`, or `unknown`
+  - `businessResolution`: `resolved`, `unresolved`, or `unknown`; separate from call lifecycle outcome
+  - `sourceRevision`: hash of the evidence used for analysis
   - `disposition`: `resolved`, `callback_requested`, `ticket_required`, or `needs_review`
   - `summaryText`
   - `actionItems[]`
@@ -574,7 +576,7 @@ Behavior rules:
 - `escalation.requested` events create at most one pending queue item per session and workflow node, preserving the original reason and SLA deadline when duplicate runtime signals arrive.
 - Operators can accept or decline pending escalations. Decisions update queue status and append `escalation.accepted` or `escalation.declined` events to the same live-session timeline.
 - Escalation queue reads accept an optional deterministic `now` timestamp and trigger fallback for pending items whose SLA has elapsed, appending an `escalation.failed` event with `sla_timeout`.
-- Post-call summaries derive outcome, disposition, and action items from the session event spine, redact sensitive transcript/tool content before returning or emitting summary metadata, and can queue a CRM sync target without exposing credentials.
+- Post-call summaries await one bounded analysis of redacted session evidence. A completed call alone does not establish resolution. Off mode and unavailable evidence return unknown resolution and review. The request accepts `reanalyze: true`; repeated evidence reuses the saved result. Reanalysis preserves completed actions and existing CRM sync identity and does not queue the same CRM work again. A source change during analysis returns a conflict.
 - CRM sync status reads expose queued, failed, retry-queued, and synced state for post-call summaries. Failure diagnostics are limited to actionable safe fields, and retry requests append `post_call.crm_sync.retry_queued` events without returning raw provider tokens.
 - Quality reports derive deterministic flags from the live session event spine. Improvement suggestions are draft-only, require human approval, and never mutate a published workflow version directly.
 - Browser-to-server messages support voice audio only:
@@ -619,6 +621,8 @@ Connector tool schema and execution routes expose typed tools for Zendesk, HubSp
 Webhook HTTP tool definitions store method, URL, headers, optional body template, timeout, and retry policy. Public API responses return an `authTokenReference` and never return the raw token. Runtime resolves `secret://webhook-http-tools/:toolId/auth-token` only inside the live sandbox tool registry, injects it as a bearer header when no explicit authorization header is present, and enforces the stored timeout plus retry policy around the outbound request.
 
 ## Memory Contract
+
+When enabled, TypeSafe draft responses add assessment metadata with model and source/question/policy revisions. Selected probability and distribution confidence are separate values. Memory shadow mode returns `shadowAssessments` without changing the legacy draft selection. Knowledge drafts can include `kindAssessment` and `kindUncertain`; these fields never grant approval or clear a blocker. Enabled memory extraction adds safe filter reasons for incomplete input, unavailable assessment, and uncertain assessment.
 
 The current memory contract supports opt-in durable caller/account memory plus tenant knowledge memory:
 

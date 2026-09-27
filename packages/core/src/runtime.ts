@@ -114,6 +114,7 @@ export interface ModelRoutingContext {
   intent?: string | undefined;
   callPhase: RuntimeCallPhase;
   confidence?: number | undefined;
+  intentConfidence?: number | undefined;
   language?: string | undefined;
   toolRisk?: ToolDefinition["risk"] | undefined;
   requestedToolId?: ID | undefined;
@@ -130,7 +131,8 @@ export interface ModelRoutingDecisionLog {
     activeAgentId: ID;
     intent?: string | undefined;
     callPhase: RuntimeCallPhase;
-    confidence: number;
+    confidence?: number | undefined;
+    intentConfidence?: number | undefined;
     language: string;
     risk?: ToolDefinition["risk"] | undefined;
     requestedToolId?: ID | undefined;
@@ -209,6 +211,10 @@ export interface SandwichSttProvider {
 }
 
 export interface SandwichTextModelProvider {
+  resolveRequestedModel?(input: Parameters<SandwichTextModelProvider["streamText"]>[0]): {
+    provider: TextModelProviderId;
+    modelId: string;
+  } | undefined;
   streamText(input: {
     abortSignal?: AbortSignal | undefined;
     callSessionId?: ID | undefined;
@@ -800,7 +806,14 @@ export function selectModelRoutingDecision(input: {
   const matchingRule = input.manifest.modelRouting.find((rule) =>
     modelRoutingRuleMatches(rule, normalizedContext),
   );
-
+  if (normalizedContext.risk === "high" && (normalizedContext.intentConfidence === undefined || normalizedContext.intentConfidence < 0.45) && matchingRule?.useTier !== "sota") {
+    return buildRoutingDecision({
+      tier: "sota",
+      source: "safety_override",
+      reason: "High-risk actions without clear intent are forced onto the safest tier.",
+      context: normalizedContext,
+    });
+  }
   if (matchingRule !== undefined) {
     const tier = raiseTierToRoutingFloor(matchingRule.useTier, runtimeProfile.routingFloor);
 
@@ -819,15 +832,6 @@ export function selectModelRoutingDecision(input: {
       source: "rule",
       matchedRuleId: matchingRule.id,
       reason: matchingRule.reason,
-      context: normalizedContext,
-    });
-  }
-
-  if (normalizedContext.risk === "high" && normalizedContext.confidence < 0.45) {
-    return buildRoutingDecision({
-      tier: "sota",
-      source: "safety_override",
-      reason: "Low-confidence turns with high-risk actions are forced onto the safest tier.",
       context: normalizedContext,
     });
   }
@@ -941,11 +945,22 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         manifest: turnInput.manifest,
         activeAgentId: activeAgent.agentId,
       });
+      const requestedModel = input.model.resolveRequestedModel?.({
+        callSessionId: turnInput.callSessionId,
+        manifest: turnInput.manifest,
+        activeAgent,
+        transcript,
+        tier: routingDecision.tier,
+        context: { ...turnInput.context, confidence, language },
+        untrustedContext: turnInput.untrustedContext?.map(cloneUntrustedContextItem),
+      });
 
       emit("routing.model_selected", {
         tier: routingDecision.tier,
-        provider: activeAgent.modelProvider ?? "openai",
-        ...(activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
+        provider: requestedModel?.provider ?? activeAgent.modelProvider ?? "openai",
+        ...(requestedModel !== undefined
+          ? { modelId: requestedModel.modelId }
+          : activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
           ? { modelId: activeAgent.modelId.trim() }
           : {}),
         source: routingDecision.source,
@@ -1861,7 +1876,8 @@ function normalizeRoutingContext(
     activeAgentId: activeAgent.agentId,
     intent: context.intent,
     callPhase: context.callPhase,
-    confidence: context.confidence ?? 0,
+    ...(context.confidence !== undefined ? { confidence: context.confidence } : {}),
+    ...(context.intentConfidence !== undefined ? { intentConfidence: context.intentConfidence } : {}),
     language: context.language ?? activeAgent.languagePolicy.defaultLanguage,
     risk: resolveToolRisk(context, manifest.tools),
     ...(context.requestedToolId !== undefined ? { requestedToolId: context.requestedToolId } : {}),
@@ -1884,11 +1900,11 @@ function modelRoutingRuleMatches(
     return false;
   }
 
-  if (rule.when.minConfidence !== undefined && context.confidence < rule.when.minConfidence) {
+  if (rule.when.minConfidence !== undefined && (context.confidence === undefined || context.confidence < rule.when.minConfidence)) {
     return false;
   }
 
-  if (rule.when.maxConfidence !== undefined && context.confidence > rule.when.maxConfidence) {
+  if (rule.when.maxConfidence !== undefined && (context.confidence === undefined || context.confidence > rule.when.maxConfidence)) {
     return false;
   }
 
