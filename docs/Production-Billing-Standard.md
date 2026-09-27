@@ -4,6 +4,8 @@ Status: Approved for implementation. Subscription checkout and the $5 PAYG check
 
 Proposal version: `2026-08-09-proposal-3`
 
+Production price approval (2026-09-27): the owner explicitly approved the monthly base fees of Starter USD 49, Growth USD 149, and Scale USD 499, plus the one-time USD 5 prepaid pack. These approved fees supersede their proposal labels below. This approval does not itself enable usage delivery or prove production setup.
+
 ## Purpose
 
 This standard defines the first production charge model. It separates customer price, supplier cost, payment state, and access control. It also defines how Zara will replace each production-looking hardcoded billing value.
