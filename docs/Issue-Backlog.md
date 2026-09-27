@@ -5638,7 +5638,7 @@ Acceptance criteria:
 - Labels: billing, devops, observability, testing, security, tdd-required
 - Status: In Progress
 - Blocked by: ISSUE-241, ISSUE-242, ISSUE-243, ISSUE-244, ISSUE-245, ISSUE-246, ISSUE-247
-- Remaining release work: production meter and price setup, existing subscription price assignment, deployment, and live verification will be handled by the user. Mixed subscription/prepaid settlement is implemented locally.
+- Remaining release work: confirm production catalogue prices, finish Polar/configuration setup, verify CI and production backup/active-call checks, deploy, and save the owner enable decision. The agent owns the approved release work; the user retains the live paid test. All pending work is committed in PR #123. Tomdile's net subscription meter exists without a price. Migration CI passes; the stale ordinary schema expectation is repaired and fresh CI is required. Production billing is not enabled. This supersedes the older slice ownership below.
 - Handover: [docs/Handovers/ISSUE-248-shadow-billing-release.md](../docs/Handovers/ISSUE-248-shadow-billing-release.md)
 - External: [Linear ZAR-269](https://linear.app/zara-voice/issue/ZAR-269/run-shadow-billing-reconcile-draft-invoices-and-release-real-charges)
 
