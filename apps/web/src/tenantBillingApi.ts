@@ -84,6 +84,34 @@ export async function fetchTenantBillingState(organizationId: string) {
   return response.billing;
 }
 
+export function watchTenantBillingState(
+  organizationId: string,
+  options: {
+    afterCheckout: boolean;
+    onState: (state: TenantBillingState) => void;
+    onError: (error: unknown) => void;
+  },
+) {
+  let stopped = false;
+  let refreshesRemaining = options.afterCheckout ? 15 : 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const refresh = async () => {
+    try {
+      const state = await fetchTenantBillingState(organizationId);
+      if (stopped) return;
+      options.onState(state);
+      if (refreshesRemaining > 0) {
+        refreshesRemaining -= 1;
+        timer = setTimeout(() => void refresh(), 2000);
+      }
+    } catch (error) {
+      if (!stopped) options.onError(error);
+    }
+  };
+  void refresh();
+  return () => { stopped = true; clearTimeout(timer); };
+}
+
 export async function startPolarCheckout(organizationId: string, planSlug: BillingPlanSlug) {
   const response = await requestJson<{ checkout: { checkoutUrl: string } }>(
     `/organizations/${organizationId}/billing/checkout`,
@@ -99,6 +127,7 @@ export async function startPolarCheckout(organizationId: string, planSlug: Billi
     },
   );
 
+  window.location.assign(response.checkout.checkoutUrl);
   return response.checkout;
 }
 
@@ -115,6 +144,7 @@ export async function openPolarCustomerPortal(organizationId: string) {
     },
   );
 
+  window.location.assign(response.portal.customerPortalUrl);
   return response.portal;
 }
 
@@ -131,5 +161,6 @@ export async function startPaygCheckout(organizationId: string) {
       }),
     },
   );
+  window.location.assign(response.checkout.checkoutUrl);
   return response.checkout;
 }

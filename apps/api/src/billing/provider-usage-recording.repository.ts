@@ -113,8 +113,14 @@ export class ProviderUsageRecordingRepository {
     return id;
   }
 
-  async beginObserved(input: ProviderUsageRequest & { connectionId?: string | null }, sourceRequestId: string) {
+  async beginObserved(input: ProviderUsageRequest & { connectionId?: string | null }, sourceRequestId: string,
+    result?: Omit<ProviderUsageResult, "occurredAt">) {
     if (!sourceRequestId.trim()) throw new Error("Invalid observed provider usage request.");
+    const initialResult = result === undefined ? null : { ...result, occurredAt: input.occurredAt };
+    if (initialResult !== null) {
+      validateUsageResult(initialResult);
+      initialResult.occurredAt = new Date(input.occurredAt).toISOString();
+    }
     if (input.connectionId != null) {
       const connection = (await this.database.query(`select tenant_id, session_id, external_scope_id, provider
         from provider_usage_connections where id = $1 and tenant_id = $2`, [input.connectionId, input.organizationId])).rows[0];
@@ -127,9 +133,9 @@ export class ProviderUsageRecordingRepository {
       input.provider, input.externalScopeId, sourceRequestId,
     ])).digest("hex");
     const inserted = await this.database.query(`insert into provider_usage_requests
-      (id, tenant_id, session_id, external_scope_id, provider, model, occurred_at, connection_id)
-      values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing returning *`,
-    [id, input.organizationId, input.sessionId, input.externalScopeId, input.provider, input.model, input.occurredAt, input.connectionId ?? null]);
+      (id, tenant_id, session_id, external_scope_id, provider, model, occurred_at, connection_id, result)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (id) do nothing returning *`,
+    [id, input.organizationId, input.sessionId, input.externalScopeId, input.provider, input.model, input.occurredAt, input.connectionId ?? null, initialResult]);
     const row = inserted.rows[0] ?? (await this.database.query(
       "select * from provider_usage_requests where id = $1", [id])).rows[0];
     if (row === undefined || row.tenant_id !== input.organizationId || row.session_id !== input.sessionId
@@ -137,15 +143,17 @@ export class ProviderUsageRecordingRepository {
       || row.external_scope_id !== input.externalScopeId || row.provider !== input.provider || row.model !== input.model) {
       throw new Error("Provider usage request identity changed.");
     }
-    return { id, occurredAt: new Date(row.occurred_at as string | Date).toISOString() };
+    const occurredAt = new Date(row.occurred_at as string | Date).toISOString();
+    if (result !== undefined) {
+      const finalResult = { ...result, occurredAt };
+      if (row.result === null) await this.complete(input.organizationId, id, finalResult);
+      else if (!isDeepStrictEqual(row.result, finalResult)) throw new Error("Provider usage result changed.");
+    }
+    return { id, occurredAt };
   }
 
   async complete(organizationId: string, id: string, result: ProviderUsageResult): Promise<void> {
-    if (!result.providerRequestId.trim() || !Number.isFinite(Date.parse(result.occurredAt))
-      || Object.keys(result.totals).length === 0
-      || Object.values(result.totals).some(value => !Number.isSafeInteger(value) || value < 0)) {
-      throw new Error("Invalid provider usage result.");
-    }
+    validateUsageResult(result);
     const updated = await this.database.query(`update provider_usage_requests set result = $3
       where tenant_id = $1 and id = $2 and result is null returning id`, [organizationId, id, result]);
     if (updated.rows.length > 0) return;
@@ -208,16 +216,23 @@ export class ProviderUsageRecordingRepository {
       || start >= end || start % 86_400_000 !== 0 || end % 86_400_000 !== 0) {
       throw new Error("Shared usage read requires scope and full UTC days.");
     }
-    const result = await this.database.query(`select r.tenant_id, r.session_id, r.connection_id, r.occurred_at, r.result, c.call_session_id
+    const result = await this.database.query(`select r.id, r.tenant_id, r.session_id, r.connection_id, r.model, r.occurred_at, r.result, c.call_session_id
       from provider_usage_requests r left join provider_usage_connections c on c.id = r.connection_id and c.tenant_id = r.tenant_id
       where r.provider = $1 and r.external_scope_id = $2`,
     [input.provider, input.externalScopeId]);
     let unresolvedRequestCount = 0;
+    const unresolvedRequests: NonNullable<SharedProviderObservationSnapshot["unresolvedRequests"]> = [];
     const observations = result.rows.flatMap(row => {
       const usage = row.result as ProviderUsageResult | null;
       if (usage === null) {
         // Missing results have no known end time. Do not age them out at midnight.
-        if (new Date(row.occurred_at as string | Date).getTime() < end) unresolvedRequestCount += 1;
+        if (new Date(row.occurred_at as string | Date).getTime() < end) {
+          unresolvedRequestCount += 1;
+          unresolvedRequests.push({ id: row.id as string, organizationId: row.tenant_id as string,
+            sessionId: row.session_id as string | null, connectionId: row.connection_id as string | null,
+            callSessionId: row.call_session_id as string | null, model: row.model as string,
+            occurredAt: new Date(row.occurred_at as string | Date).toISOString() });
+        }
         return [];
       }
       // The current provider report contains completions, not transcription usage.
@@ -232,6 +247,14 @@ export class ProviderUsageRecordingRepository {
     });
     // Chat and Realtime response recording cannot prove coverage of all endpoints, costs,
     // or use outside Zara. Never turn a partial capture into release evidence.
-    return { cycleStartsAt: input.cycleStartsAt, cycleEndsAt: input.cycleEndsAt, complete: false, unresolvedRequestCount, observations };
+    return { cycleStartsAt: input.cycleStartsAt, cycleEndsAt: input.cycleEndsAt, complete: false, unresolvedRequestCount, unresolvedRequests, observations };
+  }
+}
+
+function validateUsageResult(result: ProviderUsageResult) {
+  if (!result.providerRequestId.trim() || !Number.isFinite(Date.parse(result.occurredAt))
+    || Object.keys(result.totals).length === 0
+    || Object.values(result.totals).some(value => !Number.isSafeInteger(value) || value < 0)) {
+    throw new Error("Invalid provider usage result.");
   }
 }

@@ -57,6 +57,7 @@ export interface BillingAdjustmentRecord {
 }
 
 export interface BillingOutboxEntry {
+  deliveryDecisionId?: string | undefined;
   id: string;
   organizationId: string;
   aggregateType: "billing_ledger_entry" | "payg_credit_entry";
@@ -940,26 +941,14 @@ export class PostgresBillingLedgerRepository {
         input.outboxEntry.id,
       );
       if (existingOutbox === null) {
-        await client.query(
-          `insert into billing_outbox (
-           tenant_id, id, aggregate_type, aggregate_id, event_type, payload,
-           status, attempt_count, next_attempt_at, last_error, created_at, delivered_at
-         ) values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12)`,
-          [
-            input.outboxEntry.organizationId,
-            input.outboxEntry.id,
-            input.outboxEntry.aggregateType,
-            input.outboxEntry.aggregateId,
-            input.outboxEntry.eventType,
-            JSON.stringify(input.outboxEntry.payload),
-            input.outboxEntry.status,
-            input.outboxEntry.attemptCount,
-            input.outboxEntry.nextAttemptAt,
-            input.outboxEntry.lastError ?? null,
-            input.outboxEntry.createdAt,
-            input.outboxEntry.deliveredAt ?? null,
-          ],
-        );
+        await insertOutboxEntry(client, input.outboxEntry, {
+          catalogId: input.ledgerEntry.catalogId,
+          usageStartedAt: input.ledgerEntry.metadata.usageStartedAt,
+          complete: Number.isSafeInteger(input.ledgerEntry.customerAmountMinor)
+            && input.ledgerEntry.customerAmountMinor! >= 0
+            && input.ledgerEntry.metadata.billingDisposition === "shadow"
+            && input.ledgerEntry.metadata.commercialMode === "subscription",
+        });
       } else {
         assertOutboxMatch(existingOutbox, input.outboxEntry);
       }
@@ -1066,6 +1055,14 @@ export class PostgresBillingLedgerRepository {
     const client = await this.database.connect();
     try {
       await client.query("begin");
+      const decisionResult = await client.query(
+        `select id, enabled, release_id from billing_delivery_decisions order by sequence desc limit 1`,
+      );
+      const decision = decisionResult.rows[0];
+      if (decision?.enabled !== true || decision.release_id !== releaseId) {
+        await client.query("commit");
+        return [];
+      }
       const due = await client.query(
         `select tenant_id, id, aggregate_type, aggregate_id, event_type, payload,
                 status, attempt_count, next_attempt_at, last_error, created_at, delivered_at
@@ -1074,10 +1071,11 @@ export class PostgresBillingLedgerRepository {
            and payload ->> 'deliveryMode' = 'charge'
            and charge_release_id = $3
            and charge_promoted_at is not null
+           and delivery_decision_id = $4
          order by next_attempt_at asc, created_at asc, id asc
          limit $2
          for update`,
-        [now, limit, releaseId],
+        [now, limit, releaseId, decision.id],
       );
       const claimed: BillingOutboxEntry[] = [];
       for (const row of due.rows) {
@@ -1087,7 +1085,7 @@ export class PostgresBillingLedgerRepository {
                next_attempt_at = $3, last_error = null
            where tenant_id = $1 and id = $2
            returning tenant_id, id, aggregate_type, aggregate_id, event_type, payload,
-                     status, attempt_count, next_attempt_at, last_error, created_at, delivered_at`,
+                     status, attempt_count, next_attempt_at, last_error, created_at, delivered_at, delivery_decision_id`,
           [row.tenant_id, row.id, processingLeaseUntil],
         );
         claimed.push(mapOutboxEntry(updated.rows[0] as QueryResultRow));
@@ -1316,6 +1314,7 @@ function mapOutboxEntry(row: QueryResultRow): BillingOutboxEntry {
     ...(row.last_error === null ? {} : { lastError: row.last_error as string }),
     createdAt: normalizeTimestamp(row.created_at),
     ...(row.delivered_at === null ? {} : { deliveredAt: normalizeTimestamp(row.delivered_at) }),
+    ...(row.delivery_decision_id == null ? {} : { deliveryDecisionId: row.delivery_decision_id as string }),
   };
 }
 
@@ -1587,7 +1586,16 @@ function assertAdjustmentMatch(existing: BillingAdjustmentRecord, input: Billing
 }
 
 function assertOutboxMatch(existing: BillingOutboxEntry, input: BillingOutboxEntry) {
-  if (!isDeepStrictEqual(existing, { ...input, payload: { ...input.payload } })) {
+  const immutableContent = (entry: BillingOutboxEntry) => {
+    const payload = { ...entry.payload };
+    delete payload.deliveryMode;
+    return {
+      id: entry.id, organizationId: entry.organizationId,
+      aggregateType: entry.aggregateType, aggregateId: entry.aggregateId,
+      eventType: entry.eventType, payload, createdAt: entry.createdAt,
+    };
+  };
+  if (!isDeepStrictEqual(immutableContent(existing), immutableContent(input))) {
     throw new Error(`Outbox event ${input.id} already has different content.`);
   }
 }
@@ -1644,25 +1652,48 @@ function remainingGrantForOrder(entries: BillingPaygCreditEntry[], orderId: stri
   return 0;
 }
 
-async function insertOutboxEntry(database: Queryable, entry: BillingOutboxEntry) {
+export async function insertOutboxEntry(database: Queryable, entry: BillingOutboxEntry, eligibility?: {
+  catalogId: string | undefined;
+  usageStartedAt: unknown;
+  complete: boolean;
+}) {
+  let decision: QueryResultRow | undefined;
+  if (eligibility?.complete && eligibility.catalogId !== undefined
+    && typeof eligibility.usageStartedAt === "string"
+    && Number.isFinite(Date.parse(eligibility.usageStartedAt))) {
+    const result = await database.query(
+      `select id, enabled, catalog_id, release_id, effective_at <= $1::timestamptz as started_after_enable
+       from billing_delivery_decisions order by sequence desc limit 1`,
+      [eligibility.usageStartedAt],
+    );
+    const current = result.rows[0];
+    if (current?.enabled === true && current.catalog_id === eligibility.catalogId
+      && current.started_after_enable === true
+      && Date.parse(eligibility.usageStartedAt) <= Date.parse(entry.createdAt)) {
+      decision = current;
+    }
+  }
   await database.query(
     `insert into billing_outbox (
        tenant_id, id, aggregate_type, aggregate_id, event_type, payload,
        status, attempt_count, next_attempt_at, last_error, created_at, delivered_at
-     ) values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12)`,
+       ${decision === undefined ? "" : ", delivery_decision_id, charge_release_id, charge_promoted_at"}
+     ) values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12
+       ${decision === undefined ? "" : ", $13, $14, $15"})`,
     [
       entry.organizationId,
       entry.id,
       entry.aggregateType,
       entry.aggregateId,
       entry.eventType,
-      JSON.stringify(entry.payload),
+      JSON.stringify(decision === undefined ? entry.payload : { ...entry.payload, deliveryMode: "charge" }),
       entry.status,
       entry.attemptCount,
       entry.nextAttemptAt,
       entry.lastError ?? null,
       entry.createdAt,
       entry.deliveredAt ?? null,
+      ...(decision === undefined ? [] : [decision.id, decision.release_id, entry.createdAt]),
     ],
   );
 }

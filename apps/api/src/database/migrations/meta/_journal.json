@@ -288,6 +288,20 @@
       "when": 1789465305244,
       "tag": "0040_runtime_prompt_policy_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790502016038,
+      "tag": "0041_billing_delivery_decisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790502640683,
+      "tag": "0042_auth_mfa_assurance",
+      "breakpoints": true
     }
   ]
 }

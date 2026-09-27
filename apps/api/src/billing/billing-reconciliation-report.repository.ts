@@ -7,6 +7,7 @@ import type {
   BillingReconciliationMismatchDraft,
   BillingReconciliationReportRepository,
 } from "./billing-usage-reconciliation.service";
+import { TenantSessionBillingAudit } from "./tenant-session-billing-audit";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 
@@ -25,6 +26,8 @@ implements BillingReconciliationReportRepository {
       await Promise.all([
         this.database.query(
           `select id, entry_type, metadata ->> 'billingClass' as meter_key,
+                  metadata ->> 'settlementMeterKey' as settlement_meter_key,
+                  metadata ->> 'grossCustomerAmountMinor' as gross_customer_amount_minor,
                   metadata ->> 'kind' as adjustment_kind, quantity,
                   customer_amount_minor
              from billing_ledger_entries
@@ -35,7 +38,10 @@ implements BillingReconciliationReportRepository {
           parameters,
         ),
         this.database.query(
-          `select outbox.id, outbox.aggregate_id, outbox.status, outbox.payload
+          `select outbox.id, outbox.aggregate_id, outbox.status, outbox.payload,
+                  coalesce(outbox.delivery_decision_id = (
+                    select case when enabled then id end from billing_delivery_decisions order by sequence desc limit 1
+                  ), false) as delivery_eligible
              from billing_outbox outbox
              left join billing_ledger_entries ledger
                on outbox.tenant_id = ledger.tenant_id
@@ -86,36 +92,37 @@ implements BillingReconciliationReportRepository {
         ),
         this.database.query(
           `select case
-                    when created_at < $3::timestamptz
-                     and expires_at > $3::timestamptz
+                    when created_at < $2::timestamptz
+                     and expires_at > $2::timestamptz
                      and (status in ('active', 'expired')
-                       or finalized_at >= $3::timestamptz
-                       or released_at >= $3::timestamptz)
+                       or finalized_at >= $2::timestamptz
+                       or released_at >= $2::timestamptz)
                     then 'active'
                     else status
                   end as status,
                   reserved_amount_minor, actual_amount_minor
              from billing_charge_reservations
             where tenant_id = $1
-              and created_at < $3::timestamptz
+              and created_at < $2::timestamptz
             order by created_at, id`,
-          parameters,
+          [input.organizationId, input.cycleEndsAt],
         ),
         this.database.query(
           `select coalesce(sum(reserved_amount_minor) filter (
-                    where created_at < $3::timestamptz
-                      and expires_at > $3::timestamptz
+                    where created_at < $2::timestamptz
+                      and expires_at > $2::timestamptz
                       and (status in ('active', 'expired')
-                        or finalized_at >= $3::timestamptz
-                        or released_at >= $3::timestamptz)
+                        or finalized_at >= $2::timestamptz
+                        or released_at >= $2::timestamptz)
                   ), 0) as reservation_snapshot_minor
              from billing_charge_reservations
             where tenant_id = $1`,
-          parameters,
+          [input.organizationId, input.cycleEndsAt],
         ),
       ]);
 
     return {
+      sessionAudit: await new TenantSessionBillingAudit(this.database).auditCycle(input),
       ledger: ledger.rows.map(mapLedger),
       outbox: outbox.rows.map(mapOutbox),
       payg: {
@@ -236,6 +243,10 @@ function mapLedger(row: QueryResultRow): BillingCycleLocalEvidence["ledger"][num
     id: text(row.id, "id"),
     entryType: text(row.entry_type, "entry_type"),
     meterKey: row.meter_key === null ? null : text(row.meter_key, "meter_key"),
+    ...(row.settlement_meter_key === "subscription_charge_minor"
+      ? { settlementMeterKey: "subscription_charge_minor" as const } : {}),
+    ...(row.gross_customer_amount_minor == null ? {}
+      : { grossCustomerAmountMinor: integer(row.gross_customer_amount_minor, "gross_customer_amount_minor") }),
     ...(row.adjustment_kind === null
       ? {}
       : { adjustmentKind: adjustmentKind(row.adjustment_kind) }),
@@ -267,6 +278,7 @@ function mapOutbox(row: QueryResultRow): BillingCycleLocalEvidence["outbox"][num
     meterKey: text(payload.meterKey, "payload.meterKey"),
     quantity: integer(payload.quantity, "payload.quantity"),
     deliveryMode,
+    deliveryEligible: row.delivery_eligible === true,
     status,
   };
 }

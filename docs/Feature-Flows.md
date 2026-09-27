@@ -117,6 +117,7 @@ The first monitoring depth is now live on the published sandbox surface:
 - quality reports flag dead ends, low-grounding hallucination risk, slow turns, and escalation misses, then create draft-only improvement suggestions that require human approval
 - AI observability sends packet-derived OpenTelemetry spans to LangSmith when enabled, so internal operators can inspect redacted intent, tool, transfer, model, and policy traces without making LangSmith the tenant event replay or audit source of truth
 - Runtime evals replay versioned packet fixtures through LangSmith/Vitest scorecards to catch routing, tool-use, transfer-context, and policy regressions before prompt or model changes ship
+- Builders can select **Improve instructions** in reusable-agent creation or the workflow agent inspector. The model receives bounded draft instructions, language settings, safe tool metadata, and configured handoff targets. The review panel shows an editable suggestion, changes, missing details, and conflicts. Apply changes only the draft; restore preserves the original while the review remains open. Changes to source text or settings make a pending suggestion stale. The normal save/publish flow stores accepted instructions in the existing agent/workflow version. Generated text still needs human review and a sandbox check.
 
 ## Billing
 

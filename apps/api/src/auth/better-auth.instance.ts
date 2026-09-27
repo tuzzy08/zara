@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { memoryAdapter, type MemoryDB } from "better-auth/adapters/memory";
+import { twoFactor } from "better-auth/plugins/two-factor";
 import { Pool } from "pg";
 
 import { resolveTrustedOrigins } from "../config/trusted-origins";
@@ -7,6 +8,7 @@ import { resolveAuthEmailDeliveryConfig, sendAuthEmail } from "./auth-email-deli
 import { createZaraOrganizationPlugin } from "./organization-model";
 import { createPostgresTenantMirror, type TenantMirror } from "./tenant-mirror";
 import { createPostgresAuthRateLimitStorage } from "./postgres-auth-rate-limit-storage";
+import { mfaAssurance } from "./mfa-assurance";
 
 const authMemoryDb: MemoryDB = {
   user: [],
@@ -16,6 +18,7 @@ const authMemoryDb: MemoryDB = {
   organization: [],
   member: [],
   invitation: [],
+  twoFactor: [],
 };
 
 type AuthDatabaseMode = "memory" | "postgres";
@@ -63,6 +66,8 @@ export const zaraAuth = betterAuth({
     },
   },
   plugins: [
+    twoFactor({ issuer: "Zara" }),
+    mfaAssurance,
     createZaraOrganizationPlugin(
       authDatabase.tenantMirror === undefined ? {} : { tenantMirror: authDatabase.tenantMirror },
     ),

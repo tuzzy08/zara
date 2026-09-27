@@ -15,6 +15,119 @@ function responseEvent(type: string, status = "completed", usage: unknown = {
 }
 
 describe("OpenAI Realtime usage recording", () => {
+  it.each([undefined, "23505"])("does not retry unclassified or permanent storage errors (%s)", async code => {
+    const pool = usageRecordingTestPool();
+    try {
+      let failFirst = true;
+      const database = { query: async (...args: Parameters<typeof pool.query>) => {
+        if (failFirst && String(args[0]).startsWith("insert into provider_usage_requests")) {
+          failFirst = false;
+          throw Object.assign(new Error("permanent failure"), { code });
+        }
+        return pool.query(...args);
+      } } as Pick<typeof pool, "query">;
+      const recorder = new OpenAiRealtimeUsageRecorder(new ProviderUsageRecordingRepository(database), scope);
+      await expect(recorder.record(responseEvent("response.done"))).rejects.toThrow("permanent failure");
+      await expect(recorder.drain()).rejects.toThrow("Realtime usage capture is incomplete.");
+      expect(await new ProviderUsageRecordingRepository(pool).listTenantRequests(scope.organizationId)).toEqual([]);
+    } finally { await pool.end(); }
+  });
+  it("stops after one failed retry and permits later pending work to settle", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      let failures = 2;
+      const database = { query: async (...args: Parameters<typeof pool.query>) => {
+        if (String(args[0]).startsWith("insert into provider_usage_requests") && failures-- > 0) {
+          throw Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+        }
+        return pool.query(...args);
+      } } as Pick<typeof pool, "query">;
+      const recorder = new OpenAiRealtimeUsageRecorder(new ProviderUsageRecordingRepository(database), scope, () => startedAt);
+      await expect(recorder.record(responseEvent("response.done"))).rejects.toThrow("connection reset");
+      await expect(recorder.drain()).rejects.toThrow("Realtime usage capture is incomplete.");
+      const restarted = new ProviderUsageRecordingRepository(pool);
+      expect(await restarted.listTenantRequests(scope.organizationId)).toEqual([]);
+      await recorder.record(responseEvent("response.done"));
+      await expect(recorder.drain()).rejects.toThrow("Realtime usage capture is incomplete.");
+      expect(await restarted.listTenantRequests(scope.organizationId)).toHaveLength(1);
+    } finally { await pool.end(); }
+  });
+  it("retries retained usage once after a transient storage failure while reporting incomplete capture", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      let failFirst = true;
+      const database = { query: async (...args: Parameters<typeof pool.query>) => {
+        if (failFirst && String(args[0]).startsWith("insert into provider_usage_requests")) {
+          failFirst = false;
+          throw Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+        }
+        return pool.query(...args);
+      } } as Pick<typeof pool, "query">;
+      const recorder = new OpenAiRealtimeUsageRecorder(new ProviderUsageRecordingRepository(database), scope, () => startedAt);
+      await expect(recorder.record(responseEvent("response.done"))).rejects.toThrow("connection reset");
+      await expect(recorder.drain()).rejects.toThrow("Realtime usage capture is incomplete.");
+      expect(await new ProviderUsageRecordingRepository(pool).listTenantRequests(scope.organizationId)).toMatchObject([{ result: {
+        providerRequestId: "resp-1", occurredAt: startedAt, totals: { inputTokens: 30, outputTokens: 7, requestCount: 1 },
+      } }]);
+    } finally { await pool.end(); }
+  });
+  it("saves independent responses while preserving receipt order for a blocked response", async () => {
+    const pool = usageRecordingTestPool();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let blockFirst = true;
+    const database = { query: async (...args: Parameters<typeof pool.query>) => {
+      if (blockFirst && String(args[0]).startsWith("insert into provider_usage_requests")) {
+        blockFirst = false;
+        await gate;
+      }
+      return pool.query(...args);
+    } } as Pick<typeof pool, "query">;
+    let receipt = startedAt;
+    const recorder = new OpenAiRealtimeUsageRecorder(new ProviderUsageRecordingRepository(database), scope, () => receipt);
+    const first = recorder.record(responseEvent("response.created", "in_progress", null));
+    receipt = "2026-09-07T00:00:00.000Z";
+    const final = recorder.record(responseEvent("response.done"));
+    const independent = recorder.record(responseEvent("response.done").replace('"resp-1"', '"resp-2"'));
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      expect(await new ProviderUsageRecordingRepository(pool).listTenantRequests(scope.organizationId))
+        .toMatchObject([{ result: { providerRequestId: "resp-2" } }]);
+    } finally {
+      release();
+      await Promise.all([first, final, independent]);
+    }
+    try {
+      await recorder.drain();
+      const rows = await new ProviderUsageRecordingRepository(pool).listTenantRequests(scope.organizationId);
+      expect(rows.find(row => row.result?.providerRequestId === "resp-1")?.result?.occurredAt).toBe(startedAt);
+      expect(rows).toHaveLength(2);
+    } finally { await pool.end(); }
+  });
+  it("retains final usage after a committed insert loses its acknowledgement", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      let loseAcknowledgement = true;
+      const database = { query: async (...args: Parameters<typeof pool.query>) => {
+        const result = await pool.query(...args);
+        if (loseAcknowledgement && String(args[0]).startsWith("insert into provider_usage_requests")) {
+          loseAcknowledgement = false;
+          throw new Error("connection closed after commit");
+        }
+        return result;
+      } } as Pick<typeof pool, "query">;
+      const recorder = new OpenAiRealtimeUsageRecorder(new ProviderUsageRecordingRepository(database), scope, () => startedAt);
+      await expect(recorder.record(responseEvent("response.done"))).rejects.toThrow("connection closed after commit");
+      const restarted = new ProviderUsageRecordingRepository(pool);
+      expect(await restarted.listTenantRequests(scope.organizationId)).toMatchObject([{ result: {
+        providerRequestId: "resp-1", occurredAt: startedAt,
+        totals: { inputTokens: 30, outputTokens: 7, requestCount: 1 },
+      } }]);
+      const replay = new OpenAiRealtimeUsageRecorder(restarted, scope, () => "2026-09-07T12:00:00.000Z");
+      await replay.record(responseEvent("response.done"));
+      expect(await restarted.listTenantRequests(scope.organizationId)).toHaveLength(1);
+    } finally { await pool.end(); }
+  });
   it("can replay a retained usage event after a failed final write without moving it across midnight", async () => {
     const pool = usageRecordingTestPool();
     try {

@@ -1,4 +1,5 @@
 import type { Pool, PoolClient, QueryResultRow } from "pg";
+import { insertOutboxEntry } from "./postgres-billing-ledger.repository";
 import {
   normalizePaygCallChargeContext,
   type PaygCallChargeContext,
@@ -242,6 +243,23 @@ export class BillingChargeReservationRepository {
           input.now,
         ],
       );
+      const debitId = paygDebitId(input.reservationId);
+      const outboxId = `polar_${debitId}`;
+      await insertOutboxEntry(client, {
+        id: outboxId, organizationId: input.organizationId,
+        aggregateType: "payg_credit_entry", aggregateId: debitId, eventType: "polar.usage.report",
+        payload: {
+          externalEventId: outboxId, externalCustomerId: input.organizationId,
+          creditEntryId: debitId, sessionId: input.sessionId,
+          meterKey: "payg_charge_minor", quantity: input.actualAmountMinor,
+          occurredAt: input.now, deliveryMode: "shadow",
+        },
+        status: "pending", attemptCount: 0, nextAttemptAt: input.now, createdAt: input.now,
+      }, {
+        catalogId: reservation.catalogId,
+        // The durable reservation precedes call usage. Old reservations remain shadow.
+        usageStartedAt: reservation.createdAt, complete: true,
+      });
       const balanceMinor = await readPaygBalanceMinor(
         client,
         input.organizationId,

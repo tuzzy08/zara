@@ -13,6 +13,7 @@ type LedgerRepository = Pick<
 >;
 
 export interface TrustedTerminalCallFact {
+  usageStartedAt?: string | undefined;
   organizationId: string;
   workspaceId?: string | undefined;
   callSessionId: string;
@@ -26,6 +27,7 @@ export interface TrustedTerminalCallFact {
   catalogId?: string | undefined;
   commercialMode: "payg" | "subscription";
   paygAppliedMinor?: number | undefined;
+  includedRuntimeSeconds?: number | undefined;
   planSlug?: string | undefined;
   routeRateId?: string | undefined;
   runtimeSeconds: number;
@@ -114,13 +116,39 @@ export class TrustedBillingUsageProducer {
     if (fact.commercialMode === "payg" && paygAppliedMinor !== 0) {
       throw new Error("PAYG usage cannot include subscription PAYG net settlement.");
     }
+    const settledSubscription = fact.commercialMode === "subscription" && fact.includedRuntimeSeconds !== undefined;
+    const includedRuntimeSeconds = fact.includedRuntimeSeconds === undefined ? 0
+      : requireInteger(fact.includedRuntimeSeconds, "includedRuntimeSeconds");
+    if (includedRuntimeSeconds > requireInteger(fact.runtimeSeconds, "runtimeSeconds")
+      || (fact.commercialMode === "payg" && fact.includedRuntimeSeconds !== undefined)) {
+      throw new Error("Included runtime does not match subscription usage.");
+    }
     const paygNettedSubscription = fact.commercialMode === "subscription"
-      && paygAppliedMinor > 0;
+      && paygAppliedMinor > 0 && !settledSubscription;
     const catalog = await this.resolveCatalog(fact.catalogId, fact.occurredAt);
     if (catalog === null) {
+      if (settledSubscription) throw new Error("Subscription settlement requires its price catalog.");
       return this.recordTerminalCallWithoutCatalog(fact);
     }
     const runtimeRate = readRuntimeRate(catalog, fact);
+    const runtimeAmountMinor = runtimeRate === undefined ? undefined
+      : prorateAndRoundUp(fact.runtimeSeconds - includedRuntimeSeconds, runtimeRate);
+    const connectedSeconds = fact.providerConnectedSeconds === undefined ? 0
+      : requireInteger(fact.providerConnectedSeconds, "providerConnectedSeconds");
+    const routeRateId = optionalText(fact.routeRateId) ?? findTelephonyRouteId(catalog, fact.provider, fact.direction);
+    const route = routeRateId === undefined ? undefined : readTelephonyRoute(catalog, routeRateId);
+    const roundedCustomerMinutes = Math.ceil(connectedSeconds / 60);
+    const telephonyAmountMinor = fact.ownershipMode === "byo" ? 0
+      : route === undefined || fact.providerConnectedSeconds === undefined ? undefined
+        : roundedCustomerMinutes * route.customerRateMinorPerMinute;
+    if (settledSubscription) {
+      if (runtimeAmountMinor === undefined || telephonyAmountMinor === undefined) {
+        throw new Error("Subscription settlement requires complete runtime and carrier charges.");
+      }
+      if (paygAppliedMinor > runtimeAmountMinor + telephonyAmountMinor) {
+        throw new Error("Prepaid credit exceeds the subscription charge.");
+      }
+    }
     const runtimeIncompleteReasons = runtimeRate === undefined
       ? ["missing_customer_runtime_rate"]
       : [];
@@ -128,6 +156,7 @@ export class TrustedBillingUsageProducer {
       runtimeIncompleteReasons.push("subscription_payg_net_settlement_unavailable");
     }
     const commonMetadata = {
+      ...(fact.usageStartedAt === undefined ? {} : { usageStartedAt: fact.usageStartedAt }),
       ...(fact.workspaceId === undefined ? {} : { workspaceId: fact.workspaceId }),
       callSessionId: fact.callSessionId,
       providerConnectionId: fact.providerConnectionId,
@@ -141,6 +170,7 @@ export class TrustedBillingUsageProducer {
       ...(fact.planSlug === undefined ? {} : { planSlug: fact.planSlug }),
       chargeDelivery: paygNettedSubscription ? "blocked" : "shadow",
       ...(paygAppliedMinor === 0 ? {} : { paygAppliedMinor }),
+      ...(settledSubscription ? { includedRuntimeSeconds, settlementMeterKey: "subscription_charge_minor" } : {}),
     };
     const results = [await this.appendUsageEntry({
       id: stableEntryId("runtime", fact.callSessionId),
@@ -149,9 +179,9 @@ export class TrustedBillingUsageProducer {
       entryType: "runtime_charge",
       catalogId: catalog.id,
       currency: catalog.currency,
-      ...(runtimeRate === undefined
+      ...(runtimeAmountMinor === undefined
         ? {}
-        : { customerAmountMinor: prorateAndRoundUp(fact.runtimeSeconds, runtimeRate) }),
+        : { customerAmountMinor: settledSubscription ? Math.max(0, runtimeAmountMinor - paygAppliedMinor) : runtimeAmountMinor }),
       ...(fact.supplierRuntimeCostMinor === undefined
         ? {}
         : { supplierCostMinor: fact.supplierRuntimeCostMinor }),
@@ -161,6 +191,7 @@ export class TrustedBillingUsageProducer {
       metadata: {
         ...commonMetadata,
         billingClass: runtimeBillingClass(fact.runtimePath),
+        ...(settledSubscription && runtimeAmountMinor !== undefined ? { grossCustomerAmountMinor: runtimeAmountMinor } : {}),
         runtimePath: fact.runtimePath,
         billingDisposition:
           runtimeIncompleteReasons.length === 0 ? "shadow" : "incomplete",
@@ -176,23 +207,14 @@ export class TrustedBillingUsageProducer {
       if (paygNettedSubscription) {
         telephonyIncompleteReasons.push("subscription_payg_net_settlement_unavailable");
       }
-      const connectedSeconds = fact.providerConnectedSeconds === undefined
-        ? 0
-        : requireInteger(fact.providerConnectedSeconds, "providerConnectedSeconds");
       if (fact.providerConnectedSeconds === undefined) {
         telephonyIncompleteReasons.push("missing_provider_connected_seconds");
       }
-      const routeRateId = optionalText(fact.routeRateId)
-        ?? findTelephonyRouteId(catalog, fact.provider, fact.direction);
-      const route = routeRateId === undefined
-        ? undefined
-        : readTelephonyRoute(catalog, routeRateId);
       if (routeRateId === undefined || route === undefined) {
         telephonyIncompleteReasons.push("missing_customer_telephony_rate");
       }
       const failedWithoutProviderConnection =
         fact.outcome === "failed" && connectedSeconds === 0;
-      const roundedCustomerMinutes = Math.ceil(connectedSeconds / 60);
       results.push(await this.appendUsageEntry({
         id: stableEntryId("telephony", fact.callSessionId),
         organizationId: fact.organizationId,
@@ -204,7 +226,8 @@ export class TrustedBillingUsageProducer {
           ? {}
           : {
               customerAmountMinor:
-                roundedCustomerMinutes * route.customerRateMinorPerMinute,
+                roundedCustomerMinutes * route.customerRateMinorPerMinute
+                  - (settledSubscription ? Math.max(0, paygAppliedMinor - (runtimeAmountMinor ?? 0)) : 0),
             }),
         ...(fact.supplierTelephonyCostMinor === undefined
           ? {}
@@ -218,6 +241,9 @@ export class TrustedBillingUsageProducer {
           connectionOwnership: fact.ownershipMode,
           ...(routeRateId === undefined ? {} : { routeRateId }),
           roundedCustomerMinutes,
+          ...(settledSubscription && route !== undefined ? {
+            grossCustomerAmountMinor: roundedCustomerMinutes * route.customerRateMinorPerMinute,
+          } : {}),
           billingDisposition:
             telephonyIncompleteReasons.length > 0
               ? "incomplete"
@@ -403,11 +429,12 @@ function stableEntryId(kind: "runtime" | "telephony", sourceId: string) {
 }
 
 function createUsageOutboxEntry(entry: BillingLedgerEntry): BillingOutboxEntry {
-  const meterKey = optionalText(entry.metadata.billingClass);
+  const meterKey = optionalText(entry.metadata.settlementMeterKey) ?? optionalText(entry.metadata.billingClass);
   if (meterKey === undefined) {
     throw new Error(`Ledger entry ${entry.id} has no billing class.`);
   }
   const id = `polar_usage_${entry.id}`;
+  const moneyMeter = meterKey === "subscription_charge_minor" || meterKey === "platform_telephony_charge_minor";
   return {
     id,
     organizationId: entry.organizationId,
@@ -419,8 +446,8 @@ function createUsageOutboxEntry(entry: BillingLedgerEntry): BillingOutboxEntry {
       externalCustomerId: entry.organizationId,
       ledgerEntryId: entry.id,
       meterKey,
-      quantity: entry.quantity,
-      unit: entry.unit,
+      quantity: moneyMeter ? entry.customerAmountMinor : entry.quantity,
+      unit: moneyMeter ? "usd_cent" : entry.unit,
       currency: entry.currency,
       ...(entry.customerAmountMinor === undefined
         ? {}

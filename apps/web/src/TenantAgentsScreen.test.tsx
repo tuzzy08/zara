@@ -11,10 +11,12 @@ describe("TenantAgentsScreen", () => {
     vi.unstubAllGlobals();
   });
 
-  it("lets operators create a reusable concrete agent for the active workspace", async () => {
+  it("reviews instruction changes, blocks stale results, and creates a reusable agent", async () => {
+    let resolveSuggestion: ((response: Response) => void) | undefined;
     const showToast = vi.fn();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.includes("improve-instructions")) return new Promise<Response>(resolve => { resolveSuggestion = resolve; });
 
       if (url.endsWith("/organizations/tenant-west-africa/agents?workspaceId=workspace-default")) {
         return new Response(JSON.stringify({ agents: [] }), {
@@ -66,6 +68,26 @@ describe("TenantAgentsScreen", () => {
     fireEvent.change(screen.getByLabelText("Agent class"), {
       target: { value: "retention" },
     });
+    const original = "Help customers track orders.";
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: original } });
+    fireEvent.click(screen.getByRole("button", { name: "Improve instructions" }));
+    await waitFor(() => expect(resolveSuggestion).toBeDefined());
+    resolveSuggestion!(jsonResponse({ originalInstructions: original, instructions: "Purpose\nTrack orders.", changes: ["Added a clear purpose."], questions: ["Which order system do you use?"], conflicts: [], toolIds: [], handoffTargetIds: [] }));
+    const suggested = await screen.findByLabelText<HTMLTextAreaElement>("Suggested instructions");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe(original);
+    expect(screen.getByText("Which order system do you use?")).toBeTruthy();
+    fireEvent.change(suggested, { target: { value: "Purpose\nAnswer order questions." } });
+    fireEvent.click(screen.getByRole("button", { name: "Use these instructions" }));
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe("Purpose\nAnswer order questions.");
+    fireEvent.click(screen.getByRole("button", { name: "Restore original" }));
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe(original);
+    fireEvent.click(screen.getByRole("button", { name: "Improve instructions" }));
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "New instructions" } });
+    resolveSuggestion!(jsonResponse({ originalInstructions: original, instructions: "Old result", changes: [], questions: [], conflicts: [], toolIds: [], handoffTargetIds: [] }));
+    await screen.findByText("Instructions or settings changed. Generate a new suggestion.");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Use these instructions" }).disabled).toBe(true);
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe("New instructions");
+
     fireEvent.change(screen.getByLabelText("Instructions"), {
       target: { value: "Answer support calls and escalate billing risks." },
     });

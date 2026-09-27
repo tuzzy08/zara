@@ -5,6 +5,6 @@ export default defineConfig({
   resolve: { alias: { "@zara/core": resolve(__dirname, "packages/core/src/index.ts") } },
   test: {
     environment: "node", maxWorkers: 1, testTimeout: 60_000,
-    include: ["apps/api/src/runtime-evals/runtime-prompt.live.eval.ts"],
+    include: ["apps/api/src/runtime-evals/runtime-prompt.live.eval.ts", "apps/api/src/runtime-evals/instruction-improvement.live.eval.ts"],
   },
 });

@@ -10,6 +10,24 @@ const cycle = {
 };
 
 describe("OpenAI direct billing evidence source", () => {
+  it("collects a shared project without a tenant mapping or a customer quantity", async () => {
+    const source = new OpenAiDirectBillingEvidenceSource(
+      { getProjectId: async () => { throw new Error("No tenant mapping"); } },
+      { getProjectCycleEvidence: async () => ({ usage: [], costs: [{
+        bucketStartsAt: cycle.cycleStartsAt, bucketEndsAt: cycle.cycleEndsAt,
+        projectId: "shared-project", lineItem: "models", amount: 3.25, currency: "usd",
+      }] }) },
+      () => "2026-09-06T00:00:00.000Z",
+    );
+    const report = await source.collectSharedCycle({
+      externalScopeId: "shared-project", cycleStartsAt: cycle.cycleStartsAt,
+      cycleEndsAt: cycle.cycleEndsAt,
+    });
+    expect(report).toMatchObject({ provider: "openai", payload: {
+      scope: "platform", projectId: "shared-project", quantities: {},
+      facts: [{ kind: "cost", amount: 3.25 }],
+    } });
+  });
   it("returns no evidence when the tenant does not use OpenAI", async () => {
     const source = new OpenAiDirectBillingEvidenceSource(
       { getProjectId: vi.fn(async () => null) },

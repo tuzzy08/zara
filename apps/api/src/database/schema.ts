@@ -1,6 +1,7 @@
 import {
   boolean,
   bigint,
+  bigserial,
   check,
   customType,
   foreignKey,
@@ -72,6 +73,7 @@ export const authUsers = pgTable(
     name: text("name").notNull(),
     email: text("email").notNull(),
     emailVerified: boolean("emailVerified").notNull(),
+    twoFactorEnabled: boolean("twoFactorEnabled").default(false),
     image: text("image"),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull(),
@@ -115,6 +117,8 @@ export const authSessions = pgTable(
       onUpdate: "cascade",
     }),
     activeTeamId: text("activeTeamId"),
+    mfaVerifiedAt: timestamp("mfaVerifiedAt", { withTimezone: true }),
+    mfaFactorId: text("mfaFactorId"),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull(),
   },
@@ -123,6 +127,15 @@ export const authSessions = pgTable(
     userIndex: index("auth_session_user_idx").on(table.userId),
   }),
 );
+
+export const authTwoFactors = pgTable("twoFactor", {
+  id: text("id").primaryKey(),
+  userId: text("userId").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+  secret: text("secret").notNull(),
+  backupCodes: text("backupCodes").notNull(),
+  verified: boolean("verified").default(true),
+  lastVerifiedStep: bigint("lastVerifiedStep", { mode: "number" }).notNull().default(-1),
+}, (table) => ({ userIndex: uniqueIndex("auth_two_factor_user_idx").on(table.userId) }));
 
 export const authAccounts = pgTable(
   "account",
@@ -1428,6 +1441,24 @@ export const billingWebhookReceipts = pgTable(
   }),
 );
 
+export const billingDeliveryDecisions = pgTable("billing_delivery_decisions", {
+  id: text("id").primaryKey(),
+  sequence: bigserial("sequence", { mode: "number" }).notNull().unique(),
+  enabled: boolean("enabled").notNull(),
+  catalogId: text("catalog_id"),
+  releaseId: text("release_id"),
+  effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  actorUserId: text("actor_user_id").notNull(),
+  reason: text("reason").notNull(),
+  expectedDecisionId: text("expected_decision_id"),
+}, table => ({
+  scopeCheck: check("billing_delivery_decisions_scope_check", sql`(${table.enabled} AND length(trim(${table.catalogId})) > 0 AND ${table.catalogId} IS NOT NULL
+    AND length(trim(${table.releaseId})) > 0 AND ${table.releaseId} IS NOT NULL)
+    OR (NOT ${table.enabled} AND ${table.catalogId} IS NULL AND ${table.releaseId} IS NULL)`),
+  identityCheck: check("billing_delivery_decisions_identity_check", sql`length(trim(${table.id})) BETWEEN 1 AND 128
+    AND length(trim(${table.actorUserId})) > 0 AND length(trim(${table.reason})) BETWEEN 1 AND 500`),
+}));
+
 export const billingOutbox = pgTable(
   "billing_outbox",
   {
@@ -1446,6 +1477,7 @@ export const billingOutbox = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     chargeReleaseId: text("charge_release_id"),
+    deliveryDecisionId: text("delivery_decision_id").references(() => billingDeliveryDecisions.id, { onDelete: "restrict" }),
     chargePromotedAt: timestamp("charge_promoted_at", { withTimezone: true }),
   },
   (table) => ({

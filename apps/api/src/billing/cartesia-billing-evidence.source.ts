@@ -96,6 +96,23 @@ export class CartesiaBillingEvidenceSource implements BillingProviderEvidenceSou
     if (scope === null) return null;
     const apiKeyId = requiredText(scope.apiKeyId, "tenant API key ID");
     const mappingId = requiredText(scope.mappingId, "tenant scope mapping ID");
+    return this.collectKeyCycle(input, apiKeyId, mappingId);
+  }
+
+  async collectSharedCycle(input: {
+    externalScopeId: string;
+    cycleStartsAt: string;
+    cycleEndsAt: string;
+  }): Promise<BillingProviderEvidenceReport | null> {
+    if (!assertExactCompletedCycle(input, this.now())) return null;
+    return this.collectKeyCycle(input, requiredText(input.externalScopeId, "shared API key ID"));
+  }
+
+  private async collectKeyCycle(
+    input: Pick<BillingCycleEvidenceInput, "cycleStartsAt" | "cycleEndsAt">,
+    apiKeyId: string,
+    mappingId?: string,
+  ): Promise<BillingProviderEvidenceReport> {
     const providerKey = await this.cartesia.getApiKey(apiKeyId);
     if (providerKey.id !== apiKeyId) {
       throw new Error("Cartesia billing evidence API key scope could not be proved.");
@@ -124,12 +141,13 @@ export class CartesiaBillingEvidenceSource implements BillingProviderEvidenceSou
       evidenceKind: "runtime_usage",
       sourceReportId,
       payload: {
+        ...(mappingId === undefined ? { scope: "platform" } : {}),
         quantities: {},
         source: {
           kind: "provider_billing_api",
           apiVersion: CARTESIA_API_VERSION,
           apiKeyId,
-          tenantScopeMappingId: mappingId,
+          ...(mappingId === undefined ? {} : { tenantScopeMappingId: mappingId }),
         },
         facts: [fact],
       },
@@ -137,7 +155,7 @@ export class CartesiaBillingEvidenceSource implements BillingProviderEvidenceSou
   }
 }
 
-function assertExactCompletedCycle(input: BillingCycleEvidenceInput, now: string) {
+function assertExactCompletedCycle(input: Pick<BillingCycleEvidenceInput, "cycleStartsAt" | "cycleEndsAt">, now: string) {
   const startsAt = Date.parse(input.cycleStartsAt);
   const endsAt = Date.parse(input.cycleEndsAt);
   const nowAt = Date.parse(now);
@@ -169,7 +187,7 @@ function parseApiKey(value: unknown) {
   return { id: requiredText(item.id, "provider API key ID") };
 }
 
-function parseExactUsage(value: unknown, input: BillingCycleEvidenceInput) {
+function parseExactUsage(value: unknown, input: Pick<BillingCycleEvidenceInput, "cycleStartsAt" | "cycleEndsAt">) {
   const response = record(value, "Cartesia credit usage response is invalid.");
   if (!Array.isArray(response.data) || response.data.length !== 1) {
     throw new Error("Cartesia billing evidence does not contain one exact usage bucket.");
@@ -181,8 +199,8 @@ function parseExactUsage(value: unknown, input: BillingCycleEvidenceInput) {
   ) {
     throw new Error("Cartesia billing evidence does not exactly match the requested cycle.");
   }
-  const credits = Number(bucket.credits);
-  if (!Number.isSafeInteger(credits) || credits < 0) {
+  const credits = bucket.credits;
+  if (typeof credits !== "number" || !Number.isSafeInteger(credits) || credits < 0) {
     throw new Error("Cartesia billing evidence credits are invalid.");
   }
   return { credits };

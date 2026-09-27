@@ -66,15 +66,17 @@ compliance:
 
 billing:
 
+The 2026-09-27 owner policy uses production for billing verification. General staging references above do not create a separate staging prerequisite for this billing release. Supplier evidence gaps remain visible but do not block complete customer charges.
+
 - [ ] Polar environment is correct for staging or production.
 - [ ] Checkout and customer portal URLs are hosted provider URLs only.
 - [ ] Usage-event idempotency is preserved.
 - [ ] Runtime cost rates are known or missing-rate alerts are documented.
 - [ ] Telephony minute accounting is preserved across rollout and rollback.
 - [ ] Tenant budget warning/block behavior is verified for billing changes.
-- [ ] Charge delivery requires the explicit feature flag and current persisted approval, internal-tenant canary, selected-tenant canary, reconciliation, and drill evidence for the exact catalog and release.
+- [ ] Charge delivery requires the infrastructure flag, valid production payment settings, and a durable fresh-MFA platform-owner enable decision for the exact catalog and release.
 - [ ] A tested charge-stop control blocks new delivery without deleting ledger or outbox facts.
-- [ ] Only explicitly selected outbox rows promoted for the exact release ID can deliver; historical and new shadow rows remain non-chargeable.
+- [ ] Only eligible new usage linked to the current enable decision can deliver. Historical shadow rows and undelivered prior-decision rows are not automatically charged.
 
 observability:
 

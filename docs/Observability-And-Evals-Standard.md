@@ -273,6 +273,8 @@ The eval command uses the separate `ls.vitest.config.ts` config with `.eval.ts` 
 
 `npm run eval:prompts` is a separate live-provider check with synthetic inputs. It checks missing-input questions, injected tool instructions, failed tools, conversation history, conflicting tenant instructions, and allowed or blocked language changes. Set `OPENAI_API_KEY` and `GEMINI_API_KEY`. Optional `OPENAI_PROMPT_EVAL_MODEL` and `GEMINI_PROMPT_EVAL_MODEL` select exact models. Failures identify the provider, model, policy revision, and policy hash. Missing credentials fail this command. Ordinary tests do not load these live tests. These short checks supplement the release evaluation dataset; they do not prove all model behaviour.
 
+The same command includes `instruction-improvement.live.eval.ts`. It uses the production improvement service to draft instructions from synthetic order-support input. It compares original and improved instructions through both production text adapters for missing inputs, a ready tool call, failed lookup, and an unsupported delivery promise. It records each result, response length, and latency. These checks make paid provider requests, use no real tools or customer database, and do not prove general quality improvement. Review generated business rules and examples as well as scores. Change the drafting model with `INSTRUCTION_IMPROVEMENT_MODEL`; runtime evaluation model overrides remain separate.
+
 Regular local and CI test commands must continue to pass without LangSmith credentials. Eval jobs should support:
 
 - local dry-run without upload

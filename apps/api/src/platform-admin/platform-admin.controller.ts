@@ -8,6 +8,8 @@ import {
   Param,
   Patch,
   Post,
+  Optional,
+  ServiceUnavailableException,
   Query,
   Req,
   UseGuards,
@@ -42,11 +44,25 @@ import type {
   PlatformBillingControls,
   PlatformOrganizationStatus,
 } from "./platform-admin.models";
+import { BillingDeliveryControlService } from "../billing/billing-delivery-control";
 
 @Controller("platform-admin")
 @UseGuards(PlatformAdminGuard)
 export class PlatformAdminController {
-  constructor(private readonly platformAdminService: PlatformAdminService) {}
+  constructor(private readonly platformAdminService: PlatformAdminService,
+    @Optional() private readonly billingDelivery?: BillingDeliveryControlService) {}
+
+  @Get("billing/delivery")
+  getBillingDelivery() {
+    if (!this.billingDelivery) throw new ServiceUnavailableException("Billing delivery control is unavailable.");
+    return this.billingDelivery.getState();
+  }
+
+  @Patch("billing/delivery")
+  updateBillingDelivery(@Req() request: Record<string | symbol, unknown>, @Body() body: unknown) {
+    if (!this.billingDelivery) throw new ServiceUnavailableException("Billing delivery control is unavailable.");
+    return this.billingDelivery.change(getPlatformAdminContext(request), body);
+  }
 
   @Get("dashboard")
   async getDashboard() {

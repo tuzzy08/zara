@@ -95,6 +95,30 @@ export class OpenAiOrganizationBillingClient implements OpenAiProjectBillingClie
     return { usage, costs };
   }
 
+  async getProjectTranscriptionCycleEvidence(input: {
+    projectId: string; cycleStartsAt: string; cycleEndsAt: string;
+  }): Promise<OpenAiOrganizationTranscriptionFact[]> {
+    const projectId = input.projectId.trim();
+    if (!projectId) throw new Error("OpenAI billing evidence project ID is required.");
+    const startTime = unixSeconds(input.cycleStartsAt);
+    const endTime = unixSeconds(input.cycleEndsAt);
+    if (startTime >= endTime) throw new Error("OpenAI billing evidence cycle is invalid.");
+    return this.readPages("/v1/organization/usage/audio_transcriptions", {
+      start_time: String(startTime), end_time: String(endTime), bucket_width: "1d", limit: "31",
+      project_ids: projectId, group_by: ["project_id", "model"],
+    }, { startTime, endTime }, (bucket, raw) => {
+      const value = record(raw, "transcription result");
+      assertProject(value.project_id, projectId);
+      if (value.object !== "organization.usage.audio_transcriptions.result"
+        || typeof value.seconds !== "number" || !Number.isFinite(value.seconds) || value.seconds < 0) {
+        throw new Error("OpenAI transcription evidence usage is invalid.");
+      }
+      return { bucketStartsAt: providerTime(bucket.start_time), bucketEndsAt: providerTime(bucket.end_time),
+        projectId, model: nullableText(value.model), seconds: value.seconds,
+        requestCount: nonnegativeInteger(value.num_model_requests) };
+    });
+  }
+
   private async readPages<T>(
     path: string,
     parameters: Record<string, string | string[]>,
@@ -102,6 +126,7 @@ export class OpenAiOrganizationBillingClient implements OpenAiProjectBillingClie
     mapResult: (bucket: Record<string, unknown>, result: unknown) => T,
   ): Promise<T[]> {
     const values: T[] = [];
+    const pages = new Set<string>();
     let page: string | null = null;
     do {
       const url = new URL(path, "https://api.openai.com");
@@ -134,10 +159,11 @@ export class OpenAiOrganizationBillingClient implements OpenAiProjectBillingClie
         values.push(...bucket.results.map((result) => mapResult(bucket, result)));
       }
       if (payload.has_more) {
-        if (typeof payload.next_page !== "string" || payload.next_page.trim() === "") {
+        if (typeof payload.next_page !== "string" || payload.next_page.trim() === "" || pages.has(payload.next_page)) {
           throw new Error("OpenAI billing evidence pagination is invalid.");
         }
         page = payload.next_page;
+        pages.add(page);
       } else {
         page = null;
       }

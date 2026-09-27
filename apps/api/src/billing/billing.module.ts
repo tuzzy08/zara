@@ -26,6 +26,8 @@ import {
 } from "./postgres-billing-ledger.repository";
 import { TrustedBillingUsageProducer } from "./trusted-billing-usage-producer";
 import { BillingPolarOutboxWorker } from "./billing-polar-outbox.worker";
+import type { BillingChargeDeliveryGuard as OwnerDeliveryGuard } from "./billing-polar-outbox.worker";
+import { BillingDeliveryControlRepository, BillingDeliveryControlService } from "./billing-delivery-control";
 import { BillingOutboxOperationsService } from "./billing-outbox-operations.service";
 import { validateBillingChargeDeliveryConfig } from "./billing-polar-outbox.config";
 import {
@@ -101,6 +103,7 @@ import {
 import type { BillingProviderEvidenceSource } from "./billing-production-reconciliation-evidence";
 
 const BILLING_OUTBOX_WORKER_CONFIG = Symbol("BILLING_OUTBOX_WORKER_CONFIG");
+const BILLING_OWNER_DELIVERY_GUARD = Symbol("BILLING_OWNER_DELIVERY_GUARD");
 const BILLING_CHARGE_PROMOTION_REPOSITORY = Symbol(
   "BILLING_CHARGE_PROMOTION_REPOSITORY",
 );
@@ -113,6 +116,37 @@ export const BILLING_PROVIDER_EVIDENCE_SOURCES = Symbol(
   controllers: [BillingController],
   providers: [
     BillingService,
+    {
+      provide: BillingDeliveryControlRepository,
+      useFactory: (database: PostgresPoolService) => new BillingDeliveryControlRepository(database.pool),
+      inject: [PostgresPoolService],
+    },
+    {
+      provide: BillingDeliveryControlService,
+      useFactory: (repository: BillingDeliveryControlRepository, ledger: PostgresBillingLedgerRepository) =>
+        new BillingDeliveryControlService(repository, async () => {
+          if (process.env.BILLING_CHARGE_DELIVERY_ENABLED !== "true") {
+            throw new Error("BILLING_CHARGE_DELIVERY_ENABLED must be true before enabling delivery.");
+          }
+          return loadDeliveryConfiguration(ledger);
+        }),
+      inject: [BillingDeliveryControlRepository, BILLING_LEDGER_REPOSITORY],
+    },
+    {
+      provide: BILLING_OWNER_DELIVERY_GUARD,
+      useFactory: (repository: BillingDeliveryControlRepository, ledger: PostgresBillingLedgerRepository): OwnerDeliveryGuard => ({
+        async assertDeliveryAllowed() {
+          if (process.env.BILLING_CHARGE_DELIVERY_ENABLED !== "true") return { allowed: false };
+          await loadDeliveryConfiguration(ledger);
+          const state = await repository.getState();
+          return state?.enabled
+            && state.catalogId === process.env.POLAR_BILLING_CATALOG_ID?.trim()
+            && state.releaseId === process.env.ZARA_RELEASE_ID?.trim()
+            ? { allowed: true, decisionId: state.id } : { allowed: false };
+        },
+      }),
+      inject: [BillingDeliveryControlRepository, BILLING_LEDGER_REPOSITORY],
+    },
     {
       provide: ALLOW_LEGACY_BILLING_USAGE_TEST_FIXTURE,
       useValue: false,
@@ -388,26 +422,9 @@ export const BILLING_PROVIDER_EVIDENCE_SOURCES = Symbol(
     },
     {
       provide: BILLING_OUTBOX_WORKER_CONFIG,
-      useFactory: async (
-        ledger: PostgresBillingLedgerRepository,
-        releaseGuard: BillingChargeDeliveryGuard,
-      ) => {
+      useFactory: () => {
         const deliveryEnabled = process.env.BILLING_CHARGE_DELIVERY_ENABLED === "true";
-        const catalogId = process.env.POLAR_BILLING_CATALOG_ID?.trim() ?? "";
         const releaseId = process.env.ZARA_RELEASE_ID?.trim() ?? "";
-        const mappings = deliveryEnabled
-          ? await ledger.listPolarMappings(catalogId, "production")
-          : [];
-        validateBillingChargeDeliveryConfig({
-          deliveryEnabled,
-          accessToken: process.env.POLAR_ACCESS_TOKEN ?? "",
-          server: process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
-          webhookSecret: process.env.POLAR_WEBHOOK_SECRET ?? "",
-          catalogId,
-          releaseId,
-          mappings,
-        });
-        await releaseGuard.assertDeliveryAllowed(new Date().toISOString());
         return {
           deliveryEnabled,
           releaseId,
@@ -417,7 +434,6 @@ export const BILLING_PROVIDER_EVIDENCE_SOURCES = Symbol(
           processingTimeoutMs: 300_000,
         };
       },
-      inject: [BILLING_LEDGER_REPOSITORY, BillingChargeDeliveryGuard],
     },
     {
       provide: BillingPolarOutboxWorker,
@@ -433,7 +449,7 @@ export const BILLING_PROVIDER_EVIDENCE_SOURCES = Symbol(
           processingTimeoutMs: number;
         },
         observability: BillingOutboxObservability,
-        releaseGuard: BillingChargeDeliveryGuard,
+        releaseGuard: OwnerDeliveryGuard,
       ) => new BillingPolarOutboxWorker(
         ledger,
         polar,
@@ -446,7 +462,7 @@ export const BILLING_PROVIDER_EVIDENCE_SOURCES = Symbol(
         BILLING_POLAR_CLIENT,
         BILLING_OUTBOX_WORKER_CONFIG,
         BillingOutboxObservability,
-        BillingChargeDeliveryGuard,
+        BILLING_OWNER_DELIVERY_GUARD,
       ],
     },
     BillingOutboxObservability,
@@ -482,6 +498,8 @@ export const BILLING_PROVIDER_EVIDENCE_SOURCES = Symbol(
     },
   ],
   exports: [
+    BillingDeliveryControlService,
+    BillingDeliveryControlRepository,
     BillingService,
     BILLING_LEDGER_REPOSITORY,
     BILLING_READ_MODEL_REPOSITORY,
@@ -517,3 +535,17 @@ export const BILLING_PROVIDER_EVIDENCE_SOURCES = Symbol(
   ],
 })
 export class BillingModule {}
+
+async function loadDeliveryConfiguration(ledger: PostgresBillingLedgerRepository) {
+  const catalogId = process.env.POLAR_BILLING_CATALOG_ID?.trim() ?? "";
+  const releaseId = process.env.ZARA_RELEASE_ID?.trim() ?? "";
+  validateBillingChargeDeliveryConfig({
+    deliveryEnabled: true,
+    accessToken: process.env.POLAR_ACCESS_TOKEN ?? "",
+    server: process.env.POLAR_SERVER === "production" ? "production" : "sandbox",
+    webhookSecret: process.env.POLAR_WEBHOOK_SECRET ?? "",
+    catalogId, releaseId,
+    mappings: await ledger.listPolarMappings(catalogId, "production"),
+  });
+  return { catalogId, releaseId };
+}

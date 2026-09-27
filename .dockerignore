@@ -3,6 +3,7 @@
 .codex-logs
 .playwright-mcp
 .zara
+.zara-data
 apps/api/.zara
 artifacts
 node_modules

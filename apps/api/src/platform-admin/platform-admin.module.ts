@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { BillingModule } from "../billing/billing.module";
 
 import { AuditLogModule } from "../compliance/audit-log.module";
 import { PremiumRealtimeConversationPolicyModule } from "../premium-realtime-policy/premium-realtime-conversation-policy.module";
@@ -15,6 +16,7 @@ import { PostgresPlatformBillingReadRepository } from "./platform-billing-read.r
 
 @Module({
   imports: [
+    BillingModule,
     AuditLogModule,
     DatabaseModule,
     PremiumRealtimeConversationPolicyModule,

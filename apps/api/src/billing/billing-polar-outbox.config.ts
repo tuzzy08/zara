@@ -49,6 +49,7 @@ export function validateBillingChargeDeliveryConfig(
     "meter:premium_runtime_seconds",
     "meter:platform_telephony_charge_minor",
     "meter:payg_charge_minor",
+    "meter:subscription_charge_minor",
     "benefit:premium-realtime",
     "price:starter-monthly",
     "price:growth-monthly",

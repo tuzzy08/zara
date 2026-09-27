@@ -3,11 +3,20 @@ import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from "@nest
 import { TenantAuth, type TenantAuthContext, TenantOrganizationGuard } from "../auth/tenant-auth";
 import type { CreateReusableAgentRequest, UpdateReusableAgentToolbeltRequest } from "./agents.models";
 import { AgentsService } from "./agents.service";
+import { InstructionImprovementService } from "./instruction-improvement.service";
 
 @Controller("organizations/:organizationId/agents")
 @UseGuards(TenantOrganizationGuard)
 export class AgentsController {
-  constructor(private readonly agentsService: AgentsService) {}
+  constructor(
+    private readonly agentsService: AgentsService,
+    private readonly instructionImprovement: InstructionImprovementService,
+  ) {}
+
+  @Post("improve-instructions")
+  improveInstructions(@Body() body: unknown, @TenantAuth() actor: TenantAuthContext) {
+    return this.instructionImprovement.improve(body, actor);
+  }
 
   @Get("classes")
   async listAgentClasses() {

@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { TrustedSubscriptionCallLifecycleService } from "./trusted-subscription-call-lifecycle.service";
+import { PostgresBillingLedgerRepository } from "./postgres-billing-ledger.repository";
 
 describe("TrustedSubscriptionCallLifecycleService", () => {
   let pool: InstanceType<ReturnType<ReturnType<typeof newDb>["adapters"]["createPg"]>["Pool"]>;
@@ -150,15 +151,22 @@ describe("TrustedSubscriptionCallLifecycleService", () => {
     const finalization = { organizationId: "tenant-1", reservationId: started.reservation.id,
       sessionId: "session-payg-finalize", actualSeconds: 90, now: "2026-08-11T10:02:00.000Z" };
     await expect(service.finalize(finalization)).resolves.toEqual({
-      outcome: "finalized", duplicate: false, paygAppliedMinor: 6,
+      outcome: "finalized", duplicate: false, paygAppliedMinor: 6, includedRuntimeSeconds: 60,
     });
     await expect(service.finalize(finalization)).resolves.toEqual({
-      outcome: "finalized", duplicate: true, paygAppliedMinor: 6,
+      outcome: "finalized", duplicate: true, paygAppliedMinor: 6, includedRuntimeSeconds: 60,
     });
     await expect(pool.query(`select reserved_amount_minor from billing_reservation_accounts where tenant_id = 'tenant-1'`))
       .resolves.toMatchObject({ rows: [{ reserved_amount_minor: 0 }] });
     await expect(pool.query(`select amount_minor, session_id from billing_payg_credit_entries where entry_type = 'debit'`))
       .resolves.toMatchObject({ rows: [{ amount_minor: 6, session_id: "session-payg-finalize" }] });
+    await expect(new PostgresBillingLedgerRepository(pool).listOutboxEntries("tenant-1"))
+      .resolves.toEqual([expect.objectContaining({
+        aggregateType: "payg_credit_entry",
+        aggregateId: `subscription-payg-debit:${started.reservation.id}`,
+        payload: expect.objectContaining({ meterKey: "payg_charge_minor", quantity: 6,
+          sessionId: "session-payg-finalize", deliveryMode: "shadow" }),
+      })]);
   });
 
   it("applies trusted actual usage once and releases unused allowance", async () => {
@@ -173,21 +181,34 @@ describe("TrustedSubscriptionCallLifecycleService", () => {
     await pool.query(`insert into billing_ledger_entries
       (id, tenant_id, idempotency_key, entry_type, catalog_id, currency, quantity, unit, occurred_at, metadata, created_at)
       values ('usage-final', 'tenant-1', 'usage-final', 'runtime_charge', 'catalog-v1', 'usd', 30, 'second',
-        '2026-08-11T10:02:00.000Z', '{"billingClass":"standard_runtime_seconds"}'::jsonb, '2026-08-11T10:02:00.000Z')`);
+        '2026-08-11T10:02:00.000Z', '{"billingClass":"standard_runtime_seconds","callSessionId":"session-1"}'::jsonb, '2026-08-11T10:02:00.000Z')`);
 
     await expect(service.finalize({
       organizationId: "tenant-1", reservationId: started.reservation.id,
       sessionId: "session-1", actualSeconds: 30, now: "2026-08-11T10:02:00.000Z",
-    })).resolves.toEqual({ outcome: "finalized", duplicate: false, paygAppliedMinor: 0 });
+    })).resolves.toEqual({ outcome: "finalized", duplicate: false, paygAppliedMinor: 0, includedRuntimeSeconds: 30 });
     await expect(service.finalize({
       organizationId: "tenant-1", reservationId: started.reservation.id,
       sessionId: "session-1", actualSeconds: 30, now: "2026-08-11T10:03:00.000Z",
-    })).resolves.toEqual({ outcome: "finalized", duplicate: true, paygAppliedMinor: 0 });
+    })).resolves.toEqual({ outcome: "finalized", duplicate: true, paygAppliedMinor: 0, includedRuntimeSeconds: 30 });
 
     await expect(service.start({ ...common, reservationKey: "call-2", maximumRuntimeSeconds: 120 }))
       .resolves.toEqual({ outcome: "denied", reason: "insufficient_subscription_allowance" });
     await expect(service.start({ ...common, reservationKey: "call-3", maximumRuntimeSeconds: 90 }))
       .resolves.toEqual(expect.objectContaining({ outcome: "reserved" }));
+  });
+
+  it("keeps finalized usage charged against the budget before its ledger is written", async () => {
+    const service = new TrustedSubscriptionCallLifecycleService(pool);
+    const common = { organizationId: "tenant-1", meterClass: "standard" as const,
+      billingMode: "byo" as const, provider: "twilio", direction: "outbound" as const,
+      now: "2026-08-11T10:00:00.000Z", expiresAt: "2026-08-11T10:10:00.000Z" };
+    const first = await service.start({ ...common, reservationKey: "pending-ledger", maximumRuntimeSeconds: 120 });
+    if (first.outcome !== "reserved") throw new Error("Expected reservation");
+    await service.finalize({ organizationId: "tenant-1", reservationId: first.reservation.id,
+      sessionId: "pending-session", actualSeconds: 120, now: "2026-08-11T10:02:00.000Z" });
+    await expect(service.start({ ...common, reservationKey: "must-not-reuse", maximumRuntimeSeconds: 1 }))
+      .resolves.toEqual({ outcome: "denied", reason: "insufficient_subscription_allowance" });
   });
 
   it("splits a later claim across remaining included runtime and approved overage", async () => {
@@ -201,6 +222,23 @@ describe("TrustedSubscriptionCallLifecycleService", () => {
         outcome: "reserved",
         reservation: expect.objectContaining({ reservedIncludedSeconds: 30, reservedOverageMinor: 12 }),
       }));
+  });
+
+  it("counts only unpaid settled cents against overage while retaining all runtime usage", async () => {
+    await pool.query(`insert into billing_ledger_entries
+      (id, tenant_id, idempotency_key, entry_type, catalog_id, currency, customer_amount_minor, quantity, unit, occurred_at, metadata, created_at)
+      values ('settled-runtime', 'tenant-1', 'settled-runtime', 'runtime_charge', 'catalog-v1', 'usd', 3, 90, 'second',
+        '2026-08-11T09:00:00.000Z', '{"billingClass":"standard_runtime_seconds","settlementMeterKey":"subscription_charge_minor","includedRuntimeSeconds":60,"grossCustomerAmountMinor":6}', '2026-08-11T09:00:00.000Z')`);
+    const service = new TrustedSubscriptionCallLifecycleService(pool);
+    const common = { organizationId: "tenant-1", meterClass: "standard" as const,
+      billingMode: "byo" as const, provider: "twilio", direction: "outbound" as const,
+      now: "2026-08-11T10:00:00.000Z", expiresAt: "2026-08-11T10:10:00.000Z" };
+    await expect(service.start({ ...common, reservationKey: "net-overage", maximumRuntimeSeconds: 45 }))
+      .resolves.toMatchObject({ outcome: "reserved", reservation: {
+        reservedIncludedSeconds: 0, reservedPaygMinor: 0, reservedOverageMinor: 9,
+      } });
+    await expect(service.start({ ...common, reservationKey: "no-overage-left", maximumRuntimeSeconds: 1 }))
+      .resolves.toEqual({ outcome: "denied", reason: "insufficient_subscription_allowance" });
   });
 
   it("returns one durable reservation for concurrent retries with the same key", async () => {
@@ -269,7 +307,7 @@ describe("TrustedSubscriptionCallLifecycleService", () => {
     await expect(service.finalizeByReservationKey({ organizationId: "tenant-1", reservationKey: "platform-call",
       sessionId: "session-platform", actualSeconds: 10, providerConnectedSeconds: 10,
       now: "2026-08-11T10:02:00.000Z" })).resolves.toEqual({
-        outcome: "finalized", duplicate: false, paygAppliedMinor: 0,
+        outcome: "finalized", duplicate: false, paygAppliedMinor: 0, includedRuntimeSeconds: 10,
       });
     await expect(pool.query(`select customer_amount_minor, quantity from billing_ledger_entries where metadata->>'billingClass' = 'platform_telephony_charge_minor'`))
       .resolves.toMatchObject({ rows: [{ customer_amount_minor: 35, quantity: 10 }] });
@@ -673,6 +711,16 @@ async function settleWithin<T>(promise: Promise<T>, timeoutMs: number) {
 }
 
 const schema = `
+  create table billing_delivery_decisions (
+    id text primary key, sequence bigserial, enabled boolean, catalog_id text,
+    release_id text, effective_at timestamptz
+  );
+  create table billing_outbox (
+    tenant_id text, id text, aggregate_type text, aggregate_id text, event_type text, payload jsonb,
+    status text, attempt_count integer, next_attempt_at timestamptz, last_error text,
+    created_at timestamptz, delivered_at timestamptz, delivery_decision_id text,
+    charge_release_id text, charge_promoted_at timestamptz, primary key (tenant_id,id)
+  );
   create table tenants (id text primary key);
   create table billing_price_catalogs (id text primary key, catalog_document jsonb not null);
   create table billing_subscriptions (

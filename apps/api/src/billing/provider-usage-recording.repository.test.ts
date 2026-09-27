@@ -4,6 +4,22 @@ import { ProviderUsageRecordingRepository } from "./provider-usage-recording.rep
 import { usageRecordingTestPool } from "./provider-usage-recording.test-support";
 
 describe("provider usage recording", () => {
+  it("saves final observed usage with a canonical first receipt time", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const scope = { organizationId: "tuzzy-test", sessionId: "call-1", provider: "openai",
+        externalScopeId: "proj-shared", model: "gpt-realtime-2.1", occurredAt: "2026-09-06T11:00:00+01:00" };
+      const result = { providerRequestId: "resp-1", totals: { inputTokens: 30, outputTokens: 7, requestCount: 1 } };
+      const request = await repository.beginObserved(scope, "realtime-response:resp-1", result);
+      expect(request.occurredAt).toBe("2026-09-06T10:00:00.000Z");
+      expect(await repository.beginObserved({ ...scope, occurredAt: "2026-09-07T10:00:00Z" }, "realtime-response:resp-1", result))
+        .toEqual(request);
+      expect(await repository.listTenantRequests(scope.organizationId)).toMatchObject([{ result: {
+        occurredAt: "2026-09-06T10:00:00.000Z", totals: result.totals,
+      } }]);
+    } finally { await pool.end(); }
+  });
   it("uses the stored result time with an inclusive UTC start and exclusive UTC end", async () => {
     const pool = usageRecordingTestPool();
     try {

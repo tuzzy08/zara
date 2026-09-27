@@ -67,6 +67,7 @@ describe("billing Polar outbox configuration", () => {
         mapping("meter", "standard_runtime_seconds"),
         mapping("meter", "premium_runtime_seconds"),
         mapping("meter", "platform_telephony_charge_minor"),
+        mapping("meter", "subscription_charge_minor"),
         mapping("benefit", "premium-realtime"),
         mapping("price", "starter-monthly"),
         mapping("price", "growth-monthly"),
@@ -74,6 +75,17 @@ describe("billing Polar outbox configuration", () => {
       ],
     })).toThrow("Missing production Polar mappings: meter:payg_charge_minor.");
   });
+});
+
+it("requires the net subscription meter before charge delivery", () => {
+  const keys = ["product:starter", "product:growth", "product:scale", "credit_pack:payg-5-usd",
+    "meter:standard_runtime_seconds", "meter:premium_runtime_seconds", "meter:platform_telephony_charge_minor",
+    "meter:payg_charge_minor", "benefit:premium-realtime", "price:starter-monthly", "price:growth-monthly", "price:scale-monthly"];
+  expect(() => validateBillingChargeDeliveryConfig({
+    deliveryEnabled: true, accessToken: "token", server: "production", webhookSecret: "secret",
+    catalogId: "catalog-v1", releaseId: "release-248",
+    mappings: keys.map((key) => { const [type, name] = key.split(":"); return mapping(type!, name!); }),
+  })).toThrow("Missing production Polar mappings: meter:subscription_charge_minor.");
 });
 
 function mapping(mappingType: string, internalKey: string) {

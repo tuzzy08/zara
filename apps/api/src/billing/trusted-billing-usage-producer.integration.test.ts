@@ -9,6 +9,9 @@ describe("TrustedBillingUsageProducer call finalization", () => {
 
   beforeEach(() => {
     const database = newDb();
+    database.public.none(`create table billing_delivery_decisions (
+      id text primary key, sequence serial, enabled boolean, catalog_id text, release_id text, effective_at timestamptz
+    )`);
     database.public.none(`
       create table billing_price_catalogs (
         id text primary key,
@@ -56,6 +59,9 @@ describe("TrustedBillingUsageProducer call finalization", () => {
         last_error text,
         created_at timestamptz not null,
         delivered_at timestamptz,
+        delivery_decision_id text,
+        charge_release_id text,
+        charge_promoted_at timestamptz,
         primary key (tenant_id, id)
       )
     `);
@@ -65,6 +71,72 @@ describe("TrustedBillingUsageProducer call finalization", () => {
 
   afterEach(async () => {
     await pool.end();
+  });
+
+  it("invoices only 60 cents after included runtime and 40 prepaid cents, once", async () => {
+    const repository = new PostgresBillingLedgerRepository(pool);
+    await repository.publishPriceCatalog(createCatalog());
+    const producer = new TrustedBillingUsageProducer(repository);
+    const fact = {
+      organizationId: "tenant-net", callSessionId: "call-net", providerConnectionId: "connection-byo",
+      provider: "twilio", direction: "inbound" as const, ownershipMode: "byo" as const,
+      routeMode: "live_route" as const, runtimePath: "pstn-sandwich" as const, outcome: "completed" as const,
+      catalogId: "catalog-2026-08-v1", commercialMode: "subscription" as const, planSlug: "starter",
+      runtimeSeconds: 460, includedRuntimeSeconds: 60, paygAppliedMinor: 40,
+      occurredAt: "2026-08-09T18:08:00.000Z",
+    };
+    expect(await producer.recordTerminalCall(fact)).toEqual({ recorded: 1, duplicates: 0, incomplete: 0 });
+    expect(await producer.recordTerminalCall(fact)).toEqual({ recorded: 0, duplicates: 1, incomplete: 0 });
+    expect(await repository.listLedgerEntries("tenant-net")).toEqual([expect.objectContaining({
+      quantity: 460, unit: "second", customerAmountMinor: 60,
+      metadata: expect.objectContaining({ billingClass: "standard_runtime_seconds",
+        settlementMeterKey: "subscription_charge_minor", includedRuntimeSeconds: 60, paygAppliedMinor: 40 }),
+    })]);
+    expect(await repository.listOutboxEntries("tenant-net")).toEqual([expect.objectContaining({
+      payload: expect.objectContaining({ meterKey: "subscription_charge_minor", quantity: 60, unit: "usd_cent" }),
+    })]);
+  });
+
+  it("applies leftover prepaid credit to rounded carrier cents, not connected seconds", async () => {
+    const repository = new PostgresBillingLedgerRepository(pool);
+    await repository.publishPriceCatalog(createCatalog());
+    const producer = new TrustedBillingUsageProducer(repository);
+    await producer.recordTerminalCall({
+      organizationId: "tenant-net-carrier", callSessionId: "call-net-carrier", providerConnectionId: "platform",
+      provider: "twilio", direction: "outbound", ownershipMode: "platform-managed", routeMode: "live_route",
+      runtimePath: "pstn-sandwich", outcome: "completed", catalogId: "catalog-2026-08-v1",
+      commercialMode: "subscription", planSlug: "starter", routeRateId: "twilio-ng-outbound",
+      runtimeSeconds: 90, includedRuntimeSeconds: 60, providerConnectedSeconds: 61, paygAppliedMinor: 40,
+      occurredAt: "2026-08-09T18:02:00.000Z",
+    });
+    expect(await repository.listLedgerEntries("tenant-net-carrier")).toEqual([
+      expect.objectContaining({ quantity: 90, customerAmountMinor: 0,
+        metadata: expect.objectContaining({ grossCustomerAmountMinor: 8 }) }),
+      expect.objectContaining({ quantity: 61, customerAmountMinor: 38,
+        metadata: expect.objectContaining({ grossCustomerAmountMinor: 70 }) }),
+    ]);
+    expect((await repository.listOutboxEntries("tenant-net-carrier")).map(entry => entry.payload))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ meterKey: "subscription_charge_minor", quantity: 0 }),
+        expect.objectContaining({ meterKey: "subscription_charge_minor", quantity: 38 }),
+      ]));
+  });
+
+  it.each(["excess-credit", "missing-duration", "missing-rate", "missing-catalog"])("rejects invalid settlement %s before saving any partial charge", async (invalid) => {
+    const repository = new PostgresBillingLedgerRepository(pool);
+    await repository.publishPriceCatalog(createCatalog());
+    const producer = new TrustedBillingUsageProducer(repository);
+    await expect(producer.recordTerminalCall({
+      organizationId: "tenant-invalid", callSessionId: "invalid", providerConnectionId: "platform",
+      provider: "twilio", direction: "outbound", ownershipMode: "platform-managed", routeMode: "live_route",
+      runtimePath: "pstn-sandwich", outcome: "completed", catalogId: invalid === "missing-catalog" ? "unknown" : "catalog-2026-08-v1",
+      commercialMode: "subscription", planSlug: invalid === "missing-rate" ? "unknown" : "starter", routeRateId: "twilio-ng-outbound",
+      runtimeSeconds: 90, includedRuntimeSeconds: 60, providerConnectedSeconds: invalid === "missing-duration" ? undefined : 61,
+      paygAppliedMinor: invalid === "excess-credit" ? 79 : 40,
+      occurredAt: "2026-08-09T18:02:00.000Z",
+    })).rejects.toThrow();
+    expect(await repository.listLedgerEntries("tenant-invalid")).toEqual([]);
+    expect(await repository.listOutboxEntries("tenant-invalid")).toEqual([]);
   });
 
   it("records one runtime fact and one platform carrier fact for a completed call", async () => {
@@ -121,11 +193,13 @@ describe("TrustedBillingUsageProducer call finalization", () => {
       supplierRuntimeCostMinor: 6,
       supplierTelephonyCostMinor: 24,
       occurredAt: "2026-08-09T15:01:01.000Z",
+      usageStartedAt: "2026-08-09T15:00:00.000Z",
     };
 
     const first = await producer.recordTerminalCall(terminalFact);
     const retry = await producer.recordTerminalCall(terminalFact);
     const entries = await repository.listLedgerEntries("tenant-a");
+    expect(entries[0]?.metadata.usageStartedAt).toBe("2026-08-09T15:00:00.000Z");
     const outboxEntries = await repository.listOutboxEntries("tenant-a");
 
     expect(first).toEqual({ recorded: 2, duplicates: 0, incomplete: 0 });
@@ -186,11 +260,31 @@ describe("TrustedBillingUsageProducer call finalization", () => {
         payload: expect.objectContaining({
           externalEventId: expect.any(String),
           meterKey: "platform_telephony_charge_minor",
-          quantity: 61,
+          quantity: 70,
+          unit: "usd_cent",
           deliveryMode: "shadow",
         }),
       }),
     ]);
+  });
+
+  it("delivers new customer usage without supplier cost evidence", async () => {
+    const repository = new PostgresBillingLedgerRepository(pool);
+    await repository.publishPriceCatalog(createCatalog());
+    await pool.query(`insert into billing_delivery_decisions values
+      ('decision-1',1,true,'catalog-2026-08-v1','release-1','2026-08-09T12:00:00Z')`);
+    const producer = new TrustedBillingUsageProducer(repository);
+    await producer.recordTerminalCall({
+      organizationId: "tenant-a", callSessionId: "new-call", providerConnectionId: "connection-a",
+      provider: "twilio", direction: "inbound", ownershipMode: "byo", routeMode: "live_route",
+      runtimePath: "pstn-sandwich", outcome: "completed", commercialMode: "subscription",
+      catalogId: "catalog-2026-08-v1", planSlug: "starter", runtimeSeconds: 60,
+      usageStartedAt: "2026-08-09T13:00:00.000Z", occurredAt: "2026-08-09T13:01:00.000Z",
+    });
+    await expect(repository.claimDueOutbox("2026-08-09T13:02:00Z", 10, "2026-08-09T13:03:00Z", "release-1"))
+      .resolves.toEqual([expect.objectContaining({ deliveryDecisionId: "decision-1",
+        payload: expect.objectContaining({ meterKey: "standard_runtime_seconds", quantity: 60, deliveryMode: "charge" }),
+      })]);
   });
 
   it("records premium BYO usage without a Zara carrier charge", async () => {

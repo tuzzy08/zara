@@ -312,6 +312,8 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
   private ready = false;
   private readyFailure: Error | null = null;
   private terminalEvent: { code: number; reason: string } | null = null;
+  private socketClosed = false;
+  private closeRequested = false;
   private openFailureHandler: ((error: Error) => void) | null = null;
   private readonly readyWaiters: Array<{
     resolve: () => void;
@@ -326,14 +328,19 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
   ) {
     this.socket.on("message", (message) => {
       const text = message.toString();
-      if (this.terminalEvent !== null) return;
+      if (this.socketClosed) return;
       if (observeMessage !== undefined) {
         void observeMessage(text).catch(() => {
           const reason = "Provider usage recording failed.";
-          this.recordTerminal({ code: 1011, reason }, new Error(reason));
-          this.socket.close(1011, reason);
-        });
+          try {
+            this.recordTerminal({ code: 1011, reason }, new Error(reason));
+          } finally {
+            this.close(1011, reason);
+          }
+        }).catch(() => undefined); // The connection is stopped even if its close consumer throws.
       }
+      // Closing stops caller work, but final usage can still arrive before socket close.
+      if (this.terminalEvent !== null || this.closeRequested) return;
       const isReadyAcknowledgement = !this.ready && this.isReadyMessage(text);
       if (isReadyAcknowledgement) {
         this.ready = true;
@@ -348,13 +355,21 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
       }
     });
     this.socket.on("error", (error) => {
-      this.recordTerminal({ code: 1011, reason: error.message }, error);
+      try {
+        this.recordTerminal({ code: 1011, reason: error.message }, error);
+      } finally {
+        this.close(1011, "Provider connection failed.");
+      }
     });
     this.socket.on("close", (code, reason) => {
+      if (this.socketClosed) return;
+      this.socketClosed = true;
       const textReason = reason.toString();
       const error = new Error(
         `Provider connection closed before readiness (${code})${textReason.length > 0 ? `: ${textReason}` : "."}`,
       );
+      // A failed final write leaves the durable start unresolved.
+      void this.observeTerminal?.(this.terminalEvent?.code ?? code).catch(() => undefined);
       this.recordTerminal({ code, reason: textReason }, error);
     });
   }
@@ -381,6 +396,7 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
   }
 
   send(message: Record<string, unknown>) {
+    if (this.terminalEvent !== null || this.closeRequested) throw new Error("Provider connection is closed.");
     this.socket.send(JSON.stringify(message));
   }
 
@@ -389,6 +405,8 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
   }
 
   close(code = 1000, reason = "closed") {
+    if (this.closeRequested || this.socketClosed) return;
+    this.closeRequested = true;
     this.socket.close(code, reason);
   }
 
@@ -445,9 +463,11 @@ class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {
       return;
     }
     this.terminalEvent = event;
-    // A failed final write leaves the durable start unresolved. Never invent a clean finish.
-    void this.observeTerminal?.(event.code).catch(() => undefined);
-    this.closeHandler?.(event);
+    try {
+      this.closeHandler?.(event);
+    } catch {
+      // A consumer failure must not escape the socket callback or stop cleanup.
+    }
   }
 }
 

@@ -10,6 +10,126 @@ import {
 } from "./billing-usage-reconciliation.service";
 
 describe("Billing reconciliation reviewed accounting", () => {
+  it("keeps gross carrier cents separate from a prepaid carrier remainder", async () => {
+    const local = localEvidence();
+    local.ledger.push({ id: "carrier", entryType: "telephony_charge", meterKey: "platform_telephony_charge_minor",
+      quantity: 61, customerAmountMinor: 10,
+      grossCustomerAmountMinor: 70, settlementMeterKey: "subscription_charge_minor" });
+    local.outbox.push({ id: "carrier-outbox", aggregateId: "carrier", meterKey: "subscription_charge_minor",
+      quantity: 10, deliveryMode: "charge", status: "delivered" });
+    const sources = evidenceSources(110);
+    for (const [source, quantities] of [
+      [sources.provider, { standard_runtime_seconds: 60, platform_telephony_charge_minor: 70 }],
+      [sources.polar, { standard_runtime_seconds: 60, subscription_charge_minor: 10, payg_charge_minor: 20 }],
+    ] as const) {
+      source.loadTenantCycleEvidence.mockResolvedValue({ ...(await source.loadTenantCycleEvidence(cycleInput())), quantities });
+    }
+    const report = await new BillingUsageReconciliationService(undefined, repositoryWith(local), sources.provider, sources.polar, sources.invoice)
+      .reconcileTenantCycle(cycleInput());
+    expect(report).toMatchObject({ customerStatus: "matched", supplierStatus: "matched",
+      sources: { zaraLedger: { quantities: { platform_telephony_charge_minor: 70 } } } });
+  });
+  it.each([0, 30])("reconciles a %i-cent subscription remainder while keeping raw supplier usage", async (remainder) => {
+    const local = localEvidence();
+    Object.assign(local.ledger[0]!, { settlementMeterKey: "subscription_charge_minor", customerAmountMinor: remainder });
+    Object.assign(local.outbox[0]!, { meterKey: "subscription_charge_minor", quantity: remainder });
+    const sources = evidenceSources(remainder);
+    const polar = await sources.polar.loadTenantCycleEvidence(cycleInput());
+    sources.polar.loadTenantCycleEvidence.mockResolvedValue({ ...polar,
+      quantities: { subscription_charge_minor: remainder, payg_charge_minor: 20 } });
+    const report = await new BillingUsageReconciliationService(undefined, repositoryWith(local), sources.provider, sources.polar, sources.invoice)
+      .reconcileTenantCycle(cycleInput());
+    expect(report).toMatchObject({ customerStatus: "matched", supplierStatus: "matched",
+      sources: { zaraLedger: { quantities: { standard_runtime_seconds: 60 }, customerAmountMinor: remainder } } });
+  });
+  it("compares platform telephony in cents rather than connected seconds", async () => {
+    const local = localEvidence();
+    local.ledger.push({ id: "carrier", entryType: "telephony_charge", meterKey: "platform_telephony_charge_minor",
+      quantity: 61, customerAmountMinor: 70 });
+    local.outbox.push({ id: "carrier-outbox", aggregateId: "carrier", meterKey: "platform_telephony_charge_minor",
+      quantity: 70, deliveryMode: "charge", status: "delivered" });
+    const sources = evidenceSources(170);
+    for (const source of [sources.provider, sources.polar]) {
+      const existing = await source.loadTenantCycleEvidence(cycleInput());
+      source.loadTenantCycleEvidence.mockResolvedValue({ ...existing,
+        quantities: { ...existing.quantities, platform_telephony_charge_minor: 70 } });
+    }
+    const report = await new BillingUsageReconciliationService(undefined, repositoryWith(local), sources.provider, sources.polar, sources.invoice)
+      .reconcileTenantCycle(cycleInput());
+    expect(report.customerStatus).toBe("matched");
+    expect(local.ledger.find(entry => entry.id === "carrier")?.quantity).toBe(61);
+  });
+  it("includes current eligible pending charges without marking them delivered", async () => {
+    const local = localEvidence();
+    local.outbox = local.outbox.map(entry => ({ ...entry, status: "pending", deliveryEligible: true }));
+    const sources = evidenceSources(100);
+    const service = new BillingUsageReconciliationService(undefined, repositoryWith(local), sources.provider, sources.polar, sources.invoice);
+    const report = await service.reconcileTenantCycle(cycleInput());
+    expect(report).toMatchObject({ customerStatus: "matched", sources: { outbox: { statuses: { pending: 2, delivered: 0 } } } });
+  });
+  it("compares customer charges without historical shadow or abandoned delivery usage", async () => {
+    const local = localEvidence();
+    local.outbox = local.outbox.map(entry => ({ ...entry, deliveryMode: "charge", status: "delivered" }));
+    for (const [id, deliveryMode] of [["historical", "shadow"], ["abandoned", "charge"]] as const) {
+      local.ledger.push({ id, entryType: "runtime_charge", meterKey: "standard_runtime_seconds", quantity: 120, customerAmountMinor: 200 });
+      local.outbox.push({ id: `outbox-${id}`, aggregateId: id, meterKey: "standard_runtime_seconds", quantity: 120,
+        deliveryMode, status: "pending" });
+    }
+    const sources = evidenceSources(100);
+    sources.provider.loadTenantCycleEvidence.mockResolvedValue({
+      ...(await sources.provider.loadTenantCycleEvidence(cycleInput())), quantities: { standard_runtime_seconds: 300 },
+    });
+    const service = new BillingUsageReconciliationService(undefined, repositoryWith(local), sources.provider, sources.polar, sources.invoice);
+    const report = await service.reconcileTenantCycle(cycleInput());
+    expect(report).toMatchObject({ customerStatus: "matched", supplierStatus: "matched",
+      sources: { zaraLedger: { quantities: { standard_runtime_seconds: 300 }, customerAmountMinor: 500 } } });
+  });
+  it("keeps missing supplier evidence separate from matched customer charges", async () => {
+    const repository = repositoryWith(localEvidence());
+    const sources = evidenceSources(100);
+    sources.provider.loadTenantCycleEvidence.mockResolvedValue(null);
+    const service = new BillingUsageReconciliationService(
+      undefined, repository, sources.provider, sources.polar, sources.invoice,
+    );
+
+    const report = await service.reconcileTenantCycle(cycleInput());
+
+    expect(report).toMatchObject({
+      status: "mismatch",
+      customerStatus: "matched",
+      supplierStatus: "mismatch",
+      customerMismatchCount: 0,
+      supplierMismatchCount: 1,
+      mismatches: [expect.objectContaining({ mismatchClass: "missing_provider_usage_evidence" })],
+    });
+  });
+
+  it("completes customer checks when the supplier evidence source fails", async () => {
+    const repository = repositoryWith(localEvidence());
+    const sources = evidenceSources(100);
+    sources.provider.loadTenantCycleEvidence.mockRejectedValue(new Error("Supplier unavailable"));
+    const service = new BillingUsageReconciliationService(
+      undefined, repository, sources.provider, sources.polar, sources.invoice,
+    );
+
+    const report = await service.reconcileTenantCycle(cycleInput());
+
+    expect(report).toMatchObject({
+      status: "mismatch", customerStatus: "matched", supplierStatus: "mismatch",
+      sources: { providerUsage: { status: "missing" } },
+    });
+  });
+
+  it("completes customer checks without a configured supplier source", async () => {
+    const sources = evidenceSources(100);
+    const service = new BillingUsageReconciliationService(
+      undefined, repositoryWith(localEvidence()), undefined, sources.polar, sources.invoice,
+    );
+    expect(await service.reconcileTenantCycle(cycleInput())).toMatchObject({
+      customerStatus: "matched", supplierStatus: "mismatch",
+    });
+  });
+
   it("loads external evidence from server adapters and persists a matched report", async () => {
     const repository = repositoryWith(localEvidence());
     const sources = evidenceSources(100);
@@ -34,7 +154,10 @@ describe("Billing reconciliation reviewed accounting", () => {
     expect(sources.provider.loadTenantCycleEvidence).toHaveBeenCalledTimes(1);
     expect(sources.polar.loadTenantCycleEvidence).toHaveBeenCalledTimes(1);
     expect(sources.invoice.loadTenantCycleEvidence).toHaveBeenCalledTimes(1);
-    expect(report).toMatchObject({ status: "matched", evidenceId: "report-evidence-1" });
+    expect(report).toMatchObject({
+      status: "matched", customerStatus: "matched", supplierStatus: "matched",
+      evidenceId: "report-evidence-1",
+    });
     expect(repository.appendReport).toHaveBeenCalledWith(expect.objectContaining({
       runKey: "daily:2026-09-01",
       status: "matched",
@@ -122,7 +245,10 @@ describe("Billing reconciliation reviewed accounting", () => {
 
     const report = await service.reconcileTenantCycle(cycleInput());
 
-    expect(report.status).toBe("mismatch");
+    expect(report).toMatchObject({
+      status: "mismatch", customerStatus: "mismatch", supplierStatus: "matched",
+      customerMismatchCount: 1, supplierMismatchCount: 0,
+    });
     expect(repository.appendMismatchEvidence).toHaveBeenCalled();
     expect(repository.appendReport).toHaveBeenCalledWith(expect.objectContaining({
       status: "mismatch",
@@ -229,16 +355,16 @@ function localEvidence(): BillingCycleLocalEvidence {
         aggregateId: "ledger-1",
         meterKey: "standard_runtime_seconds",
         quantity: 60,
-        deliveryMode: "shadow",
-        status: "pending",
+        deliveryMode: "charge",
+        status: "delivered",
       },
       {
         id: "outbox-payg",
         aggregateId: "debit-1",
         meterKey: "payg_charge_minor",
         quantity: 20,
-        deliveryMode: "shadow",
-        status: "pending",
+        deliveryMode: "charge",
+        status: "delivered",
       },
     ],
     payg: {

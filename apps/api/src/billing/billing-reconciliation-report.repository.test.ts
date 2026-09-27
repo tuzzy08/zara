@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import { PostgresBillingReconciliationReportRepository } from "./billing-reconciliation-report.repository";
 
 describe("PostgresBillingReconciliationReportRepository", () => {
+  it("loads the settlement meter and gross carrier amount without changing raw duration", async () => {
+    const repository = new PostgresBillingReconciliationReportRepository(queryDatabase({
+      billing_ledger_entries: [{ id: "carrier", entry_type: "telephony_charge",
+        meter_key: "platform_telephony_charge_minor", adjustment_kind: null, quantity: "61",
+        customer_amount_minor: "10", settlement_meter_key: "subscription_charge_minor", gross_customer_amount_minor: "70" }],
+    }));
+    const evidence = await repository.loadLocalCycleEvidence({ organizationId: "tenant-a",
+      cycleStartsAt: "2026-08-01T00:00:00.000Z", cycleEndsAt: "2026-09-01T00:00:00.000Z" });
+    expect(evidence.ledger).toEqual([{ id: "carrier", entryType: "telephony_charge",
+      meterKey: "platform_telephony_charge_minor", quantity: 61, customerAmountMinor: 10,
+      settlementMeterKey: "subscription_charge_minor", grossCustomerAmountMinor: 70 }]);
+  });
   it("loads tenant-cycle ledger, outbox, and PAYG facts without replacing missing values with zero", async () => {
     const database = queryDatabase({
       billing_ledger_entries: [{
@@ -49,6 +61,7 @@ describe("PostgresBillingReconciliationReportRepository", () => {
     });
 
     expect(evidence).toEqual({
+      sessionAudit: expect.objectContaining({ status: "mismatch", issues: ["ledger_session_missing", "runtime_quantity_mismatch"] }),
       ledger: [{
         id: "ledger-1",
         entryType: "runtime_charge",
@@ -62,6 +75,7 @@ describe("PostgresBillingReconciliationReportRepository", () => {
         meterKey: "standard_runtime_seconds",
         quantity: 60,
         deliveryMode: "shadow",
+        deliveryEligible: false,
         status: "pending",
       }],
       payg: {
@@ -74,7 +88,7 @@ describe("PostgresBillingReconciliationReportRepository", () => {
         reservationSnapshotMinor: 120,
       },
     });
-    expect(database.query).toHaveBeenCalledTimes(6);
+    expect(database.query).toHaveBeenCalledTimes(8);
     expect(database.query.mock.calls.every((call) => call[1]?.[0] === "tenant-a")).toBe(true);
     const outboxSql = database.query.mock.calls[1]![0] as string;
     expect(outboxSql).toContain("join billing_ledger_entries");

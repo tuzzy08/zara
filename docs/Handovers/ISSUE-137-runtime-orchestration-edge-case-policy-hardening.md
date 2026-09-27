@@ -1,10 +1,23 @@
 # ISSUE-137: Runtime orchestration edge-case policy hardening
 
 Status: Implemented
-Date: 2026-09-15
+Date: 2026-09-17
 External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-runtime-orchestration-edge-case-policy-hardening)
 
 ## Work Completed
+
+### 2026-09-17 instruction enrichment
+
+- Reopened the same external issue for the user-approved enrichment flow because Linear still rejects new issues at its issue limit. Used Ponytail and test-first changes. Preserved unrelated edits.
+- Added one shared review panel to reusable-agent creation and the workflow agent inspector. It supports editable suggestions, original text, change reasons, questions, conflicts, explicit apply, and restore. Late results cannot replace newer instructions or settings. Apply does not publish.
+- Added a guarded endpoint with exact workspace membership checks, bounded safe draft projection, connector-owned input rules, strict provider output, known capability checks, a shared six-per-minute tenant limit, provider timeout, and generic provider errors. Reused the existing rate-limit and supplier usage tables. No migration or new dependency was added.
+- Added deployment variables for the API container. A new contract check first failed because that container did not receive `OPENAI_API_KEY`; the Compose mapping now supplies the key, optional project, and drafting model. The example environment file documents those fields.
+- Drafting uses `gpt-4.1` by default. The smaller candidate repeatedly produced rigid tool steps or unsupported examples in live checks. The prompt now places existing tool outcomes before new-request input collection. Business decisions remain review questions. Human review remains required because schema validation does not prove semantic correctness.
+- Added a live comparison for original versus improved instructions with synthetic data and both production text adapters. These narrow checks do not establish general quality gains. The first smaller-model checks failed; the latest stronger-model check passed eight cases. One test pattern was corrected to accept the valid wording “do not have an order status”.
+
+Validation: service/API checks passed (18 tests, isolated database test skipped without its URL); the isolated Postgres pass then passed all 10 service tests, including concurrent rate limiting and window reset. Both UI suites passed all five tests. There are 24 distinct focused tests across these checks. The UI boundary remains nine files and 25 tests. The forced workspace TypeScript check and focused source lint passed. Eight live comparisons passed twice with `gpt-4.1` drafting and `gpt-4.1-mini` / `gemini-3.1-flash-lite` answering. Original and improved instructions both passed those cases; the result proves no measured regression in this small sample, not an overall quality gain. The temporary Postgres container was removed. Repository contracts and all workspace builds passed after the deployment-variable fix. Vite retains its tenant bundle-size warning. Whitespace checks passed.
+
+### 2026-09-15 prompt fixes
 
 - Reopened ZAR-71 for the user-approved prompt review fixes. New issue creation failed because Linear reached its issue limit.
 - Assigned three Sol agents: prompt rules and language; policy lifecycle; action schemas and context limits. Root owns evaluations, tenant guidance, integration review, and status records.
@@ -93,11 +106,14 @@ The prompt follow-up addresses the original review as follows:
 
 ## Pending Work
 
-- No requested implementation work remains. All eight prompt findings are implemented, reviewed, and tested.
+- All eight original prompt findings and the instruction enrichment follow-up are implemented, reviewed, and tested. No requested implementation work remains. The enrichment changes remain local and uncommitted; no deployment or Neon change was made in this pass.
 - Migration 0040 is applied to the configured Neon database. The application and worker deployment remain a separate release step.
 - Future hardening can add caller-refusal transfer cancellation, runtime restart reconstruction, configurable tool-call loop limits, and provider outage fallback as separate issues.
 
 ## Risks
+
+- Instruction enrichment is a model-generated proposal. Schema and capability checks do not prove that all business rules or examples are faithful. Builders must review the proposal and run relevant sandbox cases before publishing. The original text and restore action remain in the current review panel; they are not a new durable revision store. Accepted instructions use the existing save/version flow.
+- This follow-up uses only submitted draft context and static connector schemas. It does not retrieve approved business knowledge. Generation adds supplier cost, bounded by the tenant request limit and token budget. It is not billed as a customer call.
 
 - Apply migration 0040 before the updated API starts. Drain calls from the previous release before replacing workers. Old premium snapshots lack prompt revision/hash fields and are rejected during recovery.
 - Live text checks use synthetic inputs and two configured text models. Realtime behaviour is checked through provider payload and phone-call harness tests. This pass does not establish live voice quality or deploy the app.

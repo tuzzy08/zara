@@ -14,8 +14,25 @@ import {
 import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import { AgentsModule } from "./agents.module";
+import { InstructionImprovementService } from "./instruction-improvement.service";
 
 describe("AgentsController", () => {
+  it("guards the instruction review endpoint and uses the authenticated actor", async () => {
+    const improve = vi.spyOn(InstructionImprovementService.prototype, "improve").mockResolvedValue({
+      originalInstructions: "Help callers", instructions: "Purpose\nHelp callers", changes: [], questions: [], conflicts: [], toolIds: [], handoffTargetIds: [],
+    });
+    const app = await createTestingApp({ tenantAuth: false });
+    const body = { workspaceId: "workspace-default", instructions: "Help callers", actorRole: "owner", organizationId: "other-tenant" };
+    try {
+      expect((await request(app.getHttpServer()).post("/organizations/tenant-west-africa/agents/improve-instructions").send(body)).status).toBe(401);
+      expect(improve).not.toHaveBeenCalled();
+      const response = await withTestTenantAuth(request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/agents/improve-instructions").send(body));
+      expect(response.status).toBe(201);
+      expect(response.body.originalInstructions).toBe("Help callers");
+      expect(improve).toHaveBeenCalledWith(body, expect.objectContaining({ organizationId: "tenant-west-africa", userId: "user-ops-lead" }));
+    } finally { improve.mockRestore(); await app.close(); }
+  }, 15_000);
   afterEach(() => {
     vi.unstubAllGlobals();
   });

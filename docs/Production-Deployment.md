@@ -42,7 +42,7 @@ Production-critical environment variables:
 - worker heartbeat, drain, resource, WebSocket, and concurrency limits from `deploy/coolify.env.example`
 - Provider secrets for AssemblyAI, Cartesia, OpenAI, Twilio, OAuth connectors, Polar, and webhook signing
 - `ZARA_RELEASE_ID` with the exact immutable API release candidate ID
-- `BILLING_CHARGE_DELIVERY_ENABLED=false` unless the persisted ISSUE-248 gate passes for the same catalog and release
+- `BILLING_CHARGE_DELIVERY_ENABLED=false` until the owner enables the delivery infrastructure. A separate durable owner decision is required for the same catalog and release.
 
 ## Release Process
 
@@ -145,7 +145,7 @@ Provider rollback:
 - [ ] Provider webhook URLs target `https://api.zara.ai`.
 - [ ] Telephony credential key version and legacy keys are reviewed.
 - [ ] Polar is set to production mode with production webhook secret.
-- [ ] Real charge delivery is disabled, or the persisted approval, internal and selected-tenant canaries, reconciliation, and drills are current and match `POLAR_BILLING_CATALOG_ID` and `ZARA_RELEASE_ID`.
+- [ ] Usage delivery is disabled, or a fresh-MFA platform owner has saved an enable decision for `POLAR_BILLING_CATALOG_ID` and `ZARA_RELEASE_ID`. Only eligible new usage can deliver. Verify the deployed customer path on a live production account; separate staging, two trial tenants, and provider answers are not billing prerequisites.
 - [ ] The emergency charge-stop procedure in `docs/Runbooks/billing-charge-release-gate.md` is ready and preserves ledger and outbox facts.
 - [ ] Migration plan and rollback owner are recorded.
 - [ ] `docs/Observability-Dashboards.md` has been reviewed for current dashboard coverage, alert thresholds, and trace correlation.

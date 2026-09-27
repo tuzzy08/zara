@@ -4,6 +4,7 @@ import { Button, Card, Empty, Input, Select, Textarea } from "@zara/ui";
 import { maxAgentInstructionsCharacters, type IntegrationProviderCatalogEntry } from "@zara/core";
 
 import { TenantPageIntro } from "./TenantPageIntro";
+import { InstructionImprovement } from "./InstructionImprovement";
 import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
@@ -299,6 +300,11 @@ export function TenantAgentsScreen({ organizationId, organizationName, activeWor
                 placeholder={"Purpose: What should the agent achieve?\nProcess: What should it ask and do?\nTools: When should it use assigned tools?\nLimits: What must it never promise?\nHandoff: When should it transfer?\nStyle and examples: How should it answer?"}
               />
             </label>
+            <InstructionImprovement key={`${organizationId}:${activeWorkspaceId}`} organizationId={organizationId}
+              value={draft.instructions} onChange={instructions => updateDraft({ instructions })}
+              context={{ workspaceId: activeWorkspaceId, name: draft.name, businessName: draft.businessName,
+                agentClass: draft.agentClass, languagePolicy: { defaultLanguage: draft.defaultLanguage,
+                  supportedLanguages: [draft.defaultLanguage], allowMidCallSwitching: false }, tools: [], handoffTargets: [] }} />
           </div>
           <div className="tenant-row-actions tenant-form-actions">
             <Button

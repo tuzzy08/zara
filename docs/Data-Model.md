@@ -1,5 +1,13 @@
 # Data Model
 
+## Billing Delivery Decisions
+
+Migration `0041_billing_delivery_decisions.sql` adds the append-only owner decision table. Each row stores its request ID, ordered sequence, enabled state, server time, actor, reason, prior decision ID, and the catalog/release for an enable. The database rejects updates and deletes. `billing_outbox.delivery_decision_id` links eligible new charge events to their decision. Existing rows retain null links and are not automatically delivered.
+
+## Auth MFA Proof
+
+Auth migration `0042_auth_mfa_assurance.sql` adds the native `twoFactor` table, `user.twoFactorEnabled`, `session.mfaVerifiedAt`, and `session.mfaFactorId`. The factor has a monotonic `lastVerifiedStep` so two API instances cannot grant proof from the same code step. The plugin encrypts factor secrets. New sessions clear proof; caller input cannot set the proof or consumed step. Session reads reject proof from a removed or replaced factor, including a late write from an earlier verification. Preserve these additive fields on application rollback.
+
 ## Runtime Prompt Policy Revisions
 
 Migration `0040_runtime_prompt_policy_revisions.sql` adds three tables:
@@ -79,6 +87,20 @@ Integration connections include provider, OAuth app ownership, scopes, encrypted
 Memory records include scope, subject reference, source call/transcript/tool, text/fact payload, embedding, confidence, approval state, retention state, and audit metadata.
 
 ## Billing
+
+AssemblyAI sandbox usage uses the same connection and request tables. A request is linked to a pre-socket connection attempt. Its result retains the provider session ID and native integer `audioDurationSeconds` and `sessionDurationSeconds`, not conversation content. The tenant and sandbox session come from the server. The shared scope and PSTN call ID remain null; no exclusive account or phone-call identity is inferred. Missing termination data leaves the request unresolved. These rows alone cannot qualify release evidence.
+
+`provider_usage_requests` contains server-owned supplier request records, separate from the customer ledger. Each row has tenant, optional session/project identity, provider/model, request time, and an optional final native usage result. Request fields are immutable. A result can be written once; final records cannot be updated or deleted. Missing results remain unresolved. Platform-only shared-scope reads do not assign shared usage to a tenant.
+
+An observed event that already contains final usage inserts its request and result together. Existing unresolved rows use the guarded final-result write. Concurrent exact replay retains one result; conflicting facts are rejected. Stored unresolved request identities also feed the private operator review report. Unknown quantities remain null. No new table or recovery API is introduced.
+
+Realtime response rows use a deterministic ID from provider, project, and response identity. Cross-tenant or changed session/model replay is rejected. Their time is the first Zara receipt time, retained across retries, not an invented provider timestamp. The final JSON result can also contain response status and native token details. The stored session is the premium runtime session ID, not an inferred PSTN call ID. Audio, transcript, and separate input-transcription usage are not stored in this result.
+
+Separate Realtime transcription rows retain the same OpenAI project and server tenant/session identity, but use the configured transcription model. Their source key includes provider session ID, item ID, and content index. Completed results use `sourceKind: realtime_transcription`, one `transcriptionRequestCount`, and a selected native `transcription.usage` token or duration object. Duration remains in seconds, including its fractional part. Missing or failed usage has no final result. Tenant readback includes provider and model. The completion comparison excludes these separate transcription results; this exclusion does not establish complete coverage. A separate platform-only transcription reader returns the immutable row ID, tenant, project, model, receipt time, and native usage. It counts unresolved OpenAI requests without guessing their endpoint and keeps `complete: false`. The independent transcription report remains a private operator artifact, not a customer ledger fact or database release approval.
+
+`provider_usage_connections` stores server-owned connection attempts separately from native usage. It keeps tenant, premium session, provider, model, shared project, and start time. Its optional final result contains only end time, `closed` or `failed` outcome, and provider session ID. Starts cannot change, and a final result is written once. Exact replay is allowed; a changed result or cross-tenant final write is rejected. Shared reads include period-overlapping connections and older unresolved starts. These records are not customer quantities and do not prove complete usage capture.
+
+Migration 0039 adds nullable `provider_usage_requests.connection_id` and `provider_usage_connections.call_session_id`. The call ID comes from the verified PSTN dispatch or the active call during an agent transfer. It is not derived from `actorUserId`. Both response and transcription rows link to their own connection. A database insert guard requires matching tenant, premium session, provider, and project. The model need not match because transcription has its own model. Existing immutability guards also protect the new columns. Replay cannot replace a link or add one to a historical unlinked row. Tenant reads and platform reports return the stored premium session, connection, and call links. Null means unknown or not applicable; it is not reconstructed. Rollback retains the columns if any link exists.
 
 The approved price catalog is global, versioned, and immutable. Tenant-owned billing customers, subscriptions, cycles, budget policies, entitlements, invoices, ledger entries, adjustments, PAYG orders, PAYG credit entries, reservation accounts, charge reservations, webhook receipts, and outbox records use Postgres.
 

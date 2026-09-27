@@ -5,6 +5,15 @@ export interface SharedProviderObservationSnapshot {
   cycleEndsAt: string;
   complete: boolean;
   unresolvedRequestCount: number;
+  unresolvedRequests?: Array<{
+    id: string;
+    organizationId: string;
+    sessionId: string | null;
+    connectionId: string | null;
+    callSessionId: string | null;
+    model: string;
+    occurredAt: string;
+  }>;
   observations: Array<{
     id: string;
     organizationId: string;

@@ -2141,6 +2141,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         ? {} : { routeIdentity: subscriptionReservation?.routeIdentity ?? paygChargeContext?.routeIdentity }),
       runtimeSeconds: providerConnectedSeconds,
       providerConnectedSeconds,
+      ...(connectedAt === undefined ? {} : { usageStartedAt: connectedAt }),
       occurredAt: terminalState.observedAt,
     } as const;
     const identity = `terminal-billing:${trustedFact.callSessionId}`;

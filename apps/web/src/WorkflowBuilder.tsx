@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useState, type CSSProperti
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 
+import { InstructionImprovement } from "./InstructionImprovement";
 import {
   addEdge,
   Background,
@@ -1859,6 +1860,7 @@ function useWorkflowBuilderScreenModel({
     actorUserId: resolvedActorUserId,
     actorRole: activeTenantRole,
     organizationId: resolvedOrganizationId,
+    activeWorkspaceId,
     voiceLibraryState,
     liveCanvas,
     liveSandbox,
@@ -2234,6 +2236,8 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
 
       {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
         <AgentRoleInspector
+          key={`${model.organizationId}:${model.activeWorkspaceId}:${selectedNode.id}`}
+          workspaceId={model.activeWorkspaceId}
           agentClassOptions={model.agentClassOptions}
           actorUserId={model.actorUserId}
           actorRole={model.actorRole}
@@ -3060,6 +3064,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
 }
 
 function AgentRoleInspector({
+  workspaceId,
   agentClassOptions,
   actorUserId,
   actorRole,
@@ -3076,6 +3081,7 @@ function AgentRoleInspector({
   onChange,
   onVoiceUpdated,
 }: {
+  workspaceId: string;
   agentClassOptions: AgentClassOption[];
   actorUserId?: string | undefined;
   actorRole: TenantRole;
@@ -3173,6 +3179,19 @@ function AgentRoleInspector({
             onChange={(event) => onChange({ instructions: event.target.value })}
           />
         </label>
+        {organizationId ? <InstructionImprovement organizationId={organizationId}
+          value={role.instructions} onChange={instructions => onChange({ instructions })}
+          context={{ workspaceId, name: role.name, businessName: role.businessName, agentClass: role.kind,
+            languagePolicy: role.languagePolicy,
+            tools: (role.toolbeltAssignments ?? []).map(tool => ({ id: tool.id, connector: tool.connector, toolId: tool.toolId, label: tool.label,
+              whenToUse: tool.whenToUse, requiredInputs: tool.requiredInputs
+                ?? (Array.isArray(tool.inputSchema?.required) ? tool.inputSchema.required.filter((field): field is string => typeof field === "string") : []),
+              requiresHumanApproval: tool.requiresHumanApproval,
+              available: !tool.requiresAuthorization || tool.connectionStatus === "connected" })),
+            handoffTargets: routeTargetOptions.filter(target => role.routePolicy?.branches.some(branch =>
+              branch.target.type === "agent" && branch.target.agentId === target.agentId))
+              .map(target => ({ id: target.agentId, label: target.label })),
+          }} /> : null}
       </InspectorSection>
       {role.routePolicy === undefined ? null : (
         <InspectorSection title="Routing" requiredIssue={routingDetailsMissing}>

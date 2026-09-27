@@ -22,7 +22,7 @@ export interface BillingPolarOutboxWorkerConfig {
 }
 
 export interface BillingChargeDeliveryGuard {
-  assertDeliveryAllowed(now: string): Promise<unknown>;
+  assertDeliveryAllowed(now: string): Promise<{ allowed: boolean; decisionId?: string }>;
 }
 
 interface BillingOutboxClock {
@@ -50,7 +50,8 @@ export class BillingPolarOutboxWorker {
     if (this.releaseGuard === undefined) {
       throw new Error("The production charge-release gate is not configured.");
     }
-    await this.releaseGuard.assertDeliveryAllowed(now);
+    const decision = await this.releaseGuard.assertDeliveryAllowed(now);
+    if (!decision.allowed || !decision.decisionId) return emptyResult(true);
     await this.repository.recoverStaleOutbox(now);
     const processingLeaseUntil = new Date(
       Date.parse(now) + (this.config.processingTimeoutMs ?? 300_000),
@@ -65,7 +66,11 @@ export class BillingPolarOutboxWorker {
     let retried = 0;
     let deadLettered = 0;
     for (const event of events) {
-      await this.releaseGuard.assertDeliveryAllowed(this.clock.now());
+      const currentDecision = await this.releaseGuard.assertDeliveryAllowed(this.clock.now());
+      if (!currentDecision.allowed || currentDecision.decisionId !== decision.decisionId
+        || event.deliveryDecisionId !== decision.decisionId) {
+        return { claimed: events.length, delivered, retried, deadLettered, disabled: true };
+      }
       try {
         const payload = parseUsagePayload(event);
         await this.polar.ingestUsageEvent({

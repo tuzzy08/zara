@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { BillingUsageReconciliationService } from "./billing-usage-reconciliation.service";
 
 import {
   BillingProviderEvidenceCollector,
@@ -15,6 +16,26 @@ const cycle = {
 };
 
 describe("PostgresProviderEvidenceRepository", () => {
+  it("cannot use a shared report as matched tenant-native evidence", () => {
+    expect(reconcileProviderNativeReport(cycle, {
+      provider: "cartesia", evidenceKind: "runtime_usage", sourceReportId: "shared-1",
+      payload: { scope: "platform", quantities: {}, source: { apiKeyId: "shared-key" },
+        facts: [{ id: "shared-1", apiKeyId: "shared-key", credits: 840,
+          cycleStartsAt: cycle.cycleStartsAt, cycleEndsAt: cycle.cycleEndsAt }],
+      },
+    })).toMatchObject({ status: "mismatch", issues: ["shared_provider_evidence_not_tenant_scoped"] });
+  });
+  it("rejects shared totals at the tenant report write boundary", async () => {
+    const reader = new PostgresProviderEvidenceRepository({
+      query: async () => { throw new Error("Database must not be called"); },
+    });
+    await expect(reader.appendProviderReport({
+      ...cycle, id: "shared-report", sourceHash: "hash",
+      fetchedAt: "2026-09-06T00:00:00.000Z", provider: "cartesia",
+      evidenceKind: "runtime_usage", sourceReportId: "shared-1",
+      payload: { scope: "platform", quantities: {}, facts: [{ credits: 840 }] },
+    })).rejects.toThrow("Shared provider evidence cannot be assigned to a tenant.");
+  });
   it("reads tenant-cycle usage only from immutable provider reports", async () => {
     const database = {
       query: vi.fn().mockResolvedValue({ rows: [{
@@ -225,8 +246,8 @@ describe("PostgresProviderEvidenceRepository", () => {
 });
 
 describe("provider-native reconciliation", () => {
-  it("reconciles one exact Cartesia cycle without converting credits to runtime seconds", () => {
-    expect(reconcileProviderNativeReport(cycle, {
+  it("blocks Cartesia qualification without an independent native usage comparison", () => {
+    const native = reconcileProviderNativeReport(cycle, {
       provider: "cartesia",
       evidenceKind: "runtime_usage",
       sourceReportId: "cartesia-cycle-1",
@@ -236,11 +257,17 @@ describe("provider-native reconciliation", () => {
         facts: [{ id: "fact-1", apiKeyId: "key-1", cycleStartsAt: cycle.cycleStartsAt,
           cycleEndsAt: cycle.cycleEndsAt, credits: 42 }],
       },
-    })).toEqual({
-      provider: "cartesia", sourceReportId: "cartesia-cycle-1", status: "matched",
-      factCount: 1, scopeId: "key-1", coverageStartsAt: cycle.cycleStartsAt,
-      coverageEndsAt: cycle.cycleEndsAt, totals: { credits: 42 }, issues: [],
     });
+    expect(native).toEqual({
+      provider: "cartesia", sourceReportId: "cartesia-cycle-1", status: "mismatch",
+      factCount: 1, scopeId: "key-1", coverageStartsAt: cycle.cycleStartsAt,
+      coverageEndsAt: cycle.cycleEndsAt, totals: { credits: 42 }, issues: ["provider_observation_comparison_missing"],
+    });
+    expect(new BillingUsageReconciliationService().reconcileProviderUsageEvidence({
+      expected: { standard_runtime_seconds: 60 },
+      evidence: { ...cycle, evidenceId: "evidence-1", sourceId: "cartesia-cycle-1",
+        fetchedAt: "2026-09-01T02:00:00.000Z", quantities: {}, providerNative: [native] },
+    })).toEqual([expect.objectContaining({ mismatchClass: "provider_native_evidence_mismatch", severity: "critical" })]);
   });
 
   it("rejects Zara meter quantities in a direct provider-native report", () => {
@@ -291,6 +318,38 @@ describe("provider-native reconciliation", () => {
 });
 
 describe("PolarBillingReconciliationReader", () => {
+  it("reads the subscription remainder meter as cents independently of prepaid credit", async () => {
+    const reader = new PolarBillingReconciliationReader({
+      getMeterQuantity: async () => ({ total: 30 }),
+      getCustomerMeterBalance: async () => { throw new Error("Subscription settlement is not prepaid credit"); },
+      listCycleOrders: async () => [],
+    }, { listPolarMappings: async () => [{ mappingType: "meter",
+      internalKey: "subscription_charge_minor", providerId: "meter-subscription" }] }, "production");
+    await expect(reader.readPolarMeters(cycle)).resolves.toMatchObject({
+      quantities: { subscription_charge_minor: 30 },
+    });
+  });
+  it.each([null, "", false, true, "42", []])("rejects non-numeric Polar evidence: %j", async (value) => {
+    const invalid = value as unknown as number;
+    const polar = {
+      getMeterQuantity: vi.fn().mockResolvedValue({ total: invalid }),
+      getCustomerMeterBalance: vi.fn().mockResolvedValue({ balance: invalid }),
+      listCycleOrders: vi.fn().mockResolvedValue([
+        { id: "order-1", totalAmount: invalid, currency: "usd", createdAt: cycle.cycleStartsAt },
+      ]),
+    };
+    const reader = new PolarBillingReconciliationReader(polar, {
+      listPolarMappings: async () => [
+        { mappingType: "meter", internalKey: "payg_charge_minor", providerId: "meter-payg" },
+      ],
+    }, "production", () => "2026-09-01T02:00:00.000Z");
+
+    await expect(reader.readPolarMeters(cycle)).rejects.toThrow("Reconciliation quantity must be a non-negative integer.");
+    polar.getMeterQuantity.mockResolvedValue({ total: 0 });
+    await expect(reader.readPolarMeters(cycle)).rejects.toThrow("Reconciliation quantity must be a non-negative integer.");
+    await expect(reader.readDraftInvoice(cycle)).rejects.toThrow("Reconciliation quantity must be a non-negative integer.");
+  });
+
   it("reads authenticated meter quantities and order invoice totals with source freshness", async () => {
     const polar = {
       getMeterQuantity: vi.fn()
@@ -342,6 +401,14 @@ describe("PolarBillingReconciliationReader", () => {
     expect(polar.listCycleOrders).toHaveBeenCalledWith(cycle);
 
     polar.getMeterQuantity.mockResolvedValue({ total: 0 });
+    polar.getCustomerMeterBalance.mockResolvedValue({ balance: 0 });
+    polar.listCycleOrders.mockResolvedValue([
+      { id: "order-zero", totalAmount: 0, currency: "usd", createdAt: "2026-08-20T00:00:00.000Z" },
+    ]);
+    await expect(reader.readPolarMeters(cycle)).resolves.toMatchObject({
+      quantities: { standard_runtime_seconds: 0, payg_charge_minor: 0 }, polarBalanceMinor: 0,
+    });
+    await expect(reader.readDraftInvoice(cycle)).resolves.toMatchObject({ amountMinor: 0 });
     polar.getCustomerMeterBalance.mockResolvedValue(null);
     await expect(reader.readPolarMeters(cycle)).resolves.not.toHaveProperty("polarBalanceMinor");
   });

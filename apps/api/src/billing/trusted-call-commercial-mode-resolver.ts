@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { readSubscriptionCycleRows, subscriptionCycleUsage } from "./subscription-cycle-usage";
 
 type Database = Pick<Pool, "connect">;
 type MeterClass = "standard" | "premium";
@@ -82,22 +83,9 @@ export class TrustedCallCommercialModeResolver {
         return { mode: "unavailable" as const };
       }
 
-      const [usage, telephony, meterAccount, overageAccount, policy, risk] = await Promise.all([
-        client.query(`select
-            coalesce(sum(case when metadata->>'billingClass' = 'standard_runtime_seconds'
-              then quantity else 0 end), 0) as standard_seconds,
-            coalesce(sum(case when metadata->>'billingClass' = 'premium_runtime_seconds'
-              then quantity else 0 end), 0) as premium_seconds
-          from billing_ledger_entries where tenant_id = $1 and catalog_id = $2
-            and entry_type = 'runtime_charge' and unit = 'second'
-            and occurred_at >= $3 and occurred_at < $4`,
-        [organizationId, subscription.catalog_id, cycle.starts_at, cycle.ends_at]),
-        client.query(`select coalesce(sum(customer_amount_minor), 0) as amount_minor
-          from billing_ledger_entries where tenant_id = $1 and catalog_id = $2
-            and entry_type = 'telephony_charge' and unit = 'connected_second'
-            and metadata->>'billingClass' = 'platform_telephony_charge_minor'
-            and occurred_at >= $3 and occurred_at < $4`,
-        [organizationId, subscription.catalog_id, cycle.starts_at, cycle.ends_at]),
+      const [usage, meterAccount, overageAccount, policy, risk] = await Promise.all([
+        readSubscriptionCycleRows(client, { organizationId, catalogId: subscription.catalog_id,
+          cycleStartsAt: cycle.starts_at, cycleEndsAt: cycle.ends_at }),
         client.query(`select reserved_included_seconds from billing_subscription_reservation_accounts
           where tenant_id = $1 and cycle_id = $2 and meter_class = $3`,
         [organizationId, cycle.id, meterClass]),
@@ -113,21 +101,18 @@ export class TrustedCallCommercialModeResolver {
         await client.query("commit");
         return { mode: "unavailable" as const };
       }
-      const standardActualSeconds = safeNonNegative(usage.rows[0]?.standard_seconds);
-      const premiumActualSeconds = safeNonNegative(usage.rows[0]?.premium_seconds);
+      const actualUsage = subscriptionCycleUsage(usage, {
+        standardIncludedSeconds: safeNonNegative(plan.includedStandardRuntimeSeconds),
+        premiumIncludedSeconds: safeNonNegative(plan.includedPremiumRuntimeSeconds),
+        standardRuntimeRateMinor: safeNonNegative(plan.standardRuntimePerMinuteMinor),
+        premiumRuntimeRateMinor: safeNonNegative(plan.premiumRuntimePerMinuteMinor),
+      });
       const actualSeconds = meterClass === "standard"
-        ? standardActualSeconds
-        : premiumActualSeconds;
+        ? actualUsage.standardRuntimeSeconds
+        : actualUsage.premiumRuntimeSeconds;
       const reservedIncludedSeconds = safeNonNegative(meterAccount.rows[0]?.reserved_included_seconds);
       const availableIncludedSeconds = Math.max(0, includedSeconds - actualSeconds - reservedIncludedSeconds);
-      const actualOverageMinor = priceSeconds(
-        Math.max(0, standardActualSeconds - safeNonNegative(plan.includedStandardRuntimeSeconds)),
-        safeNonNegative(plan.standardRuntimePerMinuteMinor),
-      ) + priceSeconds(
-        Math.max(0, premiumActualSeconds - safeNonNegative(plan.includedPremiumRuntimeSeconds)),
-        safeNonNegative(plan.premiumRuntimePerMinuteMinor),
-      )
-        + safeNonNegative(telephony.rows[0]?.amount_minor);
+      const actualOverageMinor = actualUsage.overageMinor;
       const globalReservedOverageMinor = safeNonNegative(overageAccount.rows[0]?.reserved_overage_minor);
       const availableOverageMinor = Math.max(0,
         Math.min(safeNonNegative(policy.rows[0].overage_limit_minor),
@@ -169,8 +154,4 @@ function safeNonNegative(value: unknown) {
   const number = Number(value ?? 0);
   if (!Number.isSafeInteger(number) || number < 0) throw new Error("Billing availability is invalid.");
   return number;
-}
-
-function priceSeconds(seconds: number, rateMinorPerMinute: number) {
-  return seconds === 0 ? 0 : Math.ceil(seconds * rateMinorPerMinute / 60);
 }

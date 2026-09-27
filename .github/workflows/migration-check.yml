@@ -70,6 +70,11 @@ jobs:
           apps/api/src/database/migration-0037-provider-usage-recording.postgres.test.ts
           apps/api/src/database/migration-0038-provider-usage-connections.postgres.test.ts
           apps/api/src/database/migration-0039-provider-usage-attribution.postgres.test.ts
+          apps/api/src/platform-admin/platform-admin-billing-delivery.postgres.test.ts
+          apps/api/src/billing/billing-new-usage-delivery.postgres.test.ts
+          apps/api/src/billing/billing-mixed-settlement.postgres.test.ts
+          apps/api/src/billing/billing-reconciliation-delivery-scope.postgres.test.ts
+          apps/api/src/auth/auth-mfa.postgres.test.ts
           apps/api/src/billing/trusted-subscription-call-lifecycle.service.test.ts
 
       - name: Create rollback test database

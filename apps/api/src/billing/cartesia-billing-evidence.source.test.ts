@@ -13,6 +13,50 @@ const cycle = {
 };
 
 describe("CartesiaBillingEvidenceSource", () => {
+  it.each([null, "", false, true, "840", [], [840]].map((credits) => ({ credits })))(
+    "rejects non-numeric provider credits: $credits",
+    async ({ credits }) => {
+      const source = new CartesiaBillingEvidenceSource({
+        getApiKey: async () => ({ id: "shared-key" }),
+        getCreditUsage: async () => ({ data: [{
+          start_ts: cycle.cycleStartsAt,
+          end_ts: cycle.cycleEndsAt,
+          credits,
+        }] }),
+      }, { readDurableTenantApiKeyScope: async () => null },
+      () => "2026-09-06T00:00:00.000Z");
+
+      await expect(source.collectSharedCycle({
+        externalScopeId: "shared-key",
+        cycleStartsAt: cycle.cycleStartsAt,
+        cycleEndsAt: cycle.cycleEndsAt,
+      })).rejects.toThrow("Cartesia billing evidence credits are invalid.");
+    },
+  );
+
+  it.each([0, 840])("collects %i shared-key credits without assigning them to a tenant", async (credits) => {
+    const source = new CartesiaBillingEvidenceSource({
+      getApiKey: async () => ({ id: "shared-key" }),
+      getCreditUsage: async () => ({ data: [{
+        start_ts: "2026-08-01T00:00:00.000Z",
+        end_ts: "2026-09-01T00:00:00.000Z", credits,
+      }] }),
+    }, { readDurableTenantApiKeyScope: async () => { throw new Error("No tenant mapping"); } },
+    () => "2026-09-06T00:00:00.000Z");
+
+    const report = await source.collectSharedCycle({
+      externalScopeId: "shared-key",
+      cycleStartsAt: "2026-08-01T00:00:00.000Z",
+      cycleEndsAt: "2026-09-01T00:00:00.000Z",
+    });
+    expect(report).toMatchObject({
+      provider: "cartesia", payload: {
+        scope: "platform", quantities: {},
+        source: { apiKeyId: "shared-key" }, facts: [{ credits }],
+      },
+    });
+    expect(report?.payload.source).not.toHaveProperty("tenantScopeMappingId");
+  });
   it("collects provider credits for the API key durably mapped to the tenant", async () => {
     const client = {
       getApiKey: vi.fn().mockResolvedValue({ id: "key-1" }),

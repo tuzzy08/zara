@@ -68,6 +68,14 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 
 ## Representative Routes
 
+### Usage charge delivery control
+
+`GET /platform-admin/billing/delivery` returns the latest durable decision, or null when no decision exists. It requires the existing staff read authority.
+
+`PATCH /platform-admin/billing/delivery` requires a signed-in `platform_owner` with fresh server-verified MFA. Body: `requestId`, `enabled`, `expectedDecisionId` (null for the first decision), and a non-empty `reason`. The server selects the catalog, release, actor, and effective time. Extra fields are rejected. A stale decision ID or changed reuse of a request ID returns conflict. An exact retry returns the original decision and never moves the cutoff.
+
+Enable requires valid production Polar configuration and `BILLING_CHARGE_DELIVERY_ENABLED=true`. Stop does not require valid Polar configuration. Every decision is append-only. A new enable never sweeps historical shadow usage or the undelivered backlog of an earlier enable period. A provider request already in flight cannot be recalled by stop.
+
 - POST /api/auth/onboarding/signup
 - POST /api/auth/account-security/password-reset/request
 - POST /api/auth/account-security/email-verification/request
@@ -281,6 +289,17 @@ The policy contains global platform guardrails plus agent class templates keyed 
 `POST /platform-admin/runtime/prompt-policy/revisions/:revision/promote` restores the selected policy content as a new revision. The body contains `expectedVersion` and `reason`. Staff mutation permission is required. A stale version returns a conflict. Promotion restores the exact old class catalog, including removal of classes added later. The audit record identifies the source and new revision. Existing sessions keep their saved revision.
 
 Reusable-agent creation and workflow validation reject instructions longer than 12,000 characters. Workflow validation applies the same limit to each language-specific prompt.
+
+### Instruction improvement
+
+`POST /organizations/:organizationId/agents/improve-instructions` returns a proposed edit. The authenticated caller must be an owner, admin, or builder in the organization and an active member with one of those roles in the requested workspace. The request body cannot supply actor authority.
+
+- Input: `workspaceId`, `name`, `businessName`, `agentClass`, `instructions`, `languagePolicy`, `tools`, and `handoffTargets`. Instructions are non-empty and at most 12,000 characters. Tools and targets each allow at most 32 entries with unique IDs. Tool metadata includes its ID, optional connector/catalog ID, label, purpose, required inputs, approval flag, and draft availability. The server adds connector-owned required inputs and input alternatives from the tool catalog. Saved language guidance is bounded and limited to configured languages.
+- Output: `originalInstructions`, editable `instructions`, `changes`, `questions`, `conflicts`, `toolIds`, and `handoffTargetIds`. The server rejects malformed or truncated model output, drafts above the limit, and references to unavailable tools or unknown targets. Review lists have at most 12 entries of 600 characters each.
+- A draft is not an authorization grant. The endpoint does not call tools, save agents, publish workflows, or change platform rules. It sends only the selected draft fields to the model, with no connector credentials, URLs, or headers. It does not fetch customer records or knowledge records. Existing publish and runtime permission checks remain authoritative.
+- Errors: `400` for invalid or excessive input, `401` for no session, `403` for insufficient access, `429` for the tenant rate limit, `502` for failed or invalid model output, and `503` when generation is not configured. Provider error bodies are not returned to the browser.
+- Configuration: `OPENAI_API_KEY` is required. `INSTRUCTION_IMPROVEMENT_MODEL` defaults to `gpt-4.1`; an override must support strict JSON schema output. `OPENAI_PROJECT_ID` is optional. Each request has a 30-second provider timeout and a 4,096-token output limit. The existing request budget bounds the full input. The existing Postgres `rateLimit` table allows six requests per tenant in a fixed 60-second window across API instances.
+- Existing provider usage recording stores supplier request/token metadata with no call session or instruction text. This endpoint creates no customer billing charge. No new database migration is required.
 
 ## Platform Premium Realtime Conversation Policy Contract
 

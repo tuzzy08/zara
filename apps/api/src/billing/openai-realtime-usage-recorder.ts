@@ -19,7 +19,7 @@ interface ObservedRealtimeUsage {
 /** Only the authenticated provider transport may supply these messages. */
 export class OpenAiRealtimeUsageRecorder {
   private pending = 0;
-  private tail: Promise<void> = Promise.resolve();
+  private readonly pendingById = new Map<string, Promise<void>>();
   private providerSessionId: string | null = null;
   private failed = false;
 
@@ -33,8 +33,20 @@ export class OpenAiRealtimeUsageRecorder {
       if (event === undefined) return Promise.resolve();
       if (this.pending >= 128) throw new Error("Realtime usage queue is full.");
       this.pending += 1;
-      const write = this.tail.then(() => this.persist(event));
-      this.tail = write.then(() => { this.pending -= 1; }, () => { this.pending -= 1; this.failed = true; });
+      const previous = this.pendingById.get(event.id);
+      const write = previous === undefined ? this.persist(event) : previous.then(() => this.persist(event));
+      const settled = write.then(() => undefined, async error => {
+        this.failed = true;
+        if (["40001", "40P01", "57P01", "57P02", "57P03", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE"]
+          .includes(object(error).code as string)) {
+          // ponytail: retry the retained event once; process-loss recovery still needs provider evidence.
+          await this.persist(event).catch(() => undefined);
+        }
+      }).then(() => {
+        this.pending -= 1;
+        if (this.pendingById.get(event.id) === settled) this.pendingById.delete(event.id);
+      });
+      this.pendingById.set(event.id, settled);
       return write;
     } catch (error) {
       this.failed = true;
@@ -43,17 +55,14 @@ export class OpenAiRealtimeUsageRecorder {
   }
 
   async drain() {
-    await this.tail;
+    while (this.pendingById.size > 0) await Promise.all(this.pendingById.values());
     if (this.failed) throw new Error("Realtime usage capture is incomplete.");
     return { providerSessionId: this.providerSessionId };
   }
 
   private async persist(event: ObservedRealtimeUsage) {
-    const request = await this.repository.beginObserved({ ...this.scope, model: event.model,
-      provider: "openai", occurredAt: event.occurredAt }, event.id);
-    if (event.result !== undefined) {
-      await this.repository.complete(this.scope.organizationId, request.id, { ...event.result, occurredAt: request.occurredAt });
-    }
+    await this.repository.beginObserved({ ...this.scope, model: event.model,
+      provider: "openai", occurredAt: event.occurredAt }, event.id, event.result);
   }
 
   // Copy only small usage fields before queueing. Never retain audio or transcript payloads.

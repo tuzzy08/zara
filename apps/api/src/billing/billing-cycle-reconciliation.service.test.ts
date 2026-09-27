@@ -7,7 +7,16 @@ import {
 } from "./billing-usage-reconciliation.service";
 
 describe("BillingUsageReconciliationService tenant-cycle reports", () => {
-  it("matches ledger, shadow outbox, provider, Polar, invoice, and PAYG evidence", async () => {
+  it("records an incomplete session audit as a release-blocking mismatch", async () => {
+    const local = { ...matchedLocalEvidence(), sessionAudit: { status: "incomplete", issues: ["session_duration_missing"] } };
+    const service = serviceWith(repositoryWith(local), { provider: null, polar: null, invoice: null });
+    const report = await service.reconcileTenantCycle(cycleRunInput());
+    expect(report.mismatches).toContainEqual(expect.objectContaining({
+      mismatchClass: "tenant_session_ledger_mismatch", severity: "critical",
+    }));
+    expect(report.sources).toMatchObject({ tenantSessions: local.sessionAudit });
+  });
+  it("matches ledger, eligible charge outbox, provider, Polar, invoice, and PAYG evidence", async () => {
     const repository = repositoryWith(matchedLocalEvidence());
     const service = serviceWith(repository, {
       provider: {
@@ -15,7 +24,7 @@ describe("BillingUsageReconciliationService tenant-cycle reports", () => {
         quantities: {
           standard_runtime_seconds: 60,
           premium_runtime_seconds: 60,
-          platform_telephony_charge_minor: 60,
+          platform_telephony_charge_minor: 35,
         },
       },
       polar: {
@@ -24,7 +33,7 @@ describe("BillingUsageReconciliationService tenant-cycle reports", () => {
         quantities: {
           standard_runtime_seconds: 60,
           premium_runtime_seconds: 60,
-          platform_telephony_charge_minor: 60,
+          platform_telephony_charge_minor: 35,
           payg_charge_minor: 98,
         },
       },
@@ -41,7 +50,7 @@ describe("BillingUsageReconciliationService tenant-cycle reports", () => {
       zaraLedger: { status: "present", customerAmountMinor: 98 },
       outbox: {
         status: "present",
-        deliveryMode: "shadow",
+        deliveryMode: "charge",
         quantityMinor: 98,
         statuses: { pending: 4, processing: 0, delivered: 0, deadLetter: 0 },
       },
@@ -165,7 +174,7 @@ function matchedLocalEvidence(): BillingCycleLocalEvidence {
     outbox: [
       outbox("outbox-standard", "ledger-standard", "standard_runtime_seconds", 60),
       outbox("outbox-premium", "ledger-premium", "premium_runtime_seconds", 60),
-      outbox("outbox-telephony", "ledger-telephony", "platform_telephony_charge_minor", 60),
+      outbox("outbox-telephony", "ledger-telephony", "platform_telephony_charge_minor", 35),
       outbox("outbox-payg", "payg-debit-1", "payg_charge_minor", 98),
     ],
     payg: {
@@ -195,7 +204,8 @@ function outbox(
     aggregateId,
     meterKey,
     quantity,
-    deliveryMode: "shadow" as const,
+    deliveryMode: "charge" as const,
+    deliveryEligible: true,
     status: "pending" as const,
   };
 }

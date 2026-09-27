@@ -45,6 +45,8 @@ Premium realtime provider credentials live on the `realtime-worker` service. A l
 - explicit heartbeat, drain, call, CPU, memory, event-loop, file-descriptor, and WebSocket limits from `deploy/coolify.env.example`
 - the shared `api-state` volume mounted read-only in operational intent for current file-backed integration grants and connector credentials; the API remains the only configuration writer
 
+Billing also uses `POLAR_SERVER`, `POLAR_BILLING_CATALOG_ID`, `ZARA_RELEASE_ID`, and `BILLING_CHARGE_DELIVERY_ENABLED` on the API service. Compose defaults to the Polar sandbox and disables charge delivery. For production, set the production server, the active catalog, and the deployed release ID. Set the delivery flag only when those values are ready. The flag alone does not enable charges: a platform owner must also make an audited enable decision through the API. Follow the [billing release runbook](Runbooks/billing-charge-release-gate.md).
+
 Browser app values are build-time public values, not secrets:
 
 - `API_PUBLIC_URL`

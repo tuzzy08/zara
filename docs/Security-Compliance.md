@@ -61,6 +61,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 
 ## Platform Admin Controls
 
+Fresh TOTP proof is stored on the server-side session after native Better Auth verification. An atomic per-factor step claim rejects replay across instances. Password-only and backup-code sessions do not gain this privileged proof. Disabling the factor removes its authority. The native setup and verification APIs require the existing cookie/CSRF controls; no caller header or body field can assert production MFA.
+
 Platform admin access is for Zara staff only. It must be protected by platform roles, explicit auth assurance posture, stricter operational logging, and server-side guards. Impersonation is time-boxed, visible, revocable, audited, and allowed only for owner/admin staff sessions with MFA/passkey step-up. Platform admins must not see raw secrets, raw OAuth tokens, or decrypted provider credentials.
 
 AI runtime observability is also a staff-only platform-admin surface. The platform-admin API may expose redacted LangSmith experiment links, local trace IDs, eval regression status, redaction state, and release-owner metadata to Zara staff, but tenant-facing dashboards must not expose those internal links or cross-tenant trace metadata. Failing eval references must remain redacted and must never include raw caller text, raw tool output, provider payloads, credentials, or audio.

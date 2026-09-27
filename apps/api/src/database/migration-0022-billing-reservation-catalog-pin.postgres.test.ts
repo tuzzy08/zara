@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const connectionString = process.env.ZARA_TEST_POSTGRES_URL;
@@ -36,16 +36,17 @@ describe.skipIf(connectionString === undefined)(
       const catalogOne = `migration-0022-catalog-one-${suffix}`;
       const catalogTwo = `migration-0022-catalog-two-${suffix}`;
 
-      await pool.query("begin");
+      const client = await pool.connect();
       try {
-        await pool.query("select pg_advisory_xact_lock(2460022)");
-        const versionResult = await pool.query(
+        await client.query("begin");
+        await client.query("select pg_advisory_xact_lock(2460022)");
+        const versionResult = await client.query(
           "select coalesce(max(version), 0) + 1 as next_version from public.billing_price_catalogs",
         );
         const firstVersion = Number(versionResult.rows[0]?.next_version);
-        await pool.query(`create schema "${schema}"`);
-        await pool.query(`set local search_path to "${schema}", public`);
-        await pool.query(
+        await client.query(`create schema "${schema}"`);
+        await client.query(`set local search_path to "${schema}", public`);
+        await client.query(
           `create table billing_charge_reservations (
              tenant_id text not null,
              id text not null,
@@ -53,7 +54,7 @@ describe.skipIf(connectionString === undefined)(
              primary key (tenant_id, id)
            )`,
         );
-        await pool.query(
+        await client.query(
           `insert into billing_charge_reservations (tenant_id, id, status)
            values ('tenant-legacy', 'reservation-legacy', 'active')`,
         );
@@ -61,7 +62,7 @@ describe.skipIf(connectionString === undefined)(
           [catalogOne, firstVersion],
           [catalogTwo, firstVersion + 1],
         ] as const) {
-          await pool.query(
+          await client.query(
             `insert into public.billing_price_catalogs (
                id, version, status, currency, effective_from, checksum,
                catalog_document, approved_by, approved_at, created_at
@@ -73,15 +74,15 @@ describe.skipIf(connectionString === undefined)(
           );
         }
 
-        await pool.query(migration);
+        await client.query(migration);
 
-        await pool.query(
+        await client.query(
           `update billing_charge_reservations
            set status = 'expired'
            where tenant_id = 'tenant-legacy' and id = 'reservation-legacy'`,
         );
         await expectQueryFailure(
-          pool,
+          client,
           "legacy_pin",
           `update billing_charge_reservations
            set catalog_id = $1
@@ -90,20 +91,20 @@ describe.skipIf(connectionString === undefined)(
           "Billing reservation catalog pins are immutable",
         );
         await expectQueryFailure(
-          pool,
+          client,
           "missing_pin",
           `insert into billing_charge_reservations (tenant_id, id, status)
            values ('tenant-new', 'reservation-without-pin', 'active')`,
           [],
           "New billing reservations require a catalog pin",
         );
-        await pool.query(
+        await client.query(
           `insert into billing_charge_reservations (tenant_id, id, status, catalog_id)
            values ('tenant-new', 'reservation-pinned', 'active', $1)`,
           [catalogOne],
         );
         await expectQueryFailure(
-          pool,
+          client,
           "changed_pin",
           `update billing_charge_reservations
            set catalog_id = $1
@@ -112,7 +113,7 @@ describe.skipIf(connectionString === undefined)(
           "Billing reservation catalog pins are immutable",
         );
 
-        await expect(pool.query(
+        await expect(client.query(
           `select tenant_id, id, catalog_id
            from billing_charge_reservations
            order by tenant_id`,
@@ -131,27 +132,31 @@ describe.skipIf(connectionString === undefined)(
           ],
         });
       } finally {
-        await pool.query("rollback");
+        try {
+          await client.query("rollback");
+        } finally {
+          client.release();
+        }
       }
     });
   },
 );
 
 async function expectQueryFailure(
-  pool: Pool,
+  client: PoolClient,
   savepoint: string,
   sql: string,
   parameters: unknown[],
   message: string,
 ) {
-  await pool.query(`savepoint ${savepoint}`);
+  await client.query(`savepoint ${savepoint}`);
   let error: unknown;
   try {
-    await pool.query(sql, parameters);
+    await client.query(sql, parameters);
   } catch (caught) {
     error = caught;
   }
-  await pool.query(`rollback to savepoint ${savepoint}`);
+  await client.query(`rollback to savepoint ${savepoint}`);
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toContain(message);
 }

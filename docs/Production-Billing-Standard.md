@@ -25,6 +25,8 @@ Runtime and telephony providers own raw supplier usage and supplier invoices. Pr
 
 Postgres is the source of truth for Zara access decisions. A Polar outage must not cause free usage, duplicate charges, or the loss of a trusted usage fact.
 
+Subscription settlement uses the finalized reservation: included runtime first, prepaid credit second, invoice overage last. New subscription events use `subscription_charge_minor`, measured in USD cents after both deductions. The separate `payg_charge_minor` event consumes prepaid credit only; it has no invoice price. Raw call durations and gross supplier comparison data remain stored. Pending ledger recovery must not restore consumed allowance or overage budget. See [the meter setup and enable procedure](Runbooks/billing-charge-release-gate.md).
+
 ## V1 Commercial Catalog
 
 All values in this section are proposals. Amounts are in USD and exclude tax. One billing period is one calendar month from the subscription start date. Each charged day is one full UTC calendar day. A billing period starts at 00:00 UTC on its first charged day. It ends at 00:00 UTC on the day after its last charged day. V1 does not create a partial-day subscription period and does not prorate a subscription by hour. V1 has no annual plan.
@@ -63,14 +65,15 @@ When a PAYG customer starts a subscription, unused PAYG credit stays available. 
 
 ## Customer Meters
 
-The V1 customer statement uses three charge classes and one PAYG settlement meter:
+The V1 customer statement uses three charge classes. Two settlement meters control payment delivery:
 
 1. `standard_runtime_seconds` records Zara sandwich-runtime use. It includes the Zara-managed STT, text model, and TTS path. It does not include carrier service.
 2. `premium_runtime_seconds` records an approved premium realtime path. It does not include carrier service.
 3. `platform_telephony_charge_minor` records the final platform-managed carrier charge in USD cents. The tenant statement must also show route, direction, provider, provider SKU, duration, and the applied rate-catalog version.
 4. `payg_charge_minor` consumes prepaid service credit after Zara calculates a PAYG session from the three charge classes. It must not create an unpaid overage.
+5. `subscription_charge_minor` invoices the amount left after included runtime and prepaid credit, in USD cents. Do not attach prepaid credit or another included allowance to this meter. Do not send the original priced usage meters for the same settled call.
 
-Runtime usage is recorded in seconds. The invoice quantity is the sum of seconds divided by 60. Zara does not round each runtime event to a full minute.
+Runtime usage is recorded in seconds. The existing call finalizer computes runtime overage as `ceil(billableSeconds * rateMinorPerMinute / 60)`, then subtracts prepaid credit. The new subscription meter sends the remaining cents. Zara does not round each runtime event to a full minute. Historical raw-second events keep their existing calculation; this change does not rewrite them.
 
 Telephony duration uses provider-connected seconds. Each completed call is rounded up to the next 60-second unit for a route that has per-minute carrier billing. A failed call with no provider connection has zero customer telephony charge. A provider charge that applies to a failed call stays a supplier cost until an approved customer-rate rule says otherwise.
 
@@ -179,9 +182,11 @@ The proposed standard-runtime prices assume an approximate supplier cost of $0.0
 
 ## Approval Gates
 
-Commercial approval must confirm the plan fees, included quantities, overage prices, PAYG packs and rates, PAYG credit terms, Nigeria route price, trial, refund rule, 72-hour grace period, and USD-only V1 scope. Legal review must confirm that the proposed non-cash, non-transferable service-credit terms are suitable for launch markets.
+The owner revised the billing release policy on 2026-09-27. Use the production instance. A separate staging instance, two trial tenants, provider support answers, and three named approval owners are not prerequisites for customer charge delivery. Supplier reports remain separate evidence. Missing supplier usage must stay unknown; it must not become zero or a false match.
 
-Technical release also requires ISSUE-242 through ISSUE-248, measured unit economics, Polar sandbox invoice checks, reconciliation with supplier data, refund and adjustment drills, selected-tenant consent, and a recorded go decision. Until then, all calculated charges are shadow data only.
+The existing platform-admin API controls usage delivery. Only a signed-in `platform_owner` with fresh server-verified MFA can enable or stop it. Each decision is durable and append-only, with the actor, reason, server time, catalog, and release. Production payment configuration, customer charge calculation, tenant isolation, duplicate protection, and stop checks remain required. No historical shadow usage is automatically charged. Each enable starts a new eligibility period; a later enable does not deliver a previous period's backlog.
+
+Customer reconciliation compares trusted call duration, catalog charges, Polar delivery, invoices, and prepaid credit. Supplier reconciliation compares native provider facts separately. Provider support answers, accounting-time qualification, and missing supplier reports remain follow-up work, not customer billing release gates. Verify the deployed path with a live production account before claiming production verification. Local tests are not live evidence.
 
 ## References
 
