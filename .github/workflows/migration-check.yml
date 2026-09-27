@@ -295,9 +295,11 @@ jobs:
             `select
                to_regclass('provider_usage_connections') as provider_connection_table,
                to_regclass('provider_usage_requests') as provider_usage_table,
+               to_regclass('billing_delivery_decisions') as retained_delivery_decisions,
                not exists (
                  select 1 from pg_tables
                  where schemaname = 'public' and tablename like 'billing_%'
+                   and tablename <> 'billing_delivery_decisions'
                ) as billing_tables_removed,
                to_regclass('telephony_media_stream_tokens') as token_table,
                to_regclass('telephony_phone_test_checkpoints') as checkpoint_table,
@@ -395,6 +397,7 @@ jobs:
           if (
             row?.provider_connection_table !== null ||
             row?.provider_usage_table !== null ||
+            row?.retained_delivery_decisions !== "billing_delivery_decisions" ||
             !row?.billing_tables_removed ||
             row.token_table !== null ||
             row.checkpoint_table !== null ||
