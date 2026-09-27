@@ -15,7 +15,7 @@ describe.each(["openai", "google-gemini"] as const)("live prompt behavior: %s", 
   const revision = defaultRuntimePromptPolicy.version;
   const hash = hashRuntimePromptPolicy(defaultRuntimePromptPolicy);
   beforeAll(() => {
-    console.info("Prompt evaluation:", JSON.stringify({ provider: providerId, model, revision, hash }));
+    process.stdout.write(`Prompt evaluation: ${JSON.stringify({ provider: providerId, model, revision, hash })}\n`);
   });
   const cases = [
     { id: "missing-input", transcript: "Can you check my order?", expected: /(?:order|reference).*(?:number|id)|(?:number|id).*(?:order|reference)/i },
