@@ -41,7 +41,9 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
+    # ponytail: provision this retained image locally; mirror it before moving to a new host.
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    pull_policy: never
     command: server /data --console-address ":9001"
     restart: unless-stopped
     environment:
@@ -59,7 +61,8 @@ services:
       retries: 10
 
   minio-init:
-    image: minio/mc:latest
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    pull_policy: never
     depends_on:
       minio:
         condition: service_healthy

@@ -68,6 +68,8 @@ Shared cross-app settings:
 
 ## Object Storage
 
+The 2026-09-29 recovery pins both MinIO services to the retained image digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e` and disables registry pulls. That image includes `/usr/bin/mc`; the bucket initializer uses it without changing its existing commands. Docker Hub access to the former `minio/mc:latest` and `minio/minio:latest` references failed. Before deployment, verify this exact image is present with `docker image inspect` and verify `mc --version` in a read-only, network-disabled container. Preserve the image with `docker image save`. A fresh host must load the retained image archive and verify the digest before deployment; this configuration does not provision MinIO from the registry. Do not prune the retained image or change storage volumes during recovery. A maintained image/mirror is separate follow-up work.
+
 Coolify's bundled VPS deployment uses MinIO as the S3-compatible object store. The Compose file creates two private versioned buckets:
 
 - `RECORDINGS_BUCKET`: call recordings and recording-derived media.

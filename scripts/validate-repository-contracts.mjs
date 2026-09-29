@@ -157,6 +157,13 @@ function validateContainerModel() {
 
   requireService(services, "postgres", { healthcheck: true });
   requireService(services, "redis", { healthcheck: true });
+  for (const name of ["minio", "minio-init"]) {
+    if (!/^minio\/minio@sha256:[a-f0-9]{64}$/u.test(services[name]?.image ?? "")
+      || services[name].image !== services.minio.image
+      || services[name].pull_policy !== "never") {
+      throw new Error(`${name} must use the same locally provisioned, digest-pinned MinIO image without a registry pull.`);
+    }
+  }
   requireService(services, "migrate", {
     buildTarget: "api",
     command: ["npm", "run", "db:migrate"],
