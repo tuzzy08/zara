@@ -41,6 +41,10 @@ export class PlatformAdminGuard implements CanActivate {
       authenticated,
       role: resolvedRole,
       serverSessionAuthenticatedAt: userEmail.length > 0 ? session["createdAt"] : undefined,
+      ...(user["twoFactorEnabled"] === true && session["mfaVerifiedAt"] ? {
+        serverAssuranceLevel: "mfa" as const,
+        serverMfaVerifiedAt: session["mfaVerifiedAt"],
+      } : {}),
       testAuthorityHeaders: headers as Record<string, string | string[] | undefined>,
     });
     const platformRole = platformAuth.role;

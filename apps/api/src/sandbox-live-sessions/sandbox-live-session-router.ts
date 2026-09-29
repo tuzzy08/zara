@@ -10,7 +10,7 @@ import {
   recordRuntimePacketNodeVisit,
   recordRuntimePacketTransfer,
   recordRuntimePacketWarning,
-  resolveAgentRoutePolicyClassification,
+  resolveAgentRoutePolicyAction,
   resolveIntentRouteClassification,
   resolveConditionBranch,
   resolveRuntimeAgent,
@@ -91,6 +91,11 @@ export interface LiveSandboxTurnRoutePacketInput {
 }
 
 export interface LiveSandboxIntentClassifierInput {
+  abortSignal?: AbortSignal | undefined;
+  turnId?: string | undefined;
+  manifestId?: string | undefined;
+  manifestVersion?: number | undefined;
+  shadowAllowed?: boolean | undefined;
   nodeId: string;
   modelAlias: "intent-classifier-fast";
   confidenceThreshold: number;
@@ -105,6 +110,7 @@ export interface LiveSandboxIntentClassifierInput {
 }
 
 export interface LiveSandboxIntentClassifier {
+  confidenceThreshold?: number | undefined;
   classify(input: LiveSandboxIntentClassifierInput): Promise<IntentClassifierOutput>;
 }
 
@@ -121,9 +127,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
   const visited = new Set<string>();
   const queue = [...input.frontier.filter((nodeId) => nodeId.length > 0)];
   const preEvents: LiveSandboxRouteEvent[] = [];
-  let selectedIntent =
-    normalizeIntent(input.intent)
-    ?? (input.intentClassifier === undefined ? inferTranscriptIntent(input.manifest, input.transcript) : undefined);
+  let selectedIntent = normalizeIntent(input.intent);
   const packetStartedAt = input.turn?.startedAt ?? new Date().toISOString();
   let packet = createTurnRuntimePacket({
     ids: {
@@ -312,7 +316,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
               ? {
                   intentKey: packet.intent.intentKey,
                   label: packet.intent.label,
-                  confidence: packet.intent.confidence,
+                  ...(packet.intent.confidence !== undefined ? { confidence: packet.intent.confidence } : {}),
                 }
               : undefined;
           const transfer = buildAgentTransferContext({
@@ -362,6 +366,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
                 routeConfig,
                 packet,
                 sourceAgent: lastVisitedAgent,
+                shadowAllowed: input.manifest.telemetry.captureTranscript === true && input.manifest.telemetry.redactSensitiveData === true,
               })
             : null;
         const selection = classifierSelection?.selection ?? resolveLegacyConditionSelection(node, selectedIntent);
@@ -390,7 +395,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
             matchedBranchId: selection.isFallback ? null : selection.branchId,
             intentKey,
             label: selection.isFallback ? null : selection.label,
-            confidence: selection.isFallback ? 0 : 1,
+            decisionOrigin: selection.isFallback ? "fallback" : "rule",
             reason: selection.isFallback
               ? `No configured branch matched; using fallback '${selection.label}'.`
               : `Matched configured intent branch '${selection.label}'.`,
@@ -687,23 +692,17 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
     });
   }
 
-  const classifierOutput: IntentClassifierOutput = {
-    matchedBranchId: matchedBranch.id,
-    intentKey: matchedBranch.intentKey,
-    confidence: 1,
-    reason: input.action.reason,
-    usedFallback: false,
-  };
-  const resolution = resolveAgentRoutePolicyClassification({
+  const resolution = resolveAgentRoutePolicyAction({
     routePolicy,
+    branchId: matchedBranch.id,
     sourceAgent: agentToRuntimeAgentRef(sourceAgent),
     targetAgents: resolveAgentRoutePolicyTargetAgents(input.manifest),
     transferId: matchedBranch.target.type === "agent"
       ? `${input.packet.ids.turnId}:${routePolicy.sourceAgentId}:${matchedBranch.target.agentId}`
       : undefined,
     callerNeedSummary: input.action.callerNeedSummary,
+    reason: input.action.reason,
     recentToolResults: collectRecentSafeToolResults(input.packet),
-    output: classifierOutput,
   });
   let packet = recordRuntimePacketIntent(input.packet, {
     at: input.at,
@@ -894,6 +893,7 @@ async function classifyIntentRoute(input: {
   routeConfig: IntentRouteNodeConfig;
   packet: TurnRuntimePacket;
   sourceAgent: RuntimeAgentRef | undefined;
+  shadowAllowed: boolean;
 }): Promise<{
   selection: ConditionRouteSelection;
   intentKey: string | null;
@@ -902,17 +902,16 @@ async function classifyIntentRoute(input: {
   let packet = input.packet;
 
   if (input.packet.callerInput.latestCallerTurn.trim().length === 0) {
-    const resolution = resolveIntentRouteClassification({
+    const resolution = { result: {
       nodeId: input.nodeId,
-      route: input.routeConfig,
-      output: {
-        matchedBranchId: null,
-        intentKey: null,
-        confidence: 0,
-        reason: "Caller input was empty; using fallback.",
-        usedFallback: true,
-      },
-    });
+      matchedBranchId: null,
+      intentKey: null,
+      label: null,
+      decisionOrigin: "fallback" as const,
+      reason: "Caller input was empty; using fallback.",
+      usedFallback: true,
+      targetNodeId: input.routeConfig.fallback.targetNodeId,
+    } };
     packet = recordRuntimePacketIntent(packet, {
       at: packet.timing.startedAt,
       ...resolution.result,
@@ -950,6 +949,10 @@ async function classifyIntentRoute(input: {
 
   try {
     classifierOutput = await input.classifier.classify({
+      turnId: input.packet.ids.turnId,
+      manifestId: input.packet.ids.manifestId,
+      manifestVersion: input.packet.ids.manifestVersion,
+      shadowAllowed: input.shadowAllowed,
       nodeId: input.nodeId,
       modelAlias: input.routeConfig.classifier.modelAlias,
       confidenceThreshold: input.routeConfig.classifier.confidenceThreshold,
@@ -971,18 +974,14 @@ async function classifyIntentRoute(input: {
       message,
       recoverable: true,
     };
-    classifierOutput = {
-      matchedBranchId: null,
-      intentKey: null,
-      confidence: 0,
-      reason: "Intent classifier failed; using fallback.",
-      usedFallback: true,
-    };
+    classifierOutput = undefined;
   }
 
   const resolution = resolveIntentRouteClassification({
     nodeId: input.nodeId,
-    route: input.routeConfig,
+    route: input.classifier.confidenceThreshold === undefined
+      ? input.routeConfig
+      : { ...input.routeConfig, classifier: { ...input.routeConfig.classifier, confidenceThreshold: input.classifier.confidenceThreshold } },
     output: classifierOutput,
   });
   packet = recordRuntimePacketIntent(packet, {
@@ -1208,29 +1207,6 @@ function readInputWindowConfig(config: unknown): IntentRouteInputWindowConfig {
 
 function extractIntentKey(expression: string | undefined) {
   return expression?.match(/intent\s*==\s*"([^"]+)"/i)?.[1]?.toLowerCase();
-}
-
-function inferTranscriptIntent(manifest: CompiledRuntimeManifest, transcript: string) {
-  const normalizedTranscript = transcript.toLowerCase();
-  const candidates = new Set<string>();
-
-  manifest.conditions.forEach((condition) => {
-    condition.branches.forEach((branch) => {
-      const match = branch.expression.match(/intent\s*==\s*"([^"]+)"/i);
-
-      if (match?.[1] !== undefined) {
-        candidates.add(match[1].toLowerCase());
-      }
-    });
-  });
-
-  for (const candidate of candidates) {
-    if (normalizedTranscript.includes(candidate)) {
-      return candidate;
-    }
-  }
-
-  return undefined;
 }
 
 function normalizeIntent(intent: string | undefined) {

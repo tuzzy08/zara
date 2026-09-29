@@ -1,5 +1,7 @@
 # Agent Tool And Transfer Standard
 
+Agent handoff actions go directly through configured target validation. They do not pass a synthetic classifier result or claim classifier confidence `1`. Sampled TypeSafe handoff quality checks run after an accepted transfer in shadow mode. These checks assess target fit, ignored refusal, and summary support. They cannot block a transfer or change its target.
+
 ## Purpose
 
 This document standardizes how agents use tools and how calls move between agents. It updates the mental model from mandatory graph traversal to agent-aware capabilities and structured transfers.

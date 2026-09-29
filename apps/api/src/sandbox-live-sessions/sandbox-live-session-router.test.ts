@@ -12,6 +12,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
       manifest: buildRoutingManifest(),
       frontier: ["entry"],
       transcript: "I have a billing issue on my last invoice.",
+      intent: "billing",
     });
 
     expect(route.kind).toBe("agent");
@@ -90,6 +91,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
       manifest: buildRoutingManifest(),
       frontier: ["entry"],
       transcript: "I have a billing issue on my last invoice.",
+      intent: "billing",
       turn: {
         callSessionId: "session-1",
         turnId: "turn-1",
@@ -137,7 +139,6 @@ describe("resolveLiveSandboxTurnRoute", () => {
       matchedIntent: {
         intentKey: "billing",
         label: "Billing",
-        confidence: 1,
       },
     });
     expect(route.packet.diagnostics.events.map((event) => ({
@@ -203,6 +204,8 @@ describe("resolveLiveSandboxTurnRoute", () => {
       intentKey: "billing",
       label: "Billing",
       confidence: 0.91,
+      decisionOrigin: "classifier",
+      decisionVersion: "intent-decision.v2",
       reason: "The caller is asking about a charge.",
       usedFallback: false,
       targetNodeId: "agent-billing",
@@ -247,7 +250,8 @@ describe("resolveLiveSandboxTurnRoute", () => {
       matchedBranchId: null,
       intentKey: null,
       label: null,
-      confidence: 0,
+      decisionOrigin: "fallback",
+      decisionVersion: "intent-decision.v2",
       reason: "Caller input was empty; using fallback.",
       usedFallback: true,
       targetNodeId: "agent-front",
@@ -501,6 +505,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
       manifest: buildUnsupportedBillingLanguageManifest(buildRoutingManifest()),
       frontier: ["entry"],
       transcript: "I have a billing issue on my last invoice.",
+      intent: "billing",
       turn: {
         callSessionId: "session-1",
         turnId: "turn-1",
@@ -645,6 +650,12 @@ describe("resolveLiveSandboxTurnRoute", () => {
         requiredInputs: [],
       }),
     ]);
+  });
+
+  it("uses the configured fallback when no classifier or explicit intent is supplied", async () => {
+    const route = await resolveLiveSandboxTurnRoute({ manifest: buildRoutingManifest(), frontier: ["entry"], transcript: "billing", turn: { callSessionId: "session-1", turnId: "turn-1", startedAt: "2026-05-27T09:00:00.000Z", source: "voice" } });
+    expect(route.packet.intent?.usedFallback).toBe(true);
+    expect(route.packet.intent?.confidence).toBeUndefined();
   });
 });
 

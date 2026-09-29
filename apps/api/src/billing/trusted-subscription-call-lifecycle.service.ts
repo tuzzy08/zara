@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { insertOutboxEntry } from "./postgres-billing-ledger.repository";
+import { readSubscriptionCycleRows, subscriptionCycleUsage } from "./subscription-cycle-usage";
 import { validatePaygPlatformRoute, type PaygPlatformRouteIdentity } from "./billing-payg-call-charge-policy";
 
 type Database = Pick<Pool, "connect">;
@@ -105,13 +107,7 @@ export class TrustedSubscriptionCallLifecycleService {
         ? actualUsage.standardRuntimeSeconds
         : actualUsage.premiumRuntimeSeconds;
       const includedRemaining = Math.max(0, state.includedSeconds - actualSeconds);
-      const actualOverageMinor = priceSeconds(
-        Math.max(0, actualUsage.standardRuntimeSeconds - state.standardIncludedSeconds),
-        state.standardRuntimeRateMinor,
-      ) + priceSeconds(
-        Math.max(0, actualUsage.premiumRuntimeSeconds - state.premiumIncludedSeconds),
-        state.premiumRuntimeRateMinor,
-      ) + actualUsage.platformTelephonyMinor;
+      const actualOverageMinor = actualUsage.overageMinor;
       const effectiveOverageRemaining = Math.max(
         0,
         Math.min(state.tenantOverageMinor, state.platformRiskMinor) - actualOverageMinor,
@@ -387,7 +383,8 @@ export class TrustedSubscriptionCallLifecycleService {
           input.reservationId,
         );
         await client.query("commit");
-        return { outcome: "finalized" as const, duplicate: true, paygAppliedMinor };
+        return { outcome: "finalized" as const, duplicate: true, paygAppliedMinor,
+          includedRuntimeSeconds: Math.min(Number(row.actual_seconds), Number(row.reserved_included_seconds)) };
       }
       if (row.status !== "active" || input.actualSeconds > Number(row.reserved_seconds)) throw new Error("Subscription reservation cannot be finalized.");
       const connectedSeconds = row.billing_mode === "platform_managed" ? input.providerConnectedSeconds : 0;
@@ -428,6 +425,22 @@ export class TrustedSubscriptionCallLifecycleService {
             input.sessionId, actualPaygMinor,
             `subscription-payg:${input.reservationId}:finalize`, input.now],
         );
+        const debitId = `subscription-payg-debit:${input.reservationId}`;
+        const outboxId = `polar_${debitId}`;
+        await insertOutboxEntry(client, {
+          id: outboxId, organizationId: input.organizationId,
+          aggregateType: "payg_credit_entry", aggregateId: debitId, eventType: "polar.usage.report",
+          payload: {
+            externalEventId: outboxId, externalCustomerId: input.organizationId,
+            creditEntryId: debitId, sessionId: input.sessionId,
+            meterKey: "payg_charge_minor", quantity: actualPaygMinor,
+            occurredAt: input.now, deliveryMode: "shadow",
+          },
+          status: "pending", attemptCount: 0, nextAttemptAt: input.now, createdAt: input.now,
+        }, {
+          catalogId: String(row.catalog_id),
+          usageStartedAt: new Date(String(row.created_at)).toISOString(), complete: true,
+        });
       }
       const reservationUpdate = await client.query(
         `update billing_subscription_call_reservations set status = 'finalized', actual_seconds = $3,
@@ -439,7 +452,8 @@ export class TrustedSubscriptionCallLifecycleService {
       );
       if (reservationUpdate.rowCount !== 1) throw new Error("Subscription reservation finalization lost its claim.");
       await client.query("commit");
-      return { outcome: "finalized" as const, duplicate: false, paygAppliedMinor: actualPaygMinor };
+      return { outcome: "finalized" as const, duplicate: false, paygAppliedMinor: actualPaygMinor,
+        includedRuntimeSeconds: Math.min(input.actualSeconds, Number(row.reserved_included_seconds)) };
     } catch (error) { await client.query("rollback"); throw error; }
     finally { client.release(); }
   }
@@ -548,21 +562,9 @@ function isUtcCalendarDayBoundary(value: unknown) {
 }
 
 async function readActualUsage(client: PoolClient, input: StartInput, state: Awaited<ReturnType<typeof readEligibility>> & {}) {
-  const result = await client.query(
-    `select entry_type, quantity, unit, customer_amount_minor, metadata from billing_ledger_entries
-     where tenant_id = $1 and catalog_id = $2 and occurred_at >= $3 and occurred_at < $4`,
-    [input.organizationId, state.catalogId, state.cycleStartsAt, state.cycleEndsAt],
-  );
-  return {
-    standardRuntimeSeconds: result.rows.filter((row) => row.entry_type === "runtime_charge"
-      && row.unit === "second" && row.metadata?.billingClass === "standard_runtime_seconds")
-      .reduce((total, row) => total + Number(row.quantity), 0),
-    premiumRuntimeSeconds: result.rows.filter((row) => row.entry_type === "runtime_charge"
-      && row.unit === "second" && row.metadata?.billingClass === "premium_runtime_seconds")
-      .reduce((total, row) => total + Number(row.quantity), 0),
-    platformTelephonyMinor: result.rows.filter((row) => row.entry_type === "telephony_charge" && row.unit === "connected_second" && row.metadata?.billingClass === "platform_telephony_charge_minor")
-      .reduce((total, row) => total + Number(row.customer_amount_minor ?? 0), 0),
-  };
+  const rows = await readSubscriptionCycleRows(client, { organizationId: input.organizationId,
+    catalogId: state.catalogId, cycleStartsAt: state.cycleStartsAt, cycleEndsAt: state.cycleEndsAt });
+  return subscriptionCycleUsage(rows, state);
 }
 
 async function lockAvailablePaygCredit(

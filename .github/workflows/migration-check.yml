@@ -67,6 +67,14 @@ jobs:
           apps/api/src/database/migration-0033-provider-billing-scopes.test.ts
           apps/api/src/database/migration-0034-provider-scope-tenant-isolation.test.ts
           apps/api/src/database/migration-0035-provider-scope-history.test.ts
+          apps/api/src/database/migration-0037-provider-usage-recording.postgres.test.ts
+          apps/api/src/database/migration-0038-provider-usage-connections.postgres.test.ts
+          apps/api/src/database/migration-0039-provider-usage-attribution.postgres.test.ts
+          apps/api/src/platform-admin/platform-admin-billing-delivery.postgres.test.ts
+          apps/api/src/billing/billing-new-usage-delivery.postgres.test.ts
+          apps/api/src/billing/billing-mixed-settlement.postgres.test.ts
+          apps/api/src/billing/billing-reconciliation-delivery-scope.postgres.test.ts
+          apps/api/src/auth/auth-mfa.postgres.test.ts
           apps/api/src/billing/trusted-subscription-call-lifecycle.service.test.ts
 
       - name: Create rollback test database
@@ -135,6 +143,18 @@ jobs:
             "docs/Runbooks/rollback-0035-provider-scope-history.sql",
             "utf8",
           );
+          const providerUsageAttributionRollback = await readFile(
+            "docs/Runbooks/rollback-0039-provider-usage-attribution.sql",
+            "utf8",
+          );
+          const providerUsageConnectionsRollback = await readFile(
+            "docs/Runbooks/rollback-0038-provider-usage-connections.sql",
+            "utf8",
+          );
+          const providerUsageRecordingRollback = await readFile(
+            "docs/Runbooks/rollback-0037-provider-usage-recording.sql",
+            "utf8",
+          );
           const billingCyclesUtcDaysRollback = await readFile(
             "docs/Runbooks/rollback-0036-billing-cycles-utc-days.sql",
             "utf8",
@@ -183,6 +203,9 @@ jobs:
             "docs/Runbooks/rollback-0009-telephony-incremental-persistence.sql",
             "utf8",
           );
+          await pool.query(providerUsageAttributionRollback);
+          await pool.query(providerUsageConnectionsRollback);
+          await pool.query(providerUsageRecordingRollback);
           await pool.query(billingCyclesUtcDaysRollback);
           await pool.query(providerScopeHistoryRollback);
           await pool.query(providerScopeTenantIsolationRollback);
@@ -270,9 +293,13 @@ jobs:
           `);
           const result = await pool.query(
             `select
+               to_regclass('provider_usage_connections') as provider_connection_table,
+               to_regclass('provider_usage_requests') as provider_usage_table,
+               to_regclass('billing_delivery_decisions') as retained_delivery_decisions,
                not exists (
                  select 1 from pg_tables
                  where schemaname = 'public' and tablename like 'billing_%'
+                   and tablename <> 'billing_delivery_decisions'
                ) as billing_tables_removed,
                to_regclass('telephony_media_stream_tokens') as token_table,
                to_regclass('telephony_phone_test_checkpoints') as checkpoint_table,
@@ -368,6 +395,9 @@ jobs:
           );
           const row = result.rows[0];
           if (
+            row?.provider_connection_table !== null ||
+            row?.provider_usage_table !== null ||
+            row?.retained_delivery_decisions !== "billing_delivery_decisions" ||
             !row?.billing_tables_removed ||
             row.token_table !== null ||
             row.checkpoint_table !== null ||

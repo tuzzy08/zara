@@ -323,3 +323,4 @@ export * from "./realtime-tool-bridge";
 export * from "./live-call-session";
 export * from "./pstn-sandwich-runtime";
 export * from "./pstn-premium-realtime-runtime";
+export type { InstructionImprovementRequest, InstructionImprovementResult } from "./instruction-improvement";

@@ -2,8 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import { createLiveSandboxTextModelProvider } from "./sandbox-text-model-provider-factory";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { usageRecordingTestPool } from "../billing/provider-usage-recording.test-support";
 
 describe("createLiveSandboxTextModelProvider", () => {
+  it("records OpenAI usage through the configured router", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const provider = createLiveSandboxTextModelProvider(resolveLiveSandboxProviderConfig({ OPENAI_API_KEY: "test" }), {
+        usageRecorder: new ProviderUsageRecordingRepository(pool), openAiProjectId: "proj-shared",
+        fetch: async () => new Response(JSON.stringify({ id: "chatcmpl-factory", created: 1788692400,
+          choices: [{ message: { content: "Reply" } }], usage: { prompt_tokens: 30, completion_tokens: 7, total_tokens: 37 } })),
+      });
+      for await (const text of provider.streamText({ manifest: createManifest(), activeAgent: createAgent(),
+        transcript: "Question", tier: "standard", context: { callPhase: "discovery" } })) expect(text).toBe("Reply");
+      expect(await new ProviderUsageRecordingRepository(pool).listTenantRequests(createManifest().tenantId))
+        .toMatchObject([{ externalScopeId: "proj-shared", result: { totals: { inputTokens: 30 } } }]);
+    } finally { await pool.end(); }
+  });
   it("builds a router that can use Gemini when its credentials are configured", async () => {
     const recordedCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     const provider = createLiveSandboxTextModelProvider(
@@ -36,31 +52,6 @@ describe("createLiveSandboxTextModelProvider", () => {
             },
           );
         }) as typeof fetch,
-        getPromptPolicy: () => ({
-          guardrails: ["Use the factory-supplied prompt policy."],
-          agentClassTemplates: {
-            receptionist: {
-              agentClass: "receptionist",
-              label: "Receptionist",
-              basePrompt: "Use the factory-supplied receptionist template.",
-              routingProfile: {
-                description: "Receptionist routes callers.",
-                examples: ["I need help"],
-                fallbackTarget: "clarify_source_agent",
-              },
-            },
-            custom: {
-              agentClass: "custom",
-              label: "Custom",
-              basePrompt: "Use the factory-supplied fallback template.",
-              routingProfile: {
-                description: "Custom handles fallback work.",
-                examples: ["Something else"],
-                fallbackTarget: "clarify_source_agent",
-              },
-            },
-          },
-        }),
       },
     );
 
@@ -76,6 +67,13 @@ describe("createLiveSandboxTextModelProvider", () => {
       tier: "standard",
       context: {
         callPhase: "greeting",
+      },
+      promptPolicy: {
+        guardrails: ["Use the factory-supplied prompt policy."],
+        agentClassTemplates: {
+          receptionist: { basePrompt: "Use the factory-supplied receptionist template." },
+          custom: { basePrompt: "Use the factory-supplied fallback template." },
+        },
       },
     })) {
       chunks.push(chunk);

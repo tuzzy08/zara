@@ -16,6 +16,7 @@ import {
 import type { PstnAudioFrame } from "@zara/core";
 
 import { TelephonyService } from "./telephony.service";
+import { PstnSandwichCallExecution } from "./pstn-sandwich-call-execution";
 import {
   pstnCallObservabilityRecorderToken,
   type PstnCallObservabilityEvent,
@@ -86,6 +87,7 @@ interface TwilioMediaStreamAttachment {
   premiumExecutionStopped: boolean;
   terminalization?: Promise<void> | undefined;
   validatedTwilioStopReceived: boolean;
+  standardRuntimeCompleted?: boolean;
   recordedPhoneTestCheckpoints: Set<"inboundFrameReceived" | "outboundAudioSent">;
 }
 
@@ -161,6 +163,9 @@ implements OnApplicationBootstrap {
     @Optional()
     @Inject(PstnCapacityObservability)
     private readonly capacityObservability?: PstnCapacityObservability,
+    @Optional()
+    @Inject(PstnSandwichCallExecution)
+    private readonly sandwichCallExecution?: PstnSandwichCallExecution,
   ) {
     this.unsubscribeOwnershipLost =
       this.pstnAdmissionCoordinator.onOwnershipLost((event) =>
@@ -378,10 +383,10 @@ implements OnApplicationBootstrap {
       client.once("close", (code, reason) => {
         this.attachments.delete(callSessionId);
         this.retainCompletedEventHistory(callSessionId);
-        const terminalOutcome = attachment.validatedTwilioStopReceived
+        const terminalOutcome = attachment.validatedTwilioStopReceived || attachment.standardRuntimeCompleted
           ? "completed"
           : "failed";
-        const terminalReasonCode = attachment.validatedTwilioStopReceived
+        const terminalReasonCode = attachment.standardRuntimeCompleted ? "standard_call_completed" : attachment.validatedTwilioStopReceived
           ? "twilio_stop"
           : code === 1000
             ? "twilio_media_socket_closed_without_stop"
@@ -721,6 +726,29 @@ implements OnApplicationBootstrap {
           },
         });
       } else {
+        if (this.sandwichCallExecution === undefined) throw new Error("Standard PSTN execution is unavailable.");
+        await this.sandwichCallExecution.start({
+          organizationId: attachment.authorization.organizationId,
+          dispatchId: attachment.authorization.dispatchId,
+          callSessionId: attachment.authorization.callSessionId,
+          streamSid: result.event.streamSid,
+          output: {
+            sendMedia: frame => this.sendOutboundMedia({ callSessionId: attachment.authorization!.callSessionId, frame }),
+            recordCheckpoint: async checkpoint => {
+              await this.telephonyService.recordPstnPhoneTestCheckpoint({
+                organizationId: attachment.authorization!.organizationId,
+                callSessionId: attachment.authorization!.callSessionId,
+                checkpoint,
+              });
+            },
+            sendMark: name => this.sendMark({ callSessionId: attachment.authorization!.callSessionId, name }),
+            clearAudio: () => this.clearBufferedAudio({ callSessionId: attachment.authorization!.callSessionId }),
+            close: (code, reason) => {
+              if (code === 1000 && reason === "standard_call_completed") attachment.standardRuntimeCompleted = true;
+              this.closeAttachment(attachment, code, reason);
+            },
+          },
+        });
         await this.telephonyService.recordTwilioMediaStreamLifecycle({
           organizationId: attachment.authorization.organizationId,
           callSessionId: attachment.authorization.callSessionId,
@@ -765,6 +793,9 @@ implements OnApplicationBootstrap {
           callSessionId: attachment.authorization.callSessionId,
           frame: result.event.frame,
         });
+      } else {
+        this.sandwichCallExecution?.appendAudio({ organizationId: attachment.authorization.organizationId,
+          callSessionId: attachment.authorization.callSessionId, audioBase64: result.event.frame.payloadBase64 });
       }
       this.recordPhoneTestCheckpointOnce(attachment, "inboundFrameReceived", result.event.receivedAt);
       return;
@@ -778,6 +809,12 @@ implements OnApplicationBootstrap {
         callSessionId: attachment.authorization.callSessionId,
         name: result.event.name,
       });
+      return;
+    }
+
+    if (result.event.type === "mark") {
+      this.sandwichCallExecution?.acknowledgePlaybackMark({ organizationId: attachment.authorization.organizationId,
+        callSessionId: attachment.authorization.callSessionId, name: result.event.name });
       return;
     }
 
@@ -834,6 +871,8 @@ implements OnApplicationBootstrap {
           });
         }
       } else {
+        await this.sandwichCallExecution?.stop({ organizationId: attachment.authorization.organizationId,
+          callSessionId: attachment.authorization.callSessionId });
         await this.telephonyService.recordPstnCallLifecycle({
           organizationId: attachment.authorization.organizationId,
           callSessionId: attachment.authorization.callSessionId,
@@ -1262,6 +1301,7 @@ implements OnApplicationBootstrap {
         return;
       }
 
+      await this.sandwichCallExecution?.stop({ organizationId: authorization.organizationId, callSessionId: authorization.callSessionId });
       const pending = this.getOrCreatePendingSandwichTerminalization({
         organizationId: authorization.organizationId,
         callSessionId: authorization.callSessionId,

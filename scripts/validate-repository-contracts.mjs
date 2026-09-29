@@ -157,6 +157,13 @@ function validateContainerModel() {
 
   requireService(services, "postgres", { healthcheck: true });
   requireService(services, "redis", { healthcheck: true });
+  for (const name of ["minio", "minio-init"]) {
+    if (!/^minio\/minio@sha256:[a-f0-9]{64}$/u.test(services[name]?.image ?? "")
+      || services[name].image !== services.minio.image
+      || services[name].pull_policy !== "never") {
+      throw new Error(`${name} must use the same locally provisioned, digest-pinned MinIO image without a registry pull.`);
+    }
+  }
   requireService(services, "migrate", {
     buildTarget: "api",
     command: ["npm", "run", "db:migrate"],
@@ -171,6 +178,21 @@ function validateContainerModel() {
     },
     volume: "api-state:/app/.zara:rw",
   });
+  for (const key of ["OPENAI_API_KEY", "OPENAI_PROJECT_ID", "INSTRUCTION_IMPROVEMENT_MODEL"]) {
+    if (!services.api.environment?.[key]?.includes(key)) {
+      throw new Error(`api must receive ${key} for instruction improvement.`);
+    }
+  }
+  for (const [key, value] of Object.entries({
+    POLAR_SERVER: "${POLAR_SERVER:-sandbox}",
+    POLAR_BILLING_CATALOG_ID: "${POLAR_BILLING_CATALOG_ID:-}",
+    ZARA_RELEASE_ID: "${ZARA_RELEASE_ID:-}",
+    BILLING_CHARGE_DELIVERY_ENABLED: "${BILLING_CHARGE_DELIVERY_ENABLED:-false}",
+  })) {
+    if (services.api.environment?.[key] !== value) {
+      throw new Error(`api must receive ${key} with its safe billing default.`);
+    }
+  }
   requireService(services, "realtime-worker", {
     buildTarget: "realtime-worker",
     healthcheck: true,

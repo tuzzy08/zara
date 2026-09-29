@@ -26,6 +26,7 @@ export interface LiveSandboxSttProvider {
   readonly availability?: LiveSandboxProviderAvailability | undefined;
   createStreamingSession?: ((input: {
     sampleRateHz: number;
+    usageScope?: { organizationId: string; sessionId: string } | undefined;
     config?: LiveSandboxSttStreamingConfiguration | undefined;
     onPartial?: ((event: LiveSandboxSttTranscriptEvent) => void) | undefined;
     onFinal: (event: LiveSandboxSttTranscriptEvent) => void;
@@ -35,6 +36,7 @@ export interface LiveSandboxSttProvider {
   transcribeTurn(input: {
     audioFramesBase64: string[];
     sampleRateHz: number;
+    usageScope?: { organizationId: string; sessionId: string } | undefined;
     onPartial?: ((event: LiveSandboxSttTranscriptEvent) => void) | undefined;
   }): Promise<{
     transcript: string;

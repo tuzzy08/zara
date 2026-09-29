@@ -63,6 +63,8 @@ When an architecture-deepening pass extracts a module, the first regression targ
 
 Runtime evals run through `npm run eval:runtime`, a separate Vitest config, `.eval.ts` files, `langsmith/vitest`, and `langsmith/vitest/reporter` when LangSmith tracking is enabled. Regular unit, integration, contract, and security test commands must pass without LangSmith credentials.
 
+The deterministic runtime executor receives fixture inputs only. It executes production adapters and guards with scripted provider responses. Expected answers stay in the scorer. Live prompt checks use the separate `npm run eval:prompts` command and synthetic data. They require provider credentials and cover assigned tools, missing inputs, instruction injection, tool failure, history, and language policy. See `docs/Observability-And-Evals-Standard.md` for model selection and evidence limits.
+
 PSTN media evals run through `npm run eval:pstn`, a separate Vitest config, `.pstn.eval.ts` files, `langsmith/vitest`, and `langsmith/vitest/reporter` when LangSmith tracking is enabled. They use synthetic Twilio media harness scenarios and must remain separate from ordinary tests and non-PSTN runtime evals.
 
 PSTN capacity load runs are a third, separate layer. `npm run load:pstn:ci` exercises a bounded deterministic smoke, while `npm run load:pstn:release -- <stepped|burst|failure|soak>` requires explicit operator approval and an external load-generator host. Release load must fail on missing capacity telemetry, absent scenario traffic, call-identity leakage, resource exhaustion, hard SLO breach, or failure to drain calls, sockets, reservations, queues, and memory. A local workstation run is not release capacity evidence.

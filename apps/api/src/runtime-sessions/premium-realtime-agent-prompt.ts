@@ -3,20 +3,38 @@ import {
   type CompiledRuntimeManifest,
   type RuntimeAgentDefinition,
 } from "@zara/core";
+import {
+  defaultRuntimePromptPolicy,
+  type RuntimePromptPolicy,
+} from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { formatLanguagePolicy, platformAuthorityLines } from "../sandbox-live-sessions/sandbox-text-model-prompts";
 
 export function buildPremiumRealtimeAgentPrompt(input: {
   manifest: CompiledRuntimeManifest;
   agent: RuntimeAgentDefinition;
+  policy?: RuntimePromptPolicy | undefined;
 }): string {
-  const supportedLanguages = input.agent.languagePolicy.supportedLanguages ?? [];
+  const policy = input.policy ?? defaultRuntimePromptPolicy;
+  const agentClassTemplate = policy.agentClassTemplates[input.agent.kind]
+    ?? policy.agentClassTemplates.custom;
   const activeRoutePolicy = findActiveRoutePolicy(input.manifest, input.agent.agentId);
 
   return [
-    `You are ${input.agent.name || "the configured agent"} for ${input.agent.businessName || "the configured business"}.`,
-    `Agent class: ${input.agent.kind || "agent"}.`,
+    ...platformAuthorityLines,
+    ...policy.guardrails.map((guardrail) => `- ${guardrail}`),
     "",
-    "# Operator Instructions",
-    input.agent.instructions.trim(),
+    ...(agentClassTemplate === undefined
+      ? []
+      : ["# Specialist Behavior", agentClassTemplate.basePrompt, ""]),
+    "# Business Configuration",
+    JSON.stringify({
+      agentId: input.agent.agentId,
+      name: input.agent.name,
+      businessName: input.agent.businessName,
+      agentClass: input.agent.kind,
+      workflow: input.manifest.graph.name,
+      instructions: input.agent.instructions.trim(),
+    }),
     "",
     "# Conversation Policy",
     "- You are handling a live business call for this workflow.",
@@ -27,11 +45,7 @@ export function buildPremiumRealtimeAgentPrompt(input: {
     ...formatRoutePolicy(activeRoutePolicy, input.manifest),
     "",
     "# Language",
-    `- Default language: ${input.agent.languagePolicy.defaultLanguage}.`,
-    supportedLanguages.length > 0 ? `- Supported languages: ${supportedLanguages.join(", ")}.` : "",
-    input.agent.languagePolicy.allowMidCallSwitching
-      ? "- You may switch between supported languages when the caller clearly requests it."
-      : "- Do not switch languages unless the workflow language policy allows it.",
+    ...formatLanguagePolicy(input.agent),
     "",
     "# Available Zara tools",
     ...formatAvailableTools(input.agent.toolAssignments, activeRoutePolicy, input.manifest),

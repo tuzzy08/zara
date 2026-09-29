@@ -1,11 +1,336 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CompiledRuntimeManifest, PremiumRealtimeSession } from "@zara/core";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { usageRecordingTestPool } from "../billing/provider-usage-recording.test-support";
 
 import {
   WsPremiumRealtimeProviderTransport,
 } from "./premium-realtime-provider-transport";
 
 describe("WsPremiumRealtimeProviderTransport", () => {
+  it("stops provider work while retrying one retained usage event after a database failure", async () => {
+    const pool = usageRecordingTestPool();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let attempts = 0;
+    try {
+      const repository = new ProviderUsageRecordingRepository({ query: async (...args: unknown[]) => {
+        if (String(args[0]).startsWith("insert into provider_usage_requests")) {
+          attempts += 1;
+          if (attempts === 1) throw Object.assign(new Error("database disconnected"), { code: "ECONNRESET" });
+          await gate;
+        }
+        return pool.query(...args);
+      } });
+      const reader = new ProviderUsageRecordingRepository(pool);
+      const socket = createSocketLike();
+      const connection = await new WsPremiumRealtimeProviderTransport(() => socket,
+        { OPENAI_API_KEY: "test-key" }, repository).connect({
+        organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest(),
+      });
+      socket.emitMessage(JSON.stringify({ type: "response.done", response: {
+        id: "resp-retry", status: "completed", usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+      } }));
+      await expect.poll(() => socket.close.mock.calls).toEqual([[1011, "Provider usage recording failed."]]);
+      expect(() => connection.send({ type: "response.create" })).toThrow("Provider connection is closed.");
+      socket.emitClose(1011, "closed");
+      expect(await reader.listTenantRequests("tuzzy-test")).toEqual([]);
+      release();
+      await expect.poll(() => reader.listTenantRequests("tuzzy-test")).toMatchObject([
+        { result: { providerRequestId: "resp-retry", totals: { inputTokens: 3, outputTokens: 2 } } },
+      ]);
+      expect(attempts).toBe(2);
+      expect(await reader.listTenantConnections("tuzzy-test")).toMatchObject([{ result: null }]);
+    } finally { release(); await pool.end(); }
+  });
+
+  it.each(["close", "error"])("finishes usage recording when the %s consumer throws", async (event) => {
+    const pool = usageRecordingTestPool();
+    try {
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const socket = createSocketLike();
+      const connection = await new WsPremiumRealtimeProviderTransport(() => socket,
+        { OPENAI_API_KEY: "test-key" }, repository).connect({
+        organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest(),
+      });
+      connection.onClose(() => { throw new Error("consumer failed"); });
+      if (event === "error") {
+        expect(() => socket.emitError(new Error("provider failed"))).not.toThrow();
+        expect(socket.close).toHaveBeenCalledTimes(1);
+        socket.emitClose(1000, "closed");
+      } else {
+        expect(() => socket.emitClose(1000, "closed")).not.toThrow();
+      }
+      await expect.poll(() => repository.listTenantConnections("tuzzy-test"))
+        .toMatchObject([{ result: { outcome: event === "error" ? "failed" : "closed" } }]);
+    } finally { await pool.end(); }
+  });
+
+  it("stores final usage received after an error while blocking further provider work", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const socket = createSocketLike();
+      const connection = await new WsPremiumRealtimeProviderTransport(() => socket,
+        { OPENAI_API_KEY: "test-key" }, repository).connect({
+        organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest(),
+      });
+      const consumer = vi.fn();
+      const closed = vi.fn();
+      connection.onMessage(consumer);
+      connection.onClose(closed);
+      socket.emitMessage(JSON.stringify({ type: "session.created", session: { id: "sess-late" } }));
+      socket.emitError(new Error("provider connection failed"));
+      expect(() => connection.send({ type: "response.create" })).toThrow("Provider connection is closed.");
+      socket.emitMessage(JSON.stringify({ type: "response.done", response: {
+        id: "resp-late", status: "completed", usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+      } }));
+      await expect.poll(() => repository.listTenantRequests("tuzzy-test")).toMatchObject([
+        { result: { providerRequestId: "resp-late", totals: { inputTokens: 3, outputTokens: 2 } } },
+      ]);
+      expect(await repository.listTenantConnections("tuzzy-test")).toMatchObject([{ result: null }]);
+      expect(consumer).toHaveBeenCalledTimes(1);
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      socket.emitClose(1000, "closed");
+      await expect.poll(() => repository.listTenantConnections("tuzzy-test")).toMatchObject([
+        { result: { outcome: "failed", providerSessionId: "sess-late" } },
+      ]);
+      expect(closed).toHaveBeenCalledTimes(1);
+    } finally { await pool.end(); }
+  });
+
+  it("links responses and transcription to their connection and trusted call across reconnects", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const sockets: ReturnType<typeof createSocketLike>[] = [];
+      const transport = new WsPremiumRealtimeProviderTransport(() => {
+        const socket = createSocketLike(); sockets.push(socket); return socket;
+      }, { OPENAI_API_KEY: "test-key", OPENAI_PROJECT_ID: "proj-shared" }, repository);
+      for (const suffix of ["first", "second"]) {
+        await transport.connect({ organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "pstn:untrusted-id",
+          callSessionId: "trusted-call", session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }),
+          manifest: createManifest() });
+        const socket = sockets.at(-1)!;
+        socket.emitMessage(JSON.stringify({ type: "session.created", session: { id: `sess-${suffix}` } }));
+        const response = JSON.stringify({ type: "response.done", response: { id: `resp-${suffix}`, status: "completed",
+          usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 } } });
+        socket.emitMessage(response); socket.emitMessage(response);
+        socket.emitMessage(JSON.stringify({ type: "conversation.item.input_audio_transcription.completed",
+          item_id: "item-1", content_index: 0, usage: { type: "duration", seconds: 0.5 } }));
+        socket.emitClose(1000, "done");
+      }
+      await expect.poll(() => repository.listTenantConnections("tuzzy-test"))
+        .toMatchObject([{ result: { outcome: "closed" } }, { result: { outcome: "closed" } }]);
+      const connections = await repository.listTenantConnections("tuzzy-test");
+      const requests = await repository.listTenantRequests("tuzzy-test");
+      expect(requests).toHaveLength(4);
+      for (const connection of connections) {
+        expect(requests.filter(row => row.connectionId === connection.id))
+          .toMatchObject([{ callSessionId: "trusted-call", sessionId: "session-1" },
+            { callSessionId: "trusted-call", sessionId: "session-1" }]);
+      }
+      expect(await repository.listTenantRequests("other")).toEqual([]);
+    } finally { await pool.end(); }
+  });
+  it("closes a failed setup socket before waiting for a slow final database write", async () => {
+    const pool = usageRecordingTestPool();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    try {
+      const repository = new ProviderUsageRecordingRepository({ query: async (...args: unknown[]) => {
+        if (String(args[0]).startsWith("update provider_usage_connections")) await gate;
+        return pool.query(...args);
+      } });
+      const socket = createSocketLike();
+      socket.send.mockImplementation(() => { throw new Error("setup failed"); });
+      const attempt = new WsPremiumRealtimeProviderTransport(() => socket, { OPENAI_API_KEY: "test-key" }, repository).connect({
+        organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest() });
+      const rejected = expect(attempt).rejects.toThrow("setup failed");
+      await expect.poll(() => socket.close.mock.calls).toEqual([[1011, "Provider connection failed."]]);
+      release();
+      await rejected;
+    } finally { release(); await pool.end(); }
+  });
+  it.each(["factory", "before-open", "session-send"])("records a failed connection after %s failure", async stage => {
+    const pool = usageRecordingTestPool();
+    try {
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const socket = createSocketLike({ readyState: stage === "before-open" ? 0 : 1 });
+      if (stage === "session-send") socket.send.mockImplementation(() => { throw new Error("private failure"); });
+      const factory = vi.fn(() => {
+        if (stage === "factory") throw new Error("private failure");
+        return socket;
+      });
+      const attempt = new WsPremiumRealtimeProviderTransport(factory, { OPENAI_API_KEY: "test-key" }, repository).connect({
+        organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest() });
+      const rejected = expect(attempt).rejects.toThrow();
+      if (stage === "before-open") {
+        await expect.poll(() => factory.mock.calls.length).toBe(1);
+        socket.emitClose(1006, "private failure");
+      }
+      await rejected;
+      await expect.poll(() => repository.listTenantConnections("tuzzy-test")).toMatchObject([{ result: {
+        outcome: "failed", providerSessionId: null, endedAt: expect.any(String),
+      } }]);
+      expect(JSON.stringify(await repository.listTenantConnections("tuzzy-test"))).not.toContain("private");
+    } finally { await pool.end(); }
+  });
+  it("finishes a closed connection only after queued usage is stored, without retaining the close reason", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let delay = false;
+      const repository = new ProviderUsageRecordingRepository({ query: async (...args: unknown[]) => {
+        if (delay && String(args[0]).includes("provider_usage_requests")) await gate;
+        return pool.query(...args);
+      } });
+      const socket = createSocketLike();
+      await new WsPremiumRealtimeProviderTransport(() => socket, { OPENAI_API_KEY: "test-key" }, repository).connect({
+        organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest() });
+      delay = true;
+      socket.emitMessage(JSON.stringify({ type: "session.created", session: { id: "sess-closed" } }));
+      socket.emitMessage(JSON.stringify({ type: "response.done", response: { id: "resp-close", status: "completed",
+        usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 } } }));
+      socket.emitClose(1000, "private provider close reason");
+      expect(await repository.listTenantConnections("tuzzy-test")).toMatchObject([{ result: null }]);
+      delay = false;
+      release();
+      await expect.poll(() => repository.listTenantConnections("tuzzy-test")).toMatchObject([{
+        result: { outcome: "closed", providerSessionId: "sess-closed", endedAt: expect.any(String) },
+      }]);
+      expect(await repository.listTenantRequests("tuzzy-test")).toMatchObject([{ result: { totals: { inputTokens: 1, outputTokens: 2 } } }]);
+      expect(JSON.stringify(await repository.listTenantConnections("tuzzy-test"))).not.toContain("private");
+    } finally { await pool.end(); }
+  });
+  it("saves a durable connection before opening the provider socket and blocks when storage fails", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const repository = new ProviderUsageRecordingRepository(pool);
+      let savedAtOpen: ReturnType<typeof repository.listTenantConnections> | undefined;
+      const factory = vi.fn(() => {
+        savedAtOpen = repository.listTenantConnections("tuzzy-test");
+        return createSocketLike();
+      });
+      const input = { organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest() };
+      await new WsPremiumRealtimeProviderTransport(factory, { OPENAI_API_KEY: "test-key", OPENAI_PROJECT_ID: "proj-shared" }, repository).connect(input);
+      expect(await savedAtOpen).toMatchObject([{ sessionId: "session-1", provider: "openai", externalScopeId: "proj-shared", result: null }]);
+      const blockedFactory = vi.fn(() => createSocketLike());
+      await expect(new WsPremiumRealtimeProviderTransport(blockedFactory, { OPENAI_API_KEY: "test-key" },
+        new ProviderUsageRecordingRepository({ query: async () => { throw new Error("private database secret"); } })).connect(input))
+        .rejects.toThrow("Provider connection recording failed.");
+      expect(blockedFactory).not.toHaveBeenCalled();
+    } finally { await pool.end(); }
+  });
+  it("records live transcription with the model sent in session configuration", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const socket = createSocketLike();
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const transport = new WsPremiumRealtimeProviderTransport(() => socket,
+        { OPENAI_API_KEY: "test-key", OPENAI_PROJECT_ID: "proj-shared" }, repository);
+      await transport.connect({ organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest() });
+      socket.emitMessage(JSON.stringify({ type: "session.created", session: { id: "sess-live" } }));
+      socket.emitMessage(JSON.stringify({ type: "conversation.item.input_audio_transcription.completed",
+        item_id: "item-live", content_index: 0, transcript: "Private caller text",
+        usage: { type: "duration", seconds: 2.75 } }));
+      await expect.poll(() => repository.listTenantRequests("tuzzy-test")).toMatchObject([{
+        model: "gpt-realtime-whisper", sessionId: "session-1", externalScopeId: "proj-shared",
+        result: { sourceKind: "realtime_transcription", transcription: { providerSessionId: "sess-live",
+          usage: { type: "duration", seconds: 2.75 } } },
+      }]);
+      expect(socket.send).toHaveBeenCalledWith(expect.stringContaining('"model":"gpt-realtime-whisper"'));
+      expect(socket.close).not.toHaveBeenCalled();
+    } finally { await pool.end(); }
+  });
+  it.each([false, true])("continues audio during a slow write and closes safely when storage fails (consumer throws: %s)", async (consumerThrows) => {
+    const pool = usageRecordingTestPool();
+    let rejectWrite!: (error: Error) => void;
+    const gate = new Promise<never>((_resolve, reject) => { rejectWrite = reject; });
+    let blockWrites = false;
+    const repository = new ProviderUsageRecordingRepository({ query: (...args: unknown[]) => blockWrites ? gate : pool.query(...args) });
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket, { OPENAI_API_KEY: "test-key" }, repository);
+    const connection = await transport.connect({ organizationId: "tuzzy-test", workspaceId: "workspace-1",
+      actorUserId: "user-1", session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }),
+      manifest: createManifest() });
+    const consumer = vi.fn();
+    const closed = vi.fn(() => { if (consumerThrows) throw new Error("consumer failed"); });
+    connection.onMessage(consumer);
+    connection.onClose(closed);
+    blockWrites = true;
+    socket.emitMessage(JSON.stringify({ type: "response.created", response: { id: "resp-live" } }));
+    socket.emitMessage(JSON.stringify({ type: "response.output_audio.delta", delta: "private-audio" }));
+    expect(consumer).toHaveBeenCalledTimes(2);
+    rejectWrite(new Error("private database connection secret"));
+    await expect.poll(() => closed.mock.calls).toEqual([[{ code: 1011, reason: "Provider usage recording failed." }]]);
+    await expect(connection.waitUntilReady()).rejects.toThrow("Provider usage recording failed.");
+    expect(socket.close).toHaveBeenCalledWith(1011, "Provider usage recording failed.");
+    const sentBeforeFailure = socket.sent.length;
+    expect(() => connection.send({ type: "input_audio_buffer.append", audio: "AA==" }))
+      .toThrow("Provider connection is closed.");
+    expect(socket.sent).toHaveLength(sentBeforeFailure);
+    await pool.end();
+  });
+  it("does not record simulator events as provider usage", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const socket = createSocketLike();
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const transport = new WsPremiumRealtimeProviderTransport(() => socket, {
+        NODE_ENV: "test", ZARA_PREMIUM_REALTIME_TRANSPORT: "simulator",
+        ZARA_PREMIUM_REALTIME_SIMULATOR_URL: "ws://127.0.0.1:4319/realtime",
+      }, repository);
+      await transport.connect({ organizationId: "tuzzy-test", workspaceId: "workspace-1", actorUserId: "user-1",
+        session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }), manifest: createManifest() });
+      socket.emitMessage(JSON.stringify({ type: "response.done", response: { id: "resp-sim", status: "completed",
+        usage: { input_tokens: 30, output_tokens: 7, total_tokens: 37 } } }));
+      await new Promise(resolve => setImmediate(resolve));
+      expect(await repository.listTenantRequests("tuzzy-test")).toEqual([]);
+    } finally { await pool.end(); }
+  });
+  it("records live response usage before a consumer attaches and pins the shared project", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const socket = createSocketLike();
+      const factory = vi.fn(() => socket);
+      const repository = new ProviderUsageRecordingRepository(pool);
+      const transport = new WsPremiumRealtimeProviderTransport(factory, {
+        OPENAI_API_KEY: "test-key", OPENAI_PROJECT_ID: " proj-shared ",
+      }, repository);
+      const connection = await transport.connect({ organizationId: "tuzzy-test", workspaceId: "workspace-1",
+        actorUserId: "user-1", session: createSession({ runtime: "openai-realtime", model: "gpt-realtime-2.1" }),
+        manifest: createManifest() });
+      socket.emitMessage(JSON.stringify({ type: "response.created", response: { id: "resp-live" } }));
+      socket.emitMessage(JSON.stringify({ type: "response.done", response: {
+        id: "resp-live", status: "cancelled", usage: { input_tokens: 30, output_tokens: 7, total_tokens: 37 },
+      } }));
+      const consumer = vi.fn();
+      connection.onMessage(consumer);
+      socket.emitMessage(JSON.stringify({ type: "response.output_audio.delta", delta: "private-audio" }));
+      expect(consumer).toHaveBeenCalledOnce();
+      connection.close();
+      await expect.poll(() => repository.listTenantRequests("tuzzy-test")).toMatchObject([{
+        sessionId: "session-1", externalScopeId: "proj-shared", result: {
+          providerRequestId: "resp-live", responseStatus: "cancelled",
+          totals: { inputTokens: 30, outputTokens: 7, requestCount: 1 },
+        },
+      }]);
+      expect(factory).toHaveBeenCalledWith(expect.any(String),
+        expect.objectContaining({ headers: expect.objectContaining({ "OpenAI-Project": "proj-shared" }) }));
+      expect(await repository.listTenantRequests("zara-ai-test")).toEqual([]);
+    } finally { await pool.end(); }
+  });
   it("correlates simulator calls and active agents without sending provider credentials", async () => {
     const socket = createSocketLike();
     const websocketFactory = vi.fn(() => socket);
@@ -352,6 +677,8 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",
+          promptPolicyRevision: 1,
+          promptPolicyHash: "a".repeat(64),
           providerConfig: openAiProviderConfig("pstn"),
           voice: "expressive",
           transportUrl: "/runtime/realtime/sessions/session-1/stream",
@@ -415,8 +742,9 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           },
         },
       });
-      expect(String(socket.sent[0])).toContain("The conversation will be only in English.");
-      expect(String(socket.sent[0])).toContain("You are Jane for Zara AI.");
+      expect(String(socket.sent[0])).toContain("Use only English (en)");
+      expect(String(socket.sent[0])).toContain('\\"name\\":\\"Jane\\"');
+      expect(String(socket.sent[0])).toContain('\\"businessName\\":\\"Zara AI\\"');
       expect(String(socket.sent[0])).not.toContain("New Agent");
     } finally {
       if (previousOpenAiApiKey === undefined) {
@@ -446,6 +774,8 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",
+          promptPolicyRevision: 1,
+          promptPolicyHash: "a".repeat(64),
           providerConfig: openAiProviderConfig("browser"),
           voice: "expressive",
           transportUrl: "/runtime/realtime/sessions/session-1/stream",
@@ -485,7 +815,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
 
       expect(setup.session?.audio?.output?.voice).toBe("cedar");
       expect(setup.session?.audio?.output?.speed).toBe(0.9);
-      expect(setup.session?.instructions).toContain("You are Jane for Zara AI.");
+      expect(setup.session?.instructions).toContain('"name":"Jane"');
       expect(setup.session?.instructions).toContain("Fresh concrete support instructions.");
     } finally {
       if (previousOpenAiApiKey === undefined) {
@@ -544,6 +874,17 @@ describe("WsPremiumRealtimeProviderTransport", () => {
             ],
           },
         } as unknown as CompiledRuntimeManifest,
+        promptPolicy: {
+          ...defaultRuntimePromptPolicy,
+          guardrails: ["UNIQUE PLATFORM REALTIME RULE"],
+          agentClassTemplates: {
+            ...defaultRuntimePromptPolicy.agentClassTemplates,
+            custom: {
+              ...defaultRuntimePromptPolicy.agentClassTemplates.custom!,
+              basePrompt: "UNIQUE SPECIALIST REALTIME RULE",
+            },
+          },
+        },
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -552,8 +893,10 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         };
       };
 
-      expect(setup.session?.instructions).toContain("You are Jane for Zara AI.");
-      expect(setup.session?.instructions).toContain("Agent class: specialist.");
+      expect(setup.session?.instructions).toContain('"name":"Jane"');
+      expect(setup.session?.instructions).toContain('"agentClass":"specialist"');
+      expect(setup.session?.instructions).toContain("UNIQUE PLATFORM REALTIME RULE");
+      expect(setup.session?.instructions).toContain("UNIQUE SPECIALIST REALTIME RULE");
       expect(setup.session?.instructions).toContain(
         "Handle inbound calls and determine the caller's support needs.",
       );
@@ -906,6 +1249,8 @@ function createSession(input: {
     runtime: input.runtime,
     policy: "premium-realtime",
     model: input.model,
+    promptPolicyRevision: 1,
+    promptPolicyHash: "a".repeat(64),
     providerConfig: input.runtime === "gemini-live"
       ? {
           provider: "gemini-live",

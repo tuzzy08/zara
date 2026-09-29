@@ -71,6 +71,10 @@ export class AuthContextController {
       authenticated: true,
       role: platformRole,
       serverSessionAuthenticatedAt: session["createdAt"],
+      ...(asRecord(sessionRecord["user"])["twoFactorEnabled"] === true && session["mfaVerifiedAt"] ? {
+        serverAssuranceLevel: "mfa" as const,
+        serverMfaVerifiedAt: session["mfaVerifiedAt"],
+      } : {}),
       testAuthorityHeaders: request.headers,
     });
 

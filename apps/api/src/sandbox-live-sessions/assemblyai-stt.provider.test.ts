@@ -1,8 +1,188 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { usageRecordingTestPool } from "../billing/provider-usage-recording.test-support";
 
 describe("AssemblyAiSttProvider", () => {
+  it("reports readiness only after the provider confirms its session", () => {
+    const connection = new FakeAssemblySocketConnection();
+    const ready: string[] = [];
+    const input = {
+      sampleRateHz: 8_000,
+      encoding: "pcm_mulaw" as const,
+      onFinal() {},
+      onReady: (id: string) => ready.push(id),
+    };
+    const stream = new AssemblyAiSttProvider({ apiKey: "test-key", websocketFactory: () => connection })
+      .createStreamingSession(input);
+    connection.open();
+    expect(ready).toEqual([]);
+    connection.message({ type: "Begin", id: "pstn-provider-session" });
+    expect(ready).toEqual(["pstn-provider-session"]);
+    stream.terminate();
+    connection.close();
+  });
+
+  it("stores native session duration under the trusted tenant and session without transcript text", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const connection = new FakeAssemblySocketConnection();
+      const repository = new ProviderUsageRecordingRepository(pool);
+      let connected = false;
+      const provider = new AssemblyAiSttProvider({ apiKey: "secret-test-key", usageRecorder: repository,
+        websocketFactory: () => { connected = true; return connection; } });
+      const stream = provider.createStreamingSession({ sampleRateHz: 16_000,
+        usageScope: { organizationId: "tenant-a", sessionId: "sandbox-a" }, onFinal() {} });
+      await vi.waitFor(() => expect(connected).toBe(true));
+      expect(await repository.listTenantConnections("tenant-a")).toMatchObject([{ sessionId: "sandbox-a", result: null }]);
+      connection.open();
+      connection.message({ type: "Begin", id: "assembly-session-a" });
+      connection.message({ type: "Turn", transcript: "Private transcript", end_of_turn: true });
+      stream.terminate();
+      connection.message({ type: "Termination", audio_duration_seconds: 13, session_duration_seconds: 20 });
+      connection.close();
+      await vi.waitFor(async () => expect(await repository.listTenantRequests("tenant-a"))
+        .toMatchObject([{ provider: "assemblyai", sessionId: "sandbox-a", result: {
+          providerRequestId: "assembly-session-a", totals: { audioDurationSeconds: 13, sessionDurationSeconds: 20 },
+        } }]));
+      await vi.waitFor(async () => expect(await repository.listTenantConnections("tenant-a"))
+        .toMatchObject([{ result: { outcome: "closed", providerSessionId: "assembly-session-a" } }]));
+      expect(await repository.listTenantRequests("tenant-b")).toEqual([]);
+      expect(JSON.stringify(await repository.listTenantRequests("tenant-a"))).not.toMatch(/Private transcript|secret-test-key/);
+    } finally { await pool.end(); }
+  });
+
+  it("records usage for a scoped one-turn transcription", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const connection = new FakeAssemblySocketConnection();
+      let connected = false;
+      const provider = new AssemblyAiSttProvider({ apiKey: "test-key", usageRecorder: new ProviderUsageRecordingRepository(pool),
+        websocketFactory: () => { connected = true; return connection; } });
+      const result = provider.transcribeTurn({ audioFramesBase64: [], sampleRateHz: 16_000,
+        usageScope: { organizationId: "tenant-a", sessionId: "one-turn-a" } });
+      const outcome = result.then(value => value, error => error);
+      await vi.waitFor(() => expect(connected).toBe(true));
+      connection.open();
+      connection.message({ type: "Begin", id: "one-turn-provider" });
+      connection.message({ type: "Turn", transcript: "Hello", end_of_turn: true });
+      expect(await outcome).toMatchObject({ transcript: "Hello" });
+      connection.message({ type: "Termination", audio_duration_seconds: 2, session_duration_seconds: 4 });
+      connection.close();
+      await vi.waitFor(async () => expect(await new ProviderUsageRecordingRepository(pool).listTenantRequests("tenant-a"))
+        .toMatchObject([{ sessionId: "one-turn-a", result: { totals: { sessionDurationSeconds: 4 } } }]));
+    } finally { await pool.end(); }
+  });
+
+  it.each([undefined, { type: "Termination", audio_duration_seconds: 13 },
+    { type: "Termination", audio_duration_seconds: 13, session_duration_seconds: -1 },
+    { type: "Termination", audio_duration_seconds: 13, session_duration_seconds: 1.5 }])(
+    "keeps missing or invalid native duration unresolved (%j)", async termination => {
+      const pool = usageRecordingTestPool();
+      try {
+        const connection = new FakeAssemblySocketConnection();
+        const recorder = new ProviderUsageRecordingRepository(pool);
+        let connected = false;
+        const stream = new AssemblyAiSttProvider({ apiKey: "test-key", usageRecorder: recorder,
+          websocketFactory: () => { connected = true; return connection; } })
+          .createStreamingSession({ sampleRateHz: 16_000, usageScope: { organizationId: "tenant-a", sessionId: "failed-session" }, onFinal() {} });
+        await vi.waitFor(() => expect(connected).toBe(true));
+        connection.open();
+        connection.message({ type: "Begin", id: "assembly-failed-session" });
+        stream.terminate();
+        if (termination !== undefined) connection.message(termination);
+        connection.close();
+        await vi.waitFor(async () => expect(await recorder.listTenantConnections("tenant-a"))
+          .toMatchObject([{ result: { outcome: "failed" } }]));
+        expect(await recorder.listTenantRequests("tenant-a")).toMatchObject([{ result: null }]);
+      } finally { await pool.end(); }
+    });
+
+  it("does not open the provider connection when the start record cannot be saved", async () => {
+    const errors: string[] = [];
+    let connected = false;
+    const recorder = new ProviderUsageRecordingRepository({ query: async () => { throw new Error("private database error"); } });
+    new AssemblyAiSttProvider({ apiKey: "test-key", usageRecorder: recorder,
+      websocketFactory: () => { connected = true; return new FakeAssemblySocketConnection(); } })
+      .createStreamingSession({ sampleRateHz: 16_000, usageScope: { organizationId: "tenant-a", sessionId: "start-failed" },
+        onFinal() {}, onError: error => errors.push(error.message) });
+    await vi.waitFor(() => expect(errors).toEqual(["AssemblyAI usage recording could not start."]));
+    expect(connected).toBe(false);
+  });
+
+  it("waits for native termination usage after the caller stops the stream", () => {
+    const connection = new FakeAssemblySocketConnection();
+    const usage: unknown[] = [];
+    const provider = new AssemblyAiSttProvider({
+      apiKey: "assembly-test-key",
+      websocketFactory: () => connection,
+    });
+    const stream = provider.createStreamingSession({
+      sampleRateHz: 16_000,
+      onFinal() {},
+      onUsage: (event) => usage.push(event),
+    });
+    connection.open();
+    connection.message({ type: "Begin", id: "assembly-session-1" });
+    stream.terminate();
+    expect(connection.closed).toBe(false);
+    connection.message({ type: "Termination", audio_duration_seconds: 13, session_duration_seconds: 20 });
+    expect(usage).toEqual([{
+      providerSessionId: "assembly-session-1", audioDurationSeconds: 13, sessionDurationSeconds: 20,
+    }]);
+    connection.close();
+  });
+
+  it("terminates once after opening when stopped before connection establishment", () => {
+    const connection = new FakeAssemblySocketConnection();
+    const stream = new AssemblyAiSttProvider({ apiKey: "assembly-test-key", websocketFactory: () => connection })
+      .createStreamingSession({ sampleRateHz: 16_000, onFinal() {} });
+    stream.appendAudioFrame(Buffer.from("discard").toString("base64"));
+    stream.forceEndpoint();
+    stream.terminate();
+    stream.close();
+    connection.open();
+    stream.appendAudioFrame(Buffer.from("discard-late").toString("base64"));
+    stream.forceEndpoint();
+    stream.updateConfiguration({ agentContext: "discard" });
+    expect(connection.sentMessages).toEqual(['{"type":"Terminate"}']);
+    expect(connection.sentBuffers).toEqual([]);
+    connection.close();
+  });
+
+  it("closes a stopped stream after five seconds without inventing missing usage", () => {
+    vi.useFakeTimers();
+    try {
+      const connection = new FakeAssemblySocketConnection();
+      const usage: unknown[] = [];
+      const errors: string[] = [];
+      const stream = new AssemblyAiSttProvider({ apiKey: "assembly-test-key", websocketFactory: () => connection })
+        .createStreamingSession({ sampleRateHz: 16_000, onFinal() {}, onUsage: event => usage.push(event),
+          onError: error => errors.push(error.message) });
+      connection.open();
+      stream.terminate();
+      vi.advanceTimersByTime(5_000);
+      expect(connection.closed).toBe(true);
+      expect(usage).toEqual([]);
+      expect(errors).toEqual(["AssemblyAI termination usage was not received."]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not emit new turns while waiting for termination usage", () => {
+    const connection = new FakeAssemblySocketConnection();
+    const finals: string[] = [];
+    const stream = new AssemblyAiSttProvider({ apiKey: "test-key", websocketFactory: () => connection })
+      .createStreamingSession({ sampleRateHz: 16_000, onFinal: event => finals.push(event.transcript) });
+    connection.open();
+    stream.terminate();
+    connection.message({ type: "Turn", transcript: "Late final", end_of_turn: true });
+    expect(finals).toEqual([]);
+    connection.close();
+  });
+
   it("streams buffered audio frames and resolves the final transcript", async () => {
     const connection = new FakeAssemblySocketConnection();
     const provider = new AssemblyAiSttProvider({
@@ -172,6 +352,7 @@ describe("AssemblyAiSttProvider", () => {
 });
 
 class FakeAssemblySocketConnection {
+  closed = false;
   sentMessages: string[] = [];
   sentBuffers: Buffer[] = [];
   private readonly listeners = new Map<string, Array<(value: unknown, reason?: Buffer) => void>>();
@@ -192,6 +373,7 @@ class FakeAssemblySocketConnection {
   }
 
   close(code?: number, reason?: string) {
+    this.closed = true;
     this.emit("close", code ?? 1000, Buffer.from(reason ?? ""));
   }
 

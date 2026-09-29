@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { AgentRoleKind } from "@zara/core";
 
 import type {
@@ -6,6 +6,7 @@ import type {
   RuntimePromptPolicyAgentClassModelDefaults,
   RuntimePromptPolicyAgentClassTemplate,
   RuntimePromptPolicy,
+  RuntimePromptPolicySelection,
   UpdateRuntimePromptPolicyAgentClassTemplateInput,
   UpdateRuntimePromptPolicyInput,
 } from "./runtime-prompt-policy.models";
@@ -16,7 +17,10 @@ import {
   runtimePromptPolicyRoleKinds,
   runtimePromptPolicyTextModelProviders,
 } from "./runtime-prompt-policy.models";
-import type { RuntimePromptPolicyRepository } from "./runtime-prompt-policy.repository";
+import {
+  hashRuntimePromptPolicy,
+  type RuntimePromptPolicyRepository,
+} from "./runtime-prompt-policy.repository";
 import { runtimeRoutePolicyFallbackTargets } from "../runtime-route-policy/runtime-route-policy.models";
 
 export const runtimePromptPolicyRepositoryToken = Symbol("runtimePromptPolicyRepository");
@@ -29,21 +33,46 @@ export class RuntimePromptPolicyService {
   ) {}
 
   async getPromptPolicy(): Promise<RuntimePromptPolicy> {
-    return clonePolicy(await this.repository.load() ?? defaultRuntimePromptPolicy);
+    return clonePolicy(await this.repository.loadOrCreateInitial(defaultRuntimePromptPolicy));
+  }
+
+  async selectPromptPolicy(): Promise<RuntimePromptPolicySelection> {
+    const policy = await this.getPromptPolicy();
+    return createSelection(policy);
+  }
+
+  async selectPromptPolicyForSession(sessionKey: string): Promise<RuntimePromptPolicySelection> {
+    await this.repository.loadOrCreateInitial(defaultRuntimePromptPolicy);
+    const pin = await this.repository.pinCurrentRevision(sessionKey);
+    return this.getPromptPolicySelection(pin.revision, pin.hash);
+  }
+
+  async getPromptPolicyRevision(revision: number): Promise<RuntimePromptPolicy> {
+    await this.repository.loadOrCreateInitial(defaultRuntimePromptPolicy);
+    const policy = await this.repository.loadRevision(revision);
+    if (policy === null) {
+      throw new NotFoundException(`Runtime prompt policy revision ${revision} is not available.`);
+    }
+    return clonePolicy(policy);
+  }
+
+  async getPromptPolicySelection(revision: number, expectedHash: string): Promise<RuntimePromptPolicySelection> {
+    const selection = createSelection(await this.getPromptPolicyRevision(revision));
+    if (selection.hash !== expectedHash) {
+      throw new Error("Runtime prompt policy revision hash does not match.");
+    }
+    return selection;
   }
 
   async updatePromptPolicy(input: UpdateRuntimePromptPolicyInput & { actorUserId: string; updatedAt?: string | undefined }) {
+    assertPositiveVersion(input.expectedVersion, "Runtime prompt policy expected version");
     const current = await this.getPromptPolicy();
 
     if (input.expectedVersion !== current.version) {
       throw new ConflictException("Runtime prompt policy has changed. Refresh before saving.");
     }
 
-    const reason = input.reason.trim();
-
-    if (reason.length === 0) {
-      throw new BadRequestException("Runtime prompt policy updates require a reason.");
-    }
+    const reason = normalizeReason(input.reason);
 
     const next: RuntimePromptPolicy = {
       ...current,
@@ -56,11 +85,41 @@ export class RuntimePromptPolicyService {
       updatedAt: input.updatedAt ?? new Date().toISOString(),
     };
 
-    await this.repository.save(next);
+    if (!await this.repository.save(next, input.expectedVersion)) {
+      throw new ConflictException("Runtime prompt policy has changed. Refresh before saving.");
+    }
 
     return {
       promptPolicy: clonePolicy(next),
       changedAgentClassKeys: Object.keys(input.agentClassTemplates ?? {}).sort(),
+      guardrailCount: next.guardrails.length,
+      reason,
+    };
+  }
+
+  async promotePromptPolicyRevision(input: {
+    revision: number;
+    expectedVersion: number;
+    reason: string;
+    actorUserId: string;
+    updatedAt?: string | undefined;
+  }) {
+    assertPositiveVersion(input.revision, "Runtime prompt policy revision");
+    assertPositiveVersion(input.expectedVersion, "Runtime prompt policy expected version");
+    const source = await this.getPromptPolicyRevision(input.revision);
+    const reason = normalizeReason(input.reason);
+    const next: RuntimePromptPolicy = {
+      ...clonePolicy(source),
+      version: input.expectedVersion + 1,
+      updatedBy: input.actorUserId,
+      updatedAt: input.updatedAt ?? new Date().toISOString(),
+    };
+    if (!await this.repository.save(next, input.expectedVersion)) {
+      throw new ConflictException("Runtime prompt policy has changed. Refresh before saving.");
+    }
+    return {
+      promptPolicy: clonePolicy(next),
+      changedAgentClassKeys: Object.keys(next.agentClassTemplates).sort(),
       guardrailCount: next.guardrails.length,
       reason,
     };
@@ -119,6 +178,28 @@ export class RuntimePromptPolicyService {
       }))
       .sort((left, right) => left.label.localeCompare(right.label) || left.agentClass.localeCompare(right.agentClass));
   }
+}
+
+function assertPositiveVersion(value: number, label: string) {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new BadRequestException(`${label} must be a positive integer.`);
+  }
+}
+
+function normalizeReason(value: string) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new BadRequestException("Runtime prompt policy updates require a reason.");
+  }
+  return value.trim();
+}
+
+function createSelection(policy: RuntimePromptPolicy): RuntimePromptPolicySelection {
+  const cloned = clonePolicy(policy);
+  return {
+    revision: cloned.version,
+    hash: hashRuntimePromptPolicy(cloned),
+    policy: cloned,
+  };
 }
 function normalizeGuardrails(guardrails: string[]) {
   const normalized = guardrails.map((guardrail) => guardrail.trim()).filter(Boolean);

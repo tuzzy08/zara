@@ -1,5 +1,7 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { Pool, PoolClient } from "pg";
 
 import type {
   RuntimePromptPolicy,
@@ -15,22 +17,50 @@ import {
 } from "./runtime-prompt-policy.models";
 
 export interface RuntimePromptPolicyRepository {
+  loadOrCreateInitial(policy: RuntimePromptPolicy): Promise<RuntimePromptPolicy>;
   load(): Promise<RuntimePromptPolicy | null>;
-  save(policy: RuntimePromptPolicy): Promise<void>;
+  loadRevision(revision: number): Promise<RuntimePromptPolicy | null>;
+  save(policy: RuntimePromptPolicy, expectedVersion: number): Promise<boolean>;
+  pinCurrentRevision(sessionKey: string): Promise<{ revision: number; hash: string }>;
 }
 export class InMemoryRuntimePromptPolicyRepository implements RuntimePromptPolicyRepository {
-  private policy: RuntimePromptPolicy | null = null;
+  private currentVersion = 1;
+  private readonly revisions = new Map<number, RuntimePromptPolicy>();
+  private readonly sessionPins = new Map<string, { revision: number; hash: string }>();
 
   async load() {
-    return this.policy === null ? null : clonePolicy(this.policy);
+    return this.loadRevision(this.currentVersion);
   }
 
-  async save(policy: RuntimePromptPolicy) {
-    this.policy = clonePolicy(policy);
+  async loadOrCreateInitial(policy: RuntimePromptPolicy) {
+    if (!this.revisions.has(1)) this.revisions.set(1, clonePolicy(policy));
+    return clonePolicy((await this.load()) ?? policy);
+  }
+
+  async loadRevision(revision: number) {
+    const policy = this.revisions.get(revision);
+    return policy === undefined ? null : clonePolicy(policy);
+  }
+
+  async save(policy: RuntimePromptPolicy, expectedVersion: number) {
+    if (this.currentVersion !== expectedVersion || policy.version !== expectedVersion + 1) return false;
+    this.revisions.set(policy.version, clonePolicy(policy));
+    this.currentVersion = policy.version;
+    return true;
+  }
+
+  async pinCurrentRevision(sessionKey: string) {
+    const existing = this.sessionPins.get(sessionKey);
+    if (existing !== undefined) return { ...existing };
+    const policy = await this.load();
+    if (policy === null) throw new Error("Runtime prompt policy is not initialized.");
+    const pin = { revision: policy.version, hash: hashRuntimePromptPolicy(policy) };
+    this.sessionPins.set(sessionKey, pin);
+    return { ...pin };
   }
 }
 
-export class FileRuntimePromptPolicyRepository implements RuntimePromptPolicyRepository {
+export class LegacyFileRuntimePromptPolicyReader {
   private readonly filePath: string;
 
   constructor(stateDir: string) {
@@ -50,15 +80,82 @@ export class FileRuntimePromptPolicyRepository implements RuntimePromptPolicyRep
     }
   }
 
-  async save(policy: RuntimePromptPolicy) {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${Date.now()}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(policy, null, 2)}\n`, "utf8");
-    await rename(tempPath, this.filePath);
+}
+
+type RuntimePromptPolicyQueryable = Pick<Pool | PoolClient, "query">;
+
+export class PostgresRuntimePromptPolicyRepository implements RuntimePromptPolicyRepository {
+  constructor(private readonly database: RuntimePromptPolicyQueryable) {}
+
+  async load() {
+    const result = await this.database.query<{ version: number }>(
+      "select version from runtime_prompt_policy_current where singleton = true",
+    );
+    return result.rows[0] === undefined ? null : this.loadRevision(result.rows[0].version);
+  }
+
+  async loadOrCreateInitial(policy: RuntimePromptPolicy) {
+    await this.database.query(
+      "select initialize_runtime_prompt_policy($1::jsonb, $2::text)",
+      [JSON.stringify(policy), hashRuntimePromptPolicy(policy)],
+    );
+    const loaded = await this.load();
+    if (loaded === null) throw new Error("Runtime prompt policy initial revision was not stored.");
+    return loaded;
+  }
+
+  async loadRevision(revision: number) {
+    const result = await this.database.query<{ policy: unknown; policy_hash: string }>(
+      `select policy, policy_hash from runtime_prompt_policy_revisions where version = $1`,
+      [revision],
+    );
+    const row = result.rows[0];
+    if (row === undefined) return null;
+    if (hashRuntimePromptPolicy(row.policy as RuntimePromptPolicy) !== row.policy_hash) {
+      throw new Error("Stored runtime prompt policy revision hash does not match.");
+    }
+    const policy = normalizeStoredPolicy(row.policy, false);
+    if (canonicalJson(policy) !== canonicalJson(row.policy)) {
+      throw new Error("Stored runtime prompt policy revision is not an exact policy snapshot.");
+    }
+    return policy;
+  }
+
+  async save(policy: RuntimePromptPolicy, expectedVersion: number) {
+    const result = await this.database.query<{ saved: boolean }>(
+      "select save_runtime_prompt_policy_revision($1::jsonb, $2::integer, $3::text) as saved",
+      [JSON.stringify(policy), expectedVersion, hashRuntimePromptPolicy(policy)],
+    );
+    return result.rows[0]?.saved === true;
+  }
+
+  async pinCurrentRevision(sessionKey: string) {
+    const result = await this.database.query<{ revision: number; hash: string }>(
+      "select revision, hash from pin_runtime_prompt_policy_revision($1::text)",
+      [sessionKey],
+    );
+    const pin = result.rows[0];
+    if (pin === undefined) throw new Error("Runtime prompt policy session pin was not stored.");
+    return pin;
   }
 }
 
-function normalizeStoredPolicy(value: unknown): RuntimePromptPolicy {
+export function hashRuntimePromptPolicy(policy: RuntimePromptPolicy) {
+  return createHash("sha256").update(canonicalJson(policy)).digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function normalizeStoredPolicy(value: unknown, fillLegacyDefaults = true): RuntimePromptPolicy {
   if (value === null || typeof value !== "object") {
     throw new Error("Runtime prompt policy state is invalid.");
   }
@@ -79,7 +176,7 @@ function normalizeStoredPolicy(value: unknown): RuntimePromptPolicy {
   const normalizedTemplates: Partial<RuntimePromptPolicy["agentClassTemplates"]> = {};
   const rawTemplates = policy.agentClassTemplates as Record<string, RuntimePromptPolicyAgentClassTemplate | undefined>;
 
-  for (const kind of runtimePromptPolicyRoleKinds) {
+  for (const kind of fillLegacyDefaults ? runtimePromptPolicyRoleKinds : []) {
     const fallbackTemplate = defaultRuntimePromptPolicy.agentClassTemplates[kind];
 
     if (fallbackTemplate === undefined) {
@@ -133,7 +230,9 @@ function normalizeStoredPolicy(value: unknown): RuntimePromptPolicy {
     normalizedTemplates[kind] = normalizeStoredAgentClassTemplate(
       kind,
       template,
-      defaultRuntimePromptPolicy.agentClassTemplates.custom!.modelDefaults,
+      fillLegacyDefaults
+        ? defaultRuntimePromptPolicy.agentClassTemplates.custom!.modelDefaults
+        : undefined,
     );
   }
 
@@ -146,7 +245,7 @@ function normalizeStoredPolicy(value: unknown): RuntimePromptPolicy {
 function normalizeStoredAgentClassTemplate(
   agentClass: string,
   template: RuntimePromptPolicyAgentClassTemplate,
-  fallbackModelDefaults: RuntimePromptPolicyAgentClassModelDefaults,
+  fallbackModelDefaults: RuntimePromptPolicyAgentClassModelDefaults | undefined,
 ): RuntimePromptPolicyAgentClassTemplate {
   return {
     agentClass: agentClass as RuntimePromptPolicyAgentClassTemplate["agentClass"],
@@ -173,9 +272,10 @@ function normalizeStoredAgentClassKey(value: unknown): string {
 }
 
 function normalizeStoredModelDefaults(
-  modelDefaults: RuntimePromptPolicyAgentClassModelDefaults,
+  modelDefaults: RuntimePromptPolicyAgentClassModelDefaults | undefined,
 ): RuntimePromptPolicyAgentClassModelDefaults {
   if (
+    modelDefaults === undefined ||
     modelDefaults === null ||
     typeof modelDefaults !== "object" ||
     modelDefaults.text === null ||

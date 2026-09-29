@@ -71,6 +71,7 @@ describe("database foundations", () => {
       "name",
       "email",
       "emailVerified",
+      "twoFactorEnabled",
       "image",
       "createdAt",
       "updatedAt",
@@ -86,6 +87,8 @@ describe("database foundations", () => {
       "userAgent",
       "activeOrganizationId",
       "activeTeamId",
+      "mfaVerifiedAt",
+      "mfaFactorId",
       "createdAt",
       "updatedAt",
     ]);

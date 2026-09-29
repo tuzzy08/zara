@@ -15,6 +15,10 @@ Tenant roles such as owner or admin never grant platform-admin access. Staff aut
 
 ## Auth Posture
 
+Migration `0042_auth_mfa_assurance.sql` enables the native Better Auth authenticator flow. Use `POST /api/auth/two-factor/enable` with the signed-in user's password, save the returned backup codes privately, and add the returned TOTP URI to an authenticator. Then call `POST /api/auth/two-factor/verify-totp` with a current code. These are cookie-authenticated APIs; no new UI is included in this billing pass.
+
+Only a successful, unused TOTP step creates a server-owned session proof. Each API instance shares the database replay check. Proof expires after 15 minutes; the staff session still has an eight-hour maximum. A new session or backup-code login does not create fresh privileged proof. Disabled MFA cannot grant mutation access. Do not send passwords, authenticator secrets, or backup codes in chat or logs.
+
 - `password` assurance can read staff surfaces allowed by the platform role while the admin session is active.
 - `mfa` or `passkey` assurance is required for tenant status changes, billing controls, runtime prompt policy edits, premium realtime conversation policy edits, abuse/compliance decisions, support actions, and impersonation changes.
 - Staff sessions expire after eight hours for platform-admin APIs.

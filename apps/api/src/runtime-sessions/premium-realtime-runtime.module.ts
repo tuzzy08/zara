@@ -1,4 +1,7 @@
 import { Module } from "@nestjs/common";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { DatabaseModule } from "../database/database.module";
+import { PostgresPoolService } from "../database/postgres-pool.service";
 
 import { PremiumRealtimeConversationPolicyModule } from "../premium-realtime-policy/premium-realtime-conversation-policy.module";
 import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
@@ -13,6 +16,7 @@ import { RuntimeSessionsService } from "./runtime-sessions.service";
 
 @Module({
   imports: [
+    DatabaseModule,
     PremiumRealtimeConversationPolicyModule,
     RuntimePromptPolicyModule,
     RuntimeAgentToolExecutionModule,
@@ -22,10 +26,12 @@ import { RuntimeSessionsService } from "./runtime-sessions.service";
     RuntimeSessionsService,
     {
       provide: premiumRealtimeProviderTransportToken,
-      useFactory: () => {
+      useFactory: (database: PostgresPoolService) => {
         resolvePremiumRealtimeProviderEndpoint(process.env);
-        return new WsPremiumRealtimeProviderTransport();
+        return new WsPremiumRealtimeProviderTransport(undefined, process.env,
+          new ProviderUsageRecordingRepository(database.pool));
       },
+      inject: [PostgresPoolService],
     },
   ],
   exports: [

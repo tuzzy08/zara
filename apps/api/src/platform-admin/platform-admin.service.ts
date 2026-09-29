@@ -7,6 +7,7 @@ import { runtimeObservabilityMetricsStore } from "../runtime-observability/runti
 import { PstnCapacityObservability } from "../runtime-observability/pstn-capacity-observability";
 import type {
   CreateRuntimePromptPolicyAgentClassInput,
+  PromoteRuntimePromptPolicyRevisionInput,
   UpdateRuntimePromptPolicyInput,
 } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
@@ -338,6 +339,29 @@ export class PlatformAdminService {
           version: result.promptPolicy.version,
           guardrailCount: result.guardrailCount,
           changedAgentClassKeys: result.changedAgentClassKeys.join(","),
+        },
+      }),
+    };
+  }
+
+  async promoteRuntimePromptPolicyRevision(
+    context: PlatformAdminRequestContext,
+    input: PromoteRuntimePromptPolicyRevisionInput & { revision: number },
+  ) {
+    const result = await this.runtimePromptPolicyService.promotePromptPolicyRevision({
+      ...input,
+      actorUserId: context.actorUserId,
+    });
+    return {
+      promptPolicy: result.promptPolicy,
+      audit: this.recordAudit(context, {
+        targetType: "runtime_prompt_policy",
+        targetId: "global",
+        action: "platform.runtime_prompt_policy.revision_promoted",
+        metadata: {
+          reason: result.reason,
+          sourceRevision: input.revision,
+          version: result.promptPolicy.version,
         },
       }),
     };

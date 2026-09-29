@@ -8,6 +8,7 @@ import { PlatformAdminModule } from "./platform-admin.module";
 import { TELEPHONY_STATE_REPOSITORY } from "../telephony/telephony-state.repository";
 import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
 import { PostgresPlatformBillingReadRepository } from "./platform-billing-read.repository";
+import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 
 describe("PlatformAdminController", () => {
   it("rejects tenant admins and allows platform staff to load the dashboard", async () => {
@@ -654,6 +655,68 @@ describe("PlatformAdminController", () => {
       "I need help with my invoice",
       "Can I update my subscription?",
     ]);
+
+    const readonlyPromotion = await request(server)
+      .post("/platform-admin/runtime/prompt-policy/revisions/1/promote")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({ expectedVersion: 2, reason: "Restore revision one." });
+    expect(readonlyPromotion.status).toBe(403);
+
+    const invalidPromotion = await request(server)
+      .post("/platform-admin/runtime/prompt-policy/revisions/0/promote")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({ expectedVersion: 2, reason: "Invalid revision." });
+    expect(invalidPromotion.status).toBe(400);
+
+    const malformedPromotion = await request(server)
+      .post("/platform-admin/runtime/prompt-policy/revisions/1/promote")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({ expectedVersion: 2, reason: 7 });
+    expect(malformedPromotion.status).toBe(400);
+
+    const promotion = await request(server)
+      .post("/platform-admin/runtime/prompt-policy/revisions/1/promote")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({ expectedVersion: 2, reason: "Restore revision one." });
+    expect(promotion.status).toBe(201);
+    expect(promotion.body.promptPolicy).toMatchObject({ version: 3, guardrails: defaultRuntimePromptPolicy.guardrails });
+    expect(promotion.body.audit.action).toBe("platform.runtime_prompt_policy.revision_promoted");
+
+    const missingPromotion = await request(server)
+      .post("/platform-admin/runtime/prompt-policy/revisions/99/promote")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({ expectedVersion: 3, reason: "Restore an absent revision." });
+    expect(missingPromotion.status).toBe(404);
+
+    const stalePromotion = await request(server)
+      .post("/platform-admin/runtime/prompt-policy/revisions/2/promote")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({ expectedVersion: 2, reason: "This expected version is stale." });
+    expect(stalePromotion.status).toBe(409);
 
     await close();
   }, 15_000);

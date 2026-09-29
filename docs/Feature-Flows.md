@@ -112,11 +112,12 @@ The first monitoring depth is now live on the published sandbox surface:
 - reconnect and replay use the same persisted event spine, so the monitor and the active browser tab stay aligned on the same session history
 - escalation requests from live sandbox events now enter a workspace-scoped queue with SLA deadlines, accept/decline actions, and timeout fallback events visible from the sandbox monitor surface
 - telephony-backed human fallback now chooses provider-safe live takeover or callback scheduling and audits the safe message sent to the caller
-- post-call summaries derive a redacted outcome, disposition, and open action items from the same event spine, then optionally queue a CRM sync target without returning raw credentials or sensitive transcript content
+- post-call summaries use redacted evidence from the same event spine; call completion does not prove business resolution. Bounded optional TypeSafe analysis proposes remaining work. Uncertain results require review. Repeat analysis preserves completed actions and existing CRM sync work.
 - CRM sync status is visible from the post-call session record, including failed provider diagnostics, retryability, and queued retry attempts
 - quality reports flag dead ends, low-grounding hallucination risk, slow turns, and escalation misses, then create draft-only improvement suggestions that require human approval
 - AI observability sends packet-derived OpenTelemetry spans to LangSmith when enabled, so internal operators can inspect redacted intent, tool, transfer, model, and policy traces without making LangSmith the tenant event replay or audit source of truth
 - Runtime evals replay versioned packet fixtures through LangSmith/Vitest scorecards to catch routing, tool-use, transfer-context, and policy regressions before prompt or model changes ship
+- Builders can select **Improve instructions** in reusable-agent creation or the workflow agent inspector. The model receives bounded draft instructions, language settings, safe tool metadata, and configured handoff targets. The review panel shows an editable suggestion, changes, missing details, and conflicts. Apply changes only the draft; restore preserves the original while the review remains open. Changes to source text or settings make a pending suggestion stale. The normal save/publish flow stores accepted instructions in the existing agent/workflow version. Generated text still needs human review and a sandbox check.
 
 ## Billing
 

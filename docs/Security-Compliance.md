@@ -8,6 +8,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 
 ## Required Controls
 
+Optional TypeSafe requests contain purpose-specific safe evidence only. Keep API credentials server-side. Feature modes default to off; shadow mode still sends data externally. Verify provider retention, region, and data-use terms before customer-data use. Model decisions cannot grant tool rights, activate memory, clear sensitivity blockers, or execute transfers. Source revisions and tenant checks remain server-owned. See [the TypeSafe implementation plan](TypeSafe-Implementation-Plan.md).
+
 - Better Auth sessions and organization membership checks.
 - Password reset and email verification must use Zara-owned account-security routes in front of Better Auth. Reset requests return a normalized success response for known and unknown valid emails, and production auth email delivery must be configured with `ZARA_AUTH_EMAIL_WEBHOOK_URL`.
 - Session management UI/API must expose safe session IDs and metadata only. Better Auth session tokens must not be returned to browser code, and revoking another browser's session must make that browser's next auth-context read signed out.
@@ -34,6 +36,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Outbound dispatch can block tenant DNC destinations and unknown destination timezones, while audited emergency overrides can bypass safe calling windows.
 - Prompt injection defenses for tools and knowledge.
 - Runtime model prompts keep system instructions separate from untrusted tool output, session memory, retrieved knowledge, CRM notes, and website content.
+- Platform rules apply to text and realtime providers. Tenant configuration is encoded as data within that boundary. Transfer summaries never enter provider response instructions. Realtime continuation uses fixed instructions and separate conversation data.
+- Text action requests use provider JSON schemas restricted to assigned tools and configured handoff targets. The server validates the resulting action again. A schema does not replace permissions, input checks, or approval gates.
 - Runtime validates structured agent action output and ignores unsupported graph commands from the model instead of speaking or obeying them.
 - Runtime validates tool requests, approval gates, timeout/rate-limit failures, partial tool output, and transfer language compatibility as packet-backed policy states before model projection.
 - Redaction runs before live-session event and memory storage when the manifest enables transcript redaction.
@@ -58,6 +62,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - PSTN media stream session guessing, malformed media payloads, forged provider custom parameters, or unauthorized callers attempting to enter protected phone-test routes.
 
 ## Platform Admin Controls
+
+Fresh TOTP proof is stored on the server-side session after native Better Auth verification. An atomic per-factor step claim rejects replay across instances. Password-only and backup-code sessions do not gain this privileged proof. Disabling the factor removes its authority. The native setup and verification APIs require the existing cookie/CSRF controls; no caller header or body field can assert production MFA.
 
 Platform admin access is for Zara staff only. It must be protected by platform roles, explicit auth assurance posture, stricter operational logging, and server-side guards. Impersonation is time-boxed, visible, revocable, audited, and allowed only for owner/admin staff sessions with MFA/passkey step-up. Platform admins must not see raw secrets, raw OAuth tokens, or decrypted provider credentials.
 

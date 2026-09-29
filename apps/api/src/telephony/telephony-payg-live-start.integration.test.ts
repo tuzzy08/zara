@@ -266,6 +266,15 @@ async function createPaygWebhookHarness(input: {
       approved_at timestamptz not null,
       created_at timestamptz not null
     );
+    create table billing_delivery_decisions (
+      id text primary key, sequence serial, enabled boolean, catalog_id text, release_id text, effective_at timestamptz
+    );
+    create table billing_outbox (
+      tenant_id text, id text, aggregate_type text, aggregate_id text, event_type text, payload jsonb,
+      status text, attempt_count integer, next_attempt_at timestamptz, last_error text,
+      created_at timestamptz, delivered_at timestamptz, delivery_decision_id text,
+      charge_release_id text, charge_promoted_at timestamptz, primary key (tenant_id,id)
+    );
     create table billing_payg_orders (
       tenant_id text not null,
       id text not null,

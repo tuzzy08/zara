@@ -1,112 +1,59 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { defaultRuntimePromptPolicy } from "./runtime-prompt-policy.models";
-import { FileRuntimePromptPolicyRepository } from "./runtime-prompt-policy.repository";
+import {
+  InMemoryRuntimePromptPolicyRepository,
+  LegacyFileRuntimePromptPolicyReader,
+  PostgresRuntimePromptPolicyRepository,
+  hashRuntimePromptPolicy,
+} from "./runtime-prompt-policy.repository";
 
-describe("FileRuntimePromptPolicyRepository", () => {
-  it("persists runtime prompt policy guardrails across repository instances", async () => {
+describe("runtime prompt policy repositories", () => {
+  it("keeps immutable revisions and rejects a stale expected version", async () => {
+    const repository = new InMemoryRuntimePromptPolicyRepository();
+    await repository.loadOrCreateInitial(defaultRuntimePromptPolicy);
+    const revision2 = { ...defaultRuntimePromptPolicy, version: 2, guardrails: ["Revision two."] };
+    const revision3 = { ...revision2, version: 3, guardrails: ["Revision three."] };
+
+    const results = await Promise.all([repository.save(revision2, 1), repository.save(revision3, 1)]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect((await repository.loadRevision(1))?.guardrails).toEqual(defaultRuntimePromptPolicy.guardrails);
+    expect((await repository.loadRevision(2))?.guardrails).toEqual(["Revision two."]);
+    expect(await repository.loadRevision(3)).toBeNull();
+  });
+
+  it("reads the existing mutable file once for the Postgres migration", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "zara-runtime-prompt-policy-"));
-
     try {
-      const firstRepository = new FileRuntimePromptPolicyRepository(stateDir);
+      const policy = { ...defaultRuntimePromptPolicy, version: 7, guardrails: ["Existing operator rule."] };
+      await writeFile(join(stateDir, "prompt-policy.json"), JSON.stringify(policy), "utf8");
 
-      await firstRepository.save({
-        ...defaultRuntimePromptPolicy,
-        version: 2,
-        updatedBy: "user-platform-admin",
-        guardrails: ["Keep caller-facing responses inside platform policy."],
+      expect(await new LegacyFileRuntimePromptPolicyReader(stateDir).load()).toMatchObject({
+        version: 7,
+        guardrails: ["Existing operator rule."],
       });
-
-      const secondRepository = new FileRuntimePromptPolicyRepository(stateDir);
-      const loaded = await secondRepository.load();
-
-      expect(loaded).toMatchObject({
-        version: 2,
-        updatedBy: "user-platform-admin",
-        guardrails: ["Keep caller-facing responses inside platform policy."],
-      });
-      expect(loaded).not.toHaveProperty("rolePrompts");
     } finally {
-      await rm(stateDir, { force: true, recursive: true });
+      await rm(stateDir, { recursive: true, force: true });
     }
   });
 
-  it("persists the agent class template catalog across repository instances", async () => {
-    const stateDir = await mkdtemp(join(tmpdir(), "zara-runtime-prompt-policy-"));
+  it("returns an old database revision without adding current class defaults", async () => {
+    const stored = {
+      ...defaultRuntimePromptPolicy,
+      agentClassTemplates: {
+        custom: defaultRuntimePromptPolicy.agentClassTemplates.custom!,
+      },
+    };
+    const repository = new PostgresRuntimePromptPolicyRepository({
+      query: async () => ({
+        rows: [{ policy: stored, policy_hash: hashRuntimePromptPolicy(stored) }],
+      }),
+    } as never);
 
-    try {
-      const firstRepository = new FileRuntimePromptPolicyRepository(stateDir);
-      const billingTemplate = getDefaultBillingTemplate();
-
-      await firstRepository.save({
-        ...defaultRuntimePromptPolicy,
-        version: 2,
-        updatedBy: "user-platform-admin",
-        agentClassTemplates: {
-          ...defaultRuntimePromptPolicy.agentClassTemplates,
-          billing: {
-            ...billingTemplate,
-            basePrompt: "Handle invoice, refund, and subscription calls before any handoff.",
-            modelDefaults: {
-              text: {
-                provider: "google-gemini",
-                modelTier: "standard",
-                modelId: "gemini-3.5-pro",
-              },
-              realtime: {
-                provider: "gemini-live",
-                modelId: "gemini-3.1-flash-live-preview",
-              },
-            },
-            routingProfile: {
-              ...billingTemplate.routingProfile,
-              description: "Billing owns invoices, refunds, subscription status, and payment questions.",
-              examples: ["I need help with my invoice", "Can I update my subscription?"],
-            },
-          },
-        },
-      });
-
-      const secondRepository = new FileRuntimePromptPolicyRepository(stateDir);
-      const loaded = await secondRepository.load();
-
-      expect(loaded?.agentClassTemplates.billing).toMatchObject({
-        agentClass: "billing",
-        label: "Billing",
-        basePrompt: "Handle invoice, refund, and subscription calls before any handoff.",
-        modelDefaults: {
-          text: {
-            provider: "google-gemini",
-            modelTier: "standard",
-            modelId: "gemini-3.5-pro",
-          },
-          realtime: {
-            provider: "gemini-live",
-            modelId: "gemini-3.1-flash-live-preview",
-          },
-        },
-        routingProfile: {
-          description: "Billing owns invoices, refunds, subscription status, and payment questions.",
-          examples: ["I need help with my invoice", "Can I update my subscription?"],
-          fallbackTarget: "clarify_source_agent",
-        },
-      });
-    } finally {
-      await rm(stateDir, { force: true, recursive: true });
-    }
+    expect(await repository.loadRevision(1)).toEqual(stored);
   });
 });
-
-function getDefaultBillingTemplate() {
-  const template = defaultRuntimePromptPolicy.agentClassTemplates.billing;
-
-  if (template === undefined) {
-    throw new Error("Default billing template is missing.");
-  }
-
-  return template;
-}

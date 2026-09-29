@@ -32,13 +32,17 @@ export type BillingReconciliationMeterKey =
   | "standard_runtime_seconds"
   | "premium_runtime_seconds"
   | "platform_telephony_charge_minor"
+  | "subscription_charge_minor"
   | "payg_charge_minor";
 
 export interface BillingCycleLocalEvidence {
+  sessionAudit?: { status: string; issues: string[] };
   ledger: Array<{
     id: string;
     entryType: string;
     meterKey: string | null;
+    settlementMeterKey?: "subscription_charge_minor";
+    grossCustomerAmountMinor?: number;
     adjustmentKind?: "credit" | "debit" | undefined;
     quantity: number;
     customerAmountMinor: number | null;
@@ -49,6 +53,7 @@ export interface BillingCycleLocalEvidence {
     meterKey: string;
     quantity: number;
     deliveryMode: "shadow" | "charge";
+    deliveryEligible?: boolean;
     status: "pending" | "processing" | "delivered" | "dead_letter";
   }>;
   payg: {
@@ -73,6 +78,7 @@ export interface BillingCycleLocalEvidence {
 }
 
 export type BillingReconciliationMismatchClass =
+  | "tenant_session_ledger_mismatch"
   | "incomplete_ledger_charge"
   | "outbox_ledger_mismatch"
   | "missing_provider_usage_evidence"
@@ -224,7 +230,6 @@ export class BillingUsageReconciliationService {
   }) {
     if (
       this.reportRepository === undefined
-      || this.providerUsageSource === undefined
       || this.polarMeterSource === undefined
       || this.draftInvoiceSource === undefined
     ) {
@@ -239,7 +244,7 @@ export class BillingUsageReconciliationService {
     const [local, providerEvidenceCandidate, polarEvidenceCandidate, invoiceEvidenceCandidate] =
       await Promise.all([
         this.reportRepository.loadLocalCycleEvidence(evidenceInput),
-        this.providerUsageSource.loadTenantCycleEvidence(evidenceInput),
+        this.providerUsageSource?.loadTenantCycleEvidence(evidenceInput).catch(() => null) ?? null,
         this.polarMeterSource.loadTenantCycleEvidence(evidenceInput),
         this.draftInvoiceSource.loadTenantCycleEvidence(evidenceInput),
       ]);
@@ -258,15 +263,27 @@ export class BillingUsageReconciliationService {
       evidenceInput,
       input.validUntil,
     ) ? invoiceEvidenceCandidate : null;
-    const meteredLedger = local.ledger.filter(isMeteredLedgerEntry);
+    const meteredLedger = local.ledger.filter(isMeteredLedgerEntry).map(entry =>
+      entry.meterKey === "platform_telephony_charge_minor"
+        ? { ...entry, quantity: entry.grossCustomerAmountMinor ?? entry.customerAmountMinor ?? 0 } : entry);
     const ledgerQuantities = sumMeterQuantities(meteredLedger);
     const ledgerCustomerAmountMinor = local.ledger.reduce(
       (total, entry) => total + signedCustomerAmount(entry),
       0,
     );
+    const customerOutbox = local.outbox.filter(entry => entry.deliveryMode === "charge"
+      && (entry.status === "delivered" || entry.deliveryEligible === true));
+    const customerLedgerIds = new Set(customerOutbox.map(entry => entry.aggregateId));
+    const customerAmountMinor = local.ledger.filter(entry => customerLedgerIds.has(entry.id) || entry.entryType === "adjustment")
+      .reduce((total, entry) => total + signedCustomerAmount(entry), 0);
     const payg = summarizePayg(local);
     const outboxDeliveryModes = new Set(local.outbox.map((entry) => entry.deliveryMode));
     const drafts: BillingReconciliationMismatchDraft[] = [];
+    if (local.sessionAudit !== undefined && local.sessionAudit.status !== "matched") {
+      drafts.push(mismatch("tenant_session_ledger_mismatch", {
+        status: local.sessionAudit.status, issues: local.sessionAudit.issues.join(","),
+      }));
+    }
 
     const incompleteLedgerIds = meteredLedger
       .filter((entry) => entry.customerAmountMinor === null)
@@ -281,8 +298,9 @@ export class BillingUsageReconciliationService {
     const usageOutbox = local.outbox.filter((entry) => entry.meterKey !== "payg_charge_minor");
     const outboxMatchesLedger = meteredLedger.every((ledger) => usageOutbox.some((outbox) => (
       outbox.aggregateId === ledger.id
-      && outbox.meterKey === ledger.meterKey
-      && outbox.quantity === ledger.quantity
+      && outbox.meterKey === (ledger.settlementMeterKey ?? ledger.meterKey)
+      && outbox.quantity === (ledger.settlementMeterKey === "subscription_charge_minor"
+        ? ledger.customerAmountMinor : ledger.quantity)
     ))) && usageOutbox.length === meteredLedger.length;
     if (!outboxMatchesLedger) {
       drafts.push(mismatch("outbox_ledger_mismatch", {
@@ -291,14 +309,15 @@ export class BillingUsageReconciliationService {
       }));
     }
 
-    drafts.push(...this.reconcileProviderUsageEvidence({
+    const supplierMismatches = this.reconcileProviderUsageEvidence({
       evidence: providerUsageEvidence,
       expected: ledgerQuantities,
-    }));
+    });
+    drafts.push(...supplierMismatches);
     compareExternalMeters(
       drafts,
       polarMeterEvidence,
-      { ...ledgerQuantities, payg_charge_minor: payg.debitedMinor },
+      { payg_charge_minor: 0, ...sumMeterQuantities(customerOutbox) },
       "missing_polar_meter_evidence",
       "polar_meter_quantity_mismatch",
     );
@@ -307,10 +326,10 @@ export class BillingUsageReconciliationService {
       drafts.push(mismatch("missing_draft_invoice_evidence", {}));
     } else if (
       draftInvoiceEvidence.currency !== "usd"
-      || draftInvoiceEvidence.amountMinor !== ledgerCustomerAmountMinor
+      || draftInvoiceEvidence.amountMinor !== customerAmountMinor
     ) {
       drafts.push(mismatch("draft_invoice_total_mismatch", {
-        zaraCustomerAmountMinor: ledgerCustomerAmountMinor,
+        zaraCustomerAmountMinor: customerAmountMinor,
         draftInvoiceAmountMinor: draftInvoiceEvidence.amountMinor,
         currency: draftInvoiceEvidence.currency,
       }));
@@ -365,11 +384,17 @@ export class BillingUsageReconciliationService {
       mismatchCount: mismatches.length,
     });
 
+    const supplierMismatchCount = supplierMismatches.length;
+    const customerMismatchCount = mismatches.length - supplierMismatchCount;
     const report = {
       organizationId: input.organizationId,
       cycleStartsAt: input.cycleStartsAt,
       cycleEndsAt: input.cycleEndsAt,
       status: mismatches.length === 0 ? "matched" as const : "mismatch" as const,
+      customerStatus: customerMismatchCount === 0 ? "matched" as const : "mismatch" as const,
+      supplierStatus: supplierMismatchCount === 0 ? "matched" as const : "mismatch" as const,
+      customerMismatchCount,
+      supplierMismatchCount,
       ...(polarMeterEvidence?.polarBalanceMinor === undefined
         ? {}
         : { polarBalanceMinor: polarMeterEvidence.polarBalanceMinor }),
@@ -398,6 +423,7 @@ export class BillingUsageReconciliationService {
         providerUsage: providerUsageEvidence === null
           ? { status: "missing" as const }
           : { status: "present" as const, ...providerUsageEvidence },
+        ...(local.sessionAudit === undefined ? {} : { tenantSessions: local.sessionAudit }),
         polarMeters: polarMeterEvidence === null
           ? { status: "missing" as const }
           : { status: "present" as const, ...polarMeterEvidence },
@@ -652,6 +678,7 @@ function isMeterKey(value: string): value is BillingReconciliationMeterKey {
   return value === "standard_runtime_seconds"
     || value === "premium_runtime_seconds"
     || value === "platform_telephony_charge_minor"
+    || value === "subscription_charge_minor"
     || value === "payg_charge_minor";
 }
 
@@ -739,6 +766,11 @@ const mismatchPolicies: Record<BillingReconciliationMismatchClass, {
   provider_native_evidence_mismatch: {
     owner: "provider_operations",
     correctionRule: "verify_provider_native_scope_coverage_and_facts",
+    severity: "critical",
+  },
+  tenant_session_ledger_mismatch: {
+    owner: "platform_engineering",
+    correctionRule: "verify_tenant_sessions_then_repair_missing_or_incorrect_ledger_facts",
     severity: "critical",
   },
   missing_polar_meter_evidence: {

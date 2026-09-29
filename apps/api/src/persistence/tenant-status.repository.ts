@@ -20,7 +20,7 @@ export interface TenantStatusAuditRecord {
 }
 
 export interface DurablePlatformAuditRecord extends TenantStatusAuditRecord {
-  tenantId: string;
+  tenantId?: string | undefined;
 }
 
 export class PostgresTenantStatusRepository {
@@ -153,7 +153,7 @@ function isDurableTenantStatus(value: unknown): value is DurableTenantStatus {
 function normalizePlatformAuditRow(row: PlatformAuditRow): DurablePlatformAuditRecord {
   if (
     typeof row.id !== "string"
-    || typeof row.tenantId !== "string"
+    || (row.tenantId !== null && typeof row.tenantId !== "string")
     || (row.actorType !== "system" && row.actorType !== "user")
     || typeof row.actorId !== "string"
     || typeof row.action !== "string"
@@ -174,7 +174,7 @@ function normalizePlatformAuditRow(row: PlatformAuditRow): DurablePlatformAuditR
   }
   return {
     id: row.id,
-    tenantId: row.tenantId,
+    ...(row.tenantId === null ? {} : { tenantId: row.tenantId }),
     actorType: row.actorType,
     actorId: row.actorId,
     action: row.action,

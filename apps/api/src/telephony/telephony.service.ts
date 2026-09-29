@@ -2141,6 +2141,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         ? {} : { routeIdentity: subscriptionReservation?.routeIdentity ?? paygChargeContext?.routeIdentity }),
       runtimeSeconds: providerConnectedSeconds,
       providerConnectedSeconds,
+      ...(connectedAt === undefined ? {} : { usageStartedAt: connectedAt }),
       occurredAt: terminalState.observedAt,
     } as const;
     const identity = `terminal-billing:${trustedFact.callSessionId}`;
@@ -3409,6 +3410,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             resolvedConversationPolicy:
               unresolvedPremiumSnapshot.resolution
                 .resolvedConversationPolicy,
+            promptPolicyRevision:
+              unresolvedPremiumSnapshot.resolution.promptPolicyRevision,
+            promptPolicyHash:
+              unresolvedPremiumSnapshot.resolution.promptPolicyHash,
             workerTarget: {
               workerId: premiumWorkerTarget.workerId,
               releaseId: premiumWorkerTarget.releaseId,

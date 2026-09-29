@@ -137,23 +137,25 @@ export class SandboxLiveSessionsController {
   }
 
   @Post(":sessionId/summary")
-  createPostCallSummary(
+  async createPostCallSummary(
     @Param("organizationId") organizationId: string,
     @Param("sessionId") sessionId: string,
     @Body()
     body: {
       actorUserId: string;
       crmSyncTarget?: LiveSandboxPostCallCrmSyncTarget | undefined;
+      reanalyze?: boolean | undefined;
       now?: string | undefined;
     },
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      summary: this.sandboxLiveSessionsService.createPostCallSummary({
+      summary: await this.sandboxLiveSessionsService.createPostCallSummary({
         organizationId,
         sessionId,
         actorUserId: tenantAuth.userId,
         crmSyncTarget: body.crmSyncTarget,
+        reanalyze: body.reanalyze,
         now: body.now,
       }),
     };

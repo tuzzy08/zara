@@ -52,6 +52,8 @@ export function createRegisteredSession(sessionOverrides: Partial<PremiumRealtim
       runtime,
       policy: "premium-realtime",
       model,
+      promptPolicyRevision: 1,
+      promptPolicyHash: "a".repeat(64),
       voice: "expressive",
       transportUrl: "/runtime/realtime/sessions/session-1/stream?token=token-1",
       expiresAt: "2026-06-14T10:00:00.000Z",

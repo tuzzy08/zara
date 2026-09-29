@@ -68,6 +68,14 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 
 ## Representative Routes
 
+### Usage charge delivery control
+
+`GET /platform-admin/billing/delivery` returns the latest durable decision, or null when no decision exists. It requires the existing staff read authority.
+
+`PATCH /platform-admin/billing/delivery` requires a signed-in `platform_owner` with fresh server-verified MFA. Body: `requestId`, `enabled`, `expectedDecisionId` (null for the first decision), and a non-empty `reason`. The server selects the catalog, release, actor, and effective time. Extra fields are rejected. A stale decision ID or changed reuse of a request ID returns conflict. An exact retry returns the original decision and never moves the cutoff.
+
+Enable requires valid production Polar configuration and `BILLING_CHARGE_DELIVERY_ENABLED=true`. Stop does not require valid Polar configuration. Every decision is append-only. A new enable never sweeps historical shadow usage or the undelivered backlog of an earlier enable period. A provider request already in flight cannot be recalled by stop.
+
 - POST /api/auth/onboarding/signup
 - POST /api/auth/account-security/password-reset/request
 - POST /api/auth/account-security/email-verification/request
@@ -184,6 +192,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - PATCH /platform-admin/runtime/route-policy
 - GET /platform-admin/runtime/prompt-policy
 - PATCH /platform-admin/runtime/prompt-policy
+- POST /platform-admin/runtime/prompt-policy/revisions/:revision/promote
 - GET /platform-admin/runtime/premium-realtime-policy
 - PATCH /platform-admin/runtime/premium-realtime-policy
 - PATCH /platform-admin/organizations/:orgId/billing-controls
@@ -270,10 +279,27 @@ Behavior rules:
 
 Platform admins can inspect and update the runtime prompt policy used by live sandbox text providers:
 
+The same policy also supplies realtime prompts. Sessions retain the selected revision and hash across turns and transfers. Policy updates apply to new sessions. Production revisions use Postgres with atomic version checks; a stale `expectedVersion` returns a conflict.
+
 - `GET /platform-admin/runtime/prompt-policy`
 - `PATCH /platform-admin/runtime/prompt-policy`
 
 The policy contains global platform guardrails plus agent class templates keyed by platform-owned agent classes. Each class template owns the base prompt, routing profile, default sandwich text provider/tier/model ID, and default premium realtime provider/model ID. Updates require `expectedVersion` and `reason`, are restricted to mutating platform runtime policy, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text and raw model IDs are not copied into audit metadata; audit metadata stores version, guardrail count, changed class keys, and reason.
+
+`POST /platform-admin/runtime/prompt-policy/revisions/:revision/promote` restores the selected policy content as a new revision. The body contains `expectedVersion` and `reason`. Staff mutation permission is required. A stale version returns a conflict. Promotion restores the exact old class catalog, including removal of classes added later. The audit record identifies the source and new revision. Existing sessions keep their saved revision.
+
+Reusable-agent creation and workflow validation reject instructions longer than 12,000 characters. Workflow validation applies the same limit to each language-specific prompt.
+
+### Instruction improvement
+
+`POST /organizations/:organizationId/agents/improve-instructions` returns a proposed edit. The authenticated caller must be an owner, admin, or builder in the organization and an active member with one of those roles in the requested workspace. The request body cannot supply actor authority.
+
+- Input: `workspaceId`, `name`, `businessName`, `agentClass`, `instructions`, `languagePolicy`, `tools`, and `handoffTargets`. Instructions are non-empty and at most 12,000 characters. Tools and targets each allow at most 32 entries with unique IDs. Tool metadata includes its ID, optional connector/catalog ID, label, purpose, required inputs, approval flag, and draft availability. The server adds connector-owned required inputs and input alternatives from the tool catalog. Saved language guidance is bounded and limited to configured languages.
+- Output: `originalInstructions`, editable `instructions`, `changes`, `questions`, `conflicts`, `toolIds`, and `handoffTargetIds`. The server rejects malformed or truncated model output, drafts above the limit, and references to unavailable tools or unknown targets. Review lists have at most 12 entries of 600 characters each.
+- A draft is not an authorization grant. The endpoint does not call tools, save agents, publish workflows, or change platform rules. It sends only the selected draft fields to the model, with no connector credentials, URLs, or headers. It does not fetch customer records or knowledge records. Existing publish and runtime permission checks remain authoritative.
+- Errors: `400` for invalid or excessive input, `401` for no session, `403` for insufficient access, `429` for the tenant rate limit, `502` for failed or invalid model output, and `503` when generation is not configured. Provider error bodies are not returned to the browser.
+- Configuration: `OPENAI_API_KEY` is required. `INSTRUCTION_IMPROVEMENT_MODEL` defaults to `gpt-4.1`; an override must support strict JSON schema output. `OPENAI_PROJECT_ID` is optional. Each request has a 30-second provider timeout and a 4,096-token output limit. The existing request budget bounds the full input. The existing Postgres `rateLimit` table allows six requests per tenant in a fixed 60-second window across API instances.
+- Existing provider usage recording stores supplier request/token metadata with no call session or instruction text. This endpoint creates no customer billing charge. No new database migration is required.
 
 ## Platform Premium Realtime Conversation Policy Contract
 
@@ -464,7 +490,9 @@ Post-call summary response body:
   - `organizationId`
   - `workspaceId`
   - `sessionId`
-  - `outcome`: `resolved`, `human_escalated`, `fallback_triggered`, or `failed`
+  - `outcome`: `resolved`, `human_escalated`, `fallback_triggered`, `failed`, or `unknown`
+  - `businessResolution`: `resolved`, `unresolved`, or `unknown`; separate from call lifecycle outcome
+  - `sourceRevision`: hash of the evidence used for analysis
   - `disposition`: `resolved`, `callback_requested`, `ticket_required`, or `needs_review`
   - `summaryText`
   - `actionItems[]`
@@ -548,7 +576,7 @@ Behavior rules:
 - `escalation.requested` events create at most one pending queue item per session and workflow node, preserving the original reason and SLA deadline when duplicate runtime signals arrive.
 - Operators can accept or decline pending escalations. Decisions update queue status and append `escalation.accepted` or `escalation.declined` events to the same live-session timeline.
 - Escalation queue reads accept an optional deterministic `now` timestamp and trigger fallback for pending items whose SLA has elapsed, appending an `escalation.failed` event with `sla_timeout`.
-- Post-call summaries derive outcome, disposition, and action items from the session event spine, redact sensitive transcript/tool content before returning or emitting summary metadata, and can queue a CRM sync target without exposing credentials.
+- Post-call summaries await one bounded analysis of redacted session evidence. A completed call alone does not establish resolution. Off mode and unavailable evidence return unknown resolution and review. The request accepts `reanalyze: true`; repeated evidence reuses the saved result. Reanalysis preserves completed actions and existing CRM sync identity and does not queue the same CRM work again. A source change during analysis returns a conflict.
 - CRM sync status reads expose queued, failed, retry-queued, and synced state for post-call summaries. Failure diagnostics are limited to actionable safe fields, and retry requests append `post_call.crm_sync.retry_queued` events without returning raw provider tokens.
 - Quality reports derive deterministic flags from the live session event spine. Improvement suggestions are draft-only, require human approval, and never mutate a published workflow version directly.
 - Browser-to-server messages support voice audio only:
@@ -593,6 +621,8 @@ Connector tool schema and execution routes expose typed tools for Zendesk, HubSp
 Webhook HTTP tool definitions store method, URL, headers, optional body template, timeout, and retry policy. Public API responses return an `authTokenReference` and never return the raw token. Runtime resolves `secret://webhook-http-tools/:toolId/auth-token` only inside the live sandbox tool registry, injects it as a bearer header when no explicit authorization header is present, and enforces the stored timeout plus retry policy around the outbound request.
 
 ## Memory Contract
+
+When enabled, TypeSafe draft responses add assessment metadata with model and source/question/policy revisions. Selected probability and distribution confidence are separate values. Memory shadow mode returns `shadowAssessments` without changing the legacy draft selection. Knowledge drafts can include `kindAssessment` and `kindUncertain`; these fields never grant approval or clear a blocker. Enabled memory extraction adds safe filter reasons for incomplete input, unavailable assessment, and uncertain assessment.
 
 The current memory contract supports opt-in durable caller/account memory plus tenant knowledge memory:
 

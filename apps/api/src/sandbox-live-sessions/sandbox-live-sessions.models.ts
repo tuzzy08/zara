@@ -31,6 +31,8 @@ export interface LiveSandboxSessionRecord {
   createdAt: string;
   expiresAt: string;
   status: LiveSandboxSessionStatus;
+  promptPolicyRevision: number;
+  promptPolicyHash: string;
   endedAt?: string | undefined;
   memory?: LiveSandboxSessionMemoryState | undefined;
 }
@@ -140,7 +142,8 @@ export type LiveSandboxPostCallOutcome =
   | "resolved"
   | "human_escalated"
   | "fallback_triggered"
-  | "failed";
+  | "failed"
+  | "unknown";
 
 export type LiveSandboxPostCallDisposition =
   | "resolved"
@@ -202,6 +205,8 @@ export interface LiveSandboxPostCallSummaryResponse {
   workspaceId: string;
   sessionId: string;
   outcome: LiveSandboxPostCallOutcome;
+  businessResolution: "resolved" | "unresolved" | "unknown";
+  sourceRevision: string;
   disposition: LiveSandboxPostCallDisposition;
   summaryText: string;
   actionItems: LiveSandboxPostCallActionItem[];

@@ -16,6 +16,14 @@ describe("BillingChargeReservationRepository", () => {
 
   beforeEach(async () => {
     const database = newDb();
+    database.public.none(`create table billing_delivery_decisions (
+      id text primary key, sequence serial, enabled boolean, catalog_id text, release_id text, effective_at timestamptz
+    ); create table billing_outbox (
+      tenant_id text, id text, aggregate_type text, aggregate_id text, event_type text, payload jsonb,
+      status text, attempt_count integer, next_attempt_at timestamptz, last_error text,
+      created_at timestamptz, delivered_at timestamptz, delivery_decision_id text,
+      charge_release_id text, charge_promoted_at timestamptz, primary key (tenant_id,id)
+    )`);
     database.public.none(`
       create table billing_payg_orders (
         tenant_id text not null,
@@ -323,6 +331,8 @@ describe("BillingChargeReservationRepository", () => {
   });
 
   it("finalizes actual PAYG usage once and releases the unused reservation", async () => {
+    await pool.query(`insert into billing_delivery_decisions values
+      ('decision-payg',1,true,'catalog-2026-08-v1','release-payg','2026-08-10T09:00:00Z')`);
     const repository = new BillingChargeReservationRepository(pool);
     const ledger = new PostgresBillingLedgerRepository(pool);
     await repository.reservePaygCredit({
@@ -387,6 +397,11 @@ describe("BillingChargeReservationRepository", () => {
         idempotencyKey: "payg-reservation:reservation-finalized:finalize",
       }),
     ]);
+    await expect(ledger.claimDueOutbox("2026-08-10T10:05:00Z", 10, "2026-08-10T10:06:00Z", "release-payg"))
+      .resolves.toEqual([expect.objectContaining({
+        aggregateType: "payg_credit_entry", deliveryDecisionId: "decision-payg",
+        payload: expect.objectContaining({ meterKey: "payg_charge_minor", quantity: 150, deliveryMode: "charge" }),
+      })]);
   });
 
   it("rolls back finalization when the reservation account claim is missing", async () => {

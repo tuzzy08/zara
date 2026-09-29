@@ -67,6 +67,22 @@ import { TrustedBillingReleaseDrillExecutor } from "./trusted-billing-release-dr
 import { TwilioBillingEvidenceSource } from "./twilio-billing-evidence.source";
 
 describe("BillingModule", () => {
+  it("keeps the owner control available when delivery configuration is invalid", async () => {
+    const prior = process.env.BILLING_CHARGE_DELIVERY_ENABLED;
+    const token = process.env.POLAR_ACCESS_TOKEN;
+    process.env.BILLING_CHARGE_DELIVERY_ENABLED = "true";
+    delete process.env.POLAR_ACCESS_TOKEN;
+    try {
+      const moduleRef = await Test.createTestingModule({ imports: [BillingModule] })
+        .overrideProvider(PostgresPoolService)
+        .useValue({ pool: { query: async () => ({ rows: [], rowCount: 0 }) } })
+        .compile();
+      await moduleRef.close();
+    } finally {
+      restore("BILLING_CHARGE_DELIVERY_ENABLED", prior);
+      restore("POLAR_ACCESS_TOKEN", token);
+    }
+  });
   it("ignores the obsolete signed-report environment contract", async () => {
     const priorUrl = process.env.ASSEMBLYAI_BILLING_REPORT_URL;
     process.env.ASSEMBLYAI_BILLING_REPORT_URL = "https://obsolete.example.test/assemblyai";
@@ -195,7 +211,7 @@ describe("BillingModule", () => {
     }
   });
 
-  it("blocks startup when charge delivery is enabled without persisted approval", async () => {
+  it("starts with valid configuration but keeps delivery stopped without an owner decision", async () => {
     const previous = {
       enabled: process.env.BILLING_CHARGE_DELIVERY_ENABLED,
       catalog: process.env.POLAR_BILLING_CATALOG_ID,
@@ -212,21 +228,32 @@ describe("BillingModule", () => {
       POLAR_SERVER: "production",
       POLAR_WEBHOOK_SECRET: "whsec-production",
     });
+    let decision: Record<string, unknown> | null = null;
     const pool = {
       connect: async () => { throw new Error("not used"); },
-      query: async (sql: string) => ({
-        rows: sql.includes("billing_polar_mappings") ? productionMappings() : [],
-        rowCount: 0,
-      }),
+      query: async (sql: string) => {
+        if (sql.includes("billing_polar_mappings")) {
+          // The owner stops while the worker validates payment settings.
+          if (decision) decision = { ...decision, enabled: false };
+          return { rows: productionMappings(), rowCount: 12 };
+        }
+        return { rows: decision ? [decision] : [], rowCount: decision ? 1 : 0 };
+      },
     };
 
     try {
-      await expect(Test.createTestingModule({ imports: [BillingModule] })
+      const moduleRef = await Test.createTestingModule({ imports: [BillingModule] })
         .overrideProvider(PostgresPoolService)
         .useValue({ pool })
-        .compile()).rejects.toThrow(
-        "No production charge-release approval is recorded.",
-      );
+        .compile();
+      try {
+        await expect(moduleRef.get(BillingPolarOutboxWorker).runOnce(new Date().toISOString()))
+          .resolves.toMatchObject({ disabled: true, delivered: 0 });
+        decision = { id: "enable-1", enabled: true, catalog_id: "catalog-v1", release_id: "release-248",
+          effective_at: "2026-09-27T00:00:00Z", actor_user_id: "owner", reason: "Enable", expected_decision_id: null };
+        await expect(moduleRef.get(BillingPolarOutboxWorker).runOnce(new Date().toISOString()))
+          .resolves.toMatchObject({ disabled: true, delivered: 0 });
+      } finally { await moduleRef.close(); }
     } finally {
       restore("BILLING_CHARGE_DELIVERY_ENABLED", previous.enabled);
       restore("POLAR_BILLING_CATALOG_ID", previous.catalog);
@@ -244,6 +271,7 @@ function productionMappings() {
     ["credit_pack", "payg-5-usd"],
     ["meter", "standard_runtime_seconds"], ["meter", "premium_runtime_seconds"],
     ["meter", "platform_telephony_charge_minor"], ["meter", "payg_charge_minor"],
+    ["meter", "subscription_charge_minor"],
     ["benefit", "premium-realtime"],
     ["price", "starter-monthly"], ["price", "growth-monthly"], ["price", "scale-monthly"],
   ].map(([mapping_type, internal_key]) => ({

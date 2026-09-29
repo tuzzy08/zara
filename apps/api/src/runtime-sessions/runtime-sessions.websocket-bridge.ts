@@ -160,6 +160,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         actorUserId: input.registered.actorUserId,
         session: input.registered.session,
         manifest: input.registered.manifest,
+        promptPolicy: input.registered.promptPolicy,
       });
     } catch (error) {
       input.client.send(JSON.stringify({
@@ -174,9 +175,29 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       return;
     }
 
+    const failConnection = (connection: PremiumRealtimeProviderConnection) => {
+      if (connection !== providerConnection || input.client.readyState !== WebSocket.OPEN) return;
+      try {
+        this.sendClientEvent(input.client, input.registered, "session.error", { message: "Premium realtime session failed." });
+      } catch {
+        // A failed notification must not prevent terminal cleanup.
+      }
+      try {
+        input.client.close(1011, "runtime_message_failed");
+      } catch {
+        try { input.client.terminate(); } catch { /* Continue provider cleanup if socket teardown fails. */ }
+      }
+      try {
+        connection.close(1011, "runtime_message_failed");
+      } catch {
+        // The browser is already stopped; a failed provider close must not escape.
+      }
+    };
+
     const bindProviderConnection = (connection: PremiumRealtimeProviderConnection) => {
       providerConnection = connection;
       connection.onMessage((message) => {
+        let messageConnection = connection;
         void this.handleProviderMessage({
           client: input.client,
           providerConnection: connection,
@@ -189,12 +210,14 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
               actorUserId: input.registered.actorUserId,
               session: input.registered.session,
               manifest: input.registered.manifest,
+              promptPolicy: input.registered.promptPolicy,
             });
             bindProviderConnection(nextConnection);
+            messageConnection = nextConnection;
             connection.close(1000, "provider_voice_handoff");
             return nextConnection;
           },
-        });
+        }).catch(() => failConnection(messageConnection));
       });
       connection.onClose((event) => {
         if (connection !== providerConnection) {
@@ -218,15 +241,24 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     input.client.once("close", () => {
       this.readySessionIds.delete(input.registered.session.sessionId);
       this.clearTurnState(input.registered.session.sessionId);
-      providerConnection.close(1000, "browser_disconnected");
+      try {
+        providerConnection.close(1000, "browser_disconnected");
+      } catch {
+        // The browser is already disconnected; retain safe terminal cleanup.
+      }
     });
     input.client.on("message", (message) => {
-      this.handleClientMessage({
-        client: input.client,
-        providerConnection,
-        registered: input.registered,
-        message,
-      });
+      if (input.client.readyState !== WebSocket.OPEN) return;
+      try {
+        this.handleClientMessage({
+          client: input.client,
+          providerConnection,
+          registered: input.registered,
+          message,
+        });
+      } catch {
+        failConnection(providerConnection);
+      }
     });
 
   }

@@ -20,7 +20,10 @@ export interface IntentRouteResult {
   matchedBranchId: string | null;
   intentKey: string | null;
   label: string | null;
-  confidence: number;
+  confidence?: number | undefined;
+  decisionVersion?: "intent-decision.v2" | undefined;
+  decisionOrigin?: "classifier" | "agent_action" | "rule" | "fallback" | undefined;
+  providerAssessment?: { model: string; inputTokens: number; outputTokens: number; latencyMs: number; questionRevision: string; policyRevision: string; sourceHash: string } | undefined;
   reason: string;
   usedFallback: boolean;
   targetNodeId: string;
@@ -111,7 +114,7 @@ export interface AgentTransferContext {
   matchedIntent?: {
     intentKey: string;
     label: string;
-    confidence: number;
+    confidence?: number | undefined;
   } | undefined;
   recentToolResults: ToolExecutionResult[];
   instructionsToTarget?: string | undefined;
@@ -120,6 +123,7 @@ export interface AgentTransferContext {
 export type RuntimePacketEventType =
   | "node.visited"
   | "intent.classified"
+  | "intent.decided"
   | "tool.requested"
   | "tool.started"
   | "tool.completed"
@@ -427,13 +431,16 @@ export function recordRuntimePacketIntent(
     matchedBranchId: input.matchedBranchId,
     intentKey: input.intentKey,
     label: input.label,
-    confidence: input.confidence,
+    ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+    ...(input.decisionOrigin !== undefined ? { decisionVersion: "intent-decision.v2" as const } : {}),
+    ...(input.decisionOrigin !== undefined ? { decisionOrigin: input.decisionOrigin } : {}),
+    ...(input.providerAssessment !== undefined ? { providerAssessment: { ...input.providerAssessment } } : {}),
     reason: input.reason,
     usedFallback: input.usedFallback,
     targetNodeId: input.targetNodeId,
   };
   const nextPacket = appendRuntimePacketEvent(packet, {
-    type: "intent.classified",
+    type: input.decisionOrigin === "agent_action" ? "intent.decided" : "intent.classified",
     at: input.at,
     nodeId: input.nodeId,
     payload: { ...intent },
@@ -759,14 +766,16 @@ function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): A
       continue;
     }
 
-    const toolResultWithSafeOutput = nextContext.toolResults.find((result) => result.safeOutput !== undefined);
+    const toolResultWithSafeOutput = nextContext.toolResults
+      .slice(0, -1)
+      .find((result) => result.safeOutput !== undefined);
     if (toolResultWithSafeOutput !== undefined) {
       delete toolResultWithSafeOutput.safeOutput;
       continue;
     }
 
-    if (nextContext.toolResults.length > 0) {
-      nextContext.toolResults.pop();
+    if (nextContext.toolResults.length > 1) {
+      nextContext.toolResults.shift();
       continue;
     }
 
@@ -782,6 +791,21 @@ function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): A
 
     if (nextContext.intent !== undefined) {
       delete nextContext.intent;
+      continue;
+    }
+
+    const latestToolResult = nextContext.toolResults[0];
+    if (latestToolResult?.safeOutput !== undefined && latestToolResult.safeOutput["truncated"] !== true) {
+      latestToolResult.safeOutput = {
+        truncated: true,
+        preview: JSON.stringify(latestToolResult.safeOutput).slice(0, 120),
+      };
+      latestToolResult.summary = `${latestToolResult.summary.slice(0, 80)} [Latest tool output truncated; do not repeat the action.]`;
+      continue;
+    }
+
+    if (latestToolResult !== undefined && latestToolResult.summary.length > 80) {
+      latestToolResult.summary = `${latestToolResult.summary.slice(0, 77)}...`;
       continue;
     }
 

@@ -45,6 +45,8 @@ Premium realtime provider credentials live on the `realtime-worker` service. A l
 - explicit heartbeat, drain, call, CPU, memory, event-loop, file-descriptor, and WebSocket limits from `deploy/coolify.env.example`
 - the shared `api-state` volume mounted read-only in operational intent for current file-backed integration grants and connector credentials; the API remains the only configuration writer
 
+Billing also uses `POLAR_SERVER`, `POLAR_BILLING_CATALOG_ID`, `ZARA_RELEASE_ID`, and `BILLING_CHARGE_DELIVERY_ENABLED` on the API service. Compose defaults to the Polar sandbox and disables charge delivery. For production, set the production server, the active catalog, and the deployed release ID. Set the delivery flag only when those values are ready. The flag alone does not enable charges: a platform owner must also make an audited enable decision through the API. Follow the [billing release runbook](Runbooks/billing-charge-release-gate.md).
+
 Browser app values are build-time public values, not secrets:
 
 - `API_PUBLIC_URL`
@@ -65,6 +67,8 @@ Shared cross-app settings:
 - Vite public values are baked into static assets. Rebuild the `web` and `platform-admin` services after changing them.
 
 ## Object Storage
+
+The 2026-09-29 recovery pins both MinIO services to the retained image digest `sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e` and disables registry pulls. That image includes `/usr/bin/mc`; the bucket initializer uses it without changing its existing commands. Docker Hub access to the former `minio/mc:latest` and `minio/minio:latest` references failed. Before deployment, verify this exact image is present with `docker image inspect` and verify `mc --version` in a read-only, network-disabled container. Preserve the image with `docker image save`. A fresh host must load the retained image archive and verify the digest before deployment; this configuration does not provision MinIO from the registry. Do not prune the retained image or change storage volumes during recovery. A maintained image/mirror is separate follow-up work.
 
 Coolify's bundled VPS deployment uses MinIO as the S3-compatible object store. The Compose file creates two private versioned buckets:
 

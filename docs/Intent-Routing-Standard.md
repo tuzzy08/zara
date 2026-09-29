@@ -240,6 +240,10 @@ They should not include unredacted caller transcript by default.
 
 ## Implemented Behavior
 
+Standalone intent routes can use TypeSafe when `INTENT_CLASSIFIER_PROVIDER=typesafe` and `TYPESAFE_INTENT_MODE=enabled`. TypeSafe receives opaque branch options plus `no_match`; the runtime maps the chosen option to the frozen branch and applies the separately configured `TYPESAFE_INTENT_CONFIDENCE_THRESHOLD`. Gemini remains the configured rollback provider. TypeSafe failure uses the route fallback. Shadow mode samples TypeSafe after the Gemini decision and records only safe decision, model, usage, latency, revision, and source-hash facts. Agent-attached handoffs remain agent actions; they do not call the intent classifier.
+
+When no classifier or explicit sandbox intent is supplied, the route uses its configured fallback. Transcript substring matches do not select branches. A measured classifier score and speech transcription confidence are separate facts; an agent action has no classifier score.
+
 The live sandbox router calls the `intent-classifier-fast` Gemini alias for normal intent-route turns, validates the structured JSON with the policy guards above, writes `IntentRouteResult` into the turn runtime packet, and routes only to configured branch or fallback targets. Explicit sandbox intent overrides remain available for operator testing.
 
 The Gemini adapter maps `intent-classifier-fast` to `INTENT_CLASSIFIER_MODEL_ID` or `gemini-3.1-flash-lite`, uses temperature `0`, requests JSON output, and sends branch labels, intent keys, descriptions, and examples without exposing graph target IDs to the model.

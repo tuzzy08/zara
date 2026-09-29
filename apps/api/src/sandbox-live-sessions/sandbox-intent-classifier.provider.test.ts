@@ -82,6 +82,32 @@ describe("GeminiIntentClassifierProvider", () => {
     expect(body).toContain("branch-billing");
     expect(body).toContain("intent-classifier-fast");
     expect(body).not.toContain("agent-billing");
+    expect(JSON.parse(body)).toMatchObject({ generationConfig: {
+      maxOutputTokens: 256,
+      responseMimeType: "application/json",
+      responseJsonSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["matchedBranchId", "intentKey", "confidence", "reason", "usedFallback"],
+      },
+    } });
+  });
+
+  it("rejects extra classifier fields even if a provider ignores the schema", async () => {
+    const provider = new GeminiIntentClassifierProvider({
+      apiKey: "gemini-key",
+      fetch: async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+        matchedBranchId: null, intentKey: null, confidence: 0, reason: "Fallback", usedFallback: true,
+        targetNodeId: "untrusted-target",
+      }) }] } }] })),
+    });
+
+    await expect(provider.classify({
+      nodeId: "condition-intent", modelAlias: "intent-classifier-fast", confidenceThreshold: 0.65,
+      latestCallerTurn: "Help", recentTranscript: [], branches: [], fallback: { label: "Fallback" },
+      inputWindow: { latestCallerTurn: true, recentTranscriptTurns: 0, includeConversationSummary: false,
+        includePreviousAgentContext: false, includeRecentToolResults: false },
+    })).rejects.toThrow("malformed JSON");
   });
 });
 

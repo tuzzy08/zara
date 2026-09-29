@@ -67,9 +67,10 @@ export class TrustedTerminalBillingRecoveryService {
       let usageFact = job.usageFact;
       if (job.commercialMode === "subscription") {
         const paygAppliedMinor = readPaygAppliedMinor(settlement);
+        const includedRuntimeSeconds = readIncludedRuntimeSeconds(settlement, usageFact.runtimeSeconds);
         const pinned = await this.jobs.pinPaygAppliedMinor(job, paygAppliedMinor);
         if (!pinned) return;
-        usageFact = { ...usageFact, paygAppliedMinor };
+        usageFact = { ...usageFact, paygAppliedMinor, includedRuntimeSeconds };
       }
       await this.usage.recordTerminalCall(usageFact);
       await this.jobs.markCompleted(job, now);
@@ -109,6 +110,16 @@ function readPaygAppliedMinor(value: unknown) {
     throw new Error("Subscription finalization did not return a PAYG applied amount.");
   }
   return Number(amount);
+}
+
+function readIncludedRuntimeSeconds(value: unknown, runtimeSeconds: number) {
+  const seconds = value !== null && typeof value === "object"
+    ? (value as { includedRuntimeSeconds?: unknown }).includedRuntimeSeconds
+    : undefined;
+  if (!Number.isSafeInteger(seconds) || Number(seconds) < 0 || Number(seconds) > runtimeSeconds) {
+    throw new Error("Subscription finalization did not return valid included runtime.");
+  }
+  return Number(seconds);
 }
 
 function reservationId(input: TrustedTerminalBillingRecoveryInput["settlement"]) {

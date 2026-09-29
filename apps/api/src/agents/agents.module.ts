@@ -5,16 +5,21 @@ import { IntegrationsModule } from "../integrations/integrations.module";
 import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
 import { AgentsController } from "./agents.controller";
 import { AgentsService } from "./agents.service";
+import { InstructionImprovementService } from "./instruction-improvement.service";
+import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { PostgresPoolService } from "../database/postgres-pool.service";
 import {
   AGENTS_STATE_REPOSITORY,
   FileAgentsStateRepository,
 } from "./agents-state.repository";
 
 @Module({
-  imports: [IntegrationsModule, RuntimePromptPolicyModule],
+  imports: [IntegrationsModule, RuntimePromptPolicyModule, WorkspacesModule],
   controllers: [AgentsController],
   providers: [
     AgentsService,
+    InstructionImprovementService,
+    PostgresPoolService,
     {
       provide: AGENTS_STATE_REPOSITORY,
       useFactory: () =>

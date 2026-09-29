@@ -20,6 +20,7 @@ import {
   type PremiumRealtimeProviderSessionTransition,
   type RegisteredPremiumRealtimeSession,
 } from "../runtime-sessions/runtime-sessions.service";
+import { buildPremiumRealtimeAgentPrompt } from "../runtime-sessions/premium-realtime-agent-prompt";
 import {
   pstnCallObservabilityRecorderToken,
   type PstnCallObservabilityEvent,
@@ -332,6 +333,8 @@ export class PstnPremiumCallExecution {
         resolvedManifest: snapshot.resolvedManifest,
         resolvedConversationPolicy:
           snapshot.resolvedConversationPolicy,
+        promptPolicyRevision: snapshot.promptPolicyRevision,
+        promptPolicyHash: snapshot.promptPolicyHash,
         workerTarget: snapshot.workerTarget,
         createdAt: snapshot.createdAt,
       }) !== snapshot.checksum
@@ -352,6 +355,8 @@ export class PstnPremiumCallExecution {
       () => this.runtimeSessionsService.createRealtimeSessionFromSnapshot({
         manifest,
         conversationPolicy: snapshot.resolvedConversationPolicy,
+        promptPolicyRevision: snapshot.promptPolicyRevision,
+        promptPolicyHash: snapshot.promptPolicyHash,
         activeAgentId: entryAgentId,
         budgetAllowed: true,
         organizationId: input.organizationId,
@@ -379,11 +384,13 @@ export class PstnPremiumCallExecution {
     const providerHandshakeStartedAt = Date.now();
     try {
       providerConnection = await this.providerTransport.connect({
+        callSessionId: snapshot.callSessionId,
         organizationId: registered.organizationId,
         workspaceId: registered.workspaceId,
         actorUserId: registered.actorUserId,
         session: registered.session,
         manifest: registered.manifest,
+        promptPolicy: registered.promptPolicy,
       });
     } catch (error) {
       this.capacityObservability?.recordSocketHandshakeAttempt({
@@ -1106,11 +1113,13 @@ export class PstnPremiumCallExecution {
     const replacementHandshakeStartedAt = Date.now();
     try {
       replacement = await this.providerTransport.connect({
+        callSessionId: execution.callSessionId,
         organizationId: execution.registered.organizationId,
         workspaceId: execution.registered.workspaceId,
         actorUserId: execution.registered.actorUserId,
         session: targetSession,
         manifest: execution.registered.manifest,
+        promptPolicy: execution.registered.promptPolicy,
       });
       execution.providerSocketIds.add(replacementSocketId);
       this.capacityObservability?.openSocket({
@@ -1157,7 +1166,7 @@ export class PstnPremiumCallExecution {
       execution.providerConnection = replacement;
       this.applyProviderMessageResult(execution, pending.result);
       this.bindProviderConnection(execution, replacement, pending.epoch);
-      const continuation = buildProviderContinuationMessage(pending.transition);
+      const continuation = buildProviderContinuationMessage(execution.registered, pending.transition);
       replacement.send(continuation);
       const replacementBufferedBytes = replacement.getBufferedAmountBytes();
       this.capacityObservability?.recordSocketTraffic({
@@ -2224,20 +2233,22 @@ function parseProviderEvents(
 }
 
 function buildProviderContinuationMessage(
+  registered: RegisteredPremiumRealtimeSession,
   transition: PremiumRealtimeProviderSessionTransition,
 ): Record<string, unknown> {
+  const systemPrompt = buildRegisteredAgentPrompt(registered, transition.target.agentId);
   if (transition.target.runtime === "gemini-live") {
     return new GeminiLiveRealtimeAdapter({
       apiKey: "server-owned-provider-session",
       model: transition.target.model,
-      systemPrompt: "",
+      systemPrompt,
       tools: transition.target.toolDeclarations,
     }).createTextInputMessage(transition.continuation.instruction);
   }
 
   return new OpenAiRealtimeAdapter({
     model: transition.target.model,
-    systemPrompt: "",
+    systemPrompt,
     tools: transition.target.toolDeclarations,
   }).createResponseCreateMessage({
     instructions: transition.continuation.instruction,
@@ -2248,19 +2259,20 @@ function buildInitialGreetingMessage(
   registered: RegisteredPremiumRealtimeSession,
 ): Record<string, unknown> {
   const initialGreetingInstruction = buildInitialGreetingInstruction(registered);
+  const systemPrompt = buildRegisteredAgentPrompt(registered, registered.activeAgentId);
 
   if (registered.session.runtime === "gemini-live") {
     return new GeminiLiveRealtimeAdapter({
       apiKey: "server-owned-provider-session",
       model: registered.session.model,
-      systemPrompt: "",
+      systemPrompt,
       tools: registered.session.toolDeclarations,
     }).createTextInputMessage(initialGreetingInstruction);
   }
 
   return new OpenAiRealtimeAdapter({
     model: registered.session.model,
-    systemPrompt: "",
+    systemPrompt,
     tools: registered.session.toolDeclarations,
   }).createResponseCreateMessage({
     instructions: initialGreetingInstruction,
@@ -2277,11 +2289,20 @@ function buildInitialGreetingInstruction(registered: RegisteredPremiumRealtimeSe
   }
 
   return [
-    `Begin with exactly: "Hello, this is ${agentName} from ${businessName}. How may I help you today?"`,
-    "Use both the configured agent name and business name.",
-    "Do not replace either name with a generic role such as support assistant.",
+    "Give the opening greeting now.",
+    "Use the configured agent name and business name from Business Configuration.",
     "Do not claim the caller has already said anything.",
   ].join(" ");
+}
+
+function buildRegisteredAgentPrompt(registered: RegisteredPremiumRealtimeSession, agentId: string) {
+  const agent = resolveRuntimeAgent(registered.manifest, agentId);
+  if (agent === undefined) throw new Error("premium_initial_agent_identity_unavailable");
+  return buildPremiumRealtimeAgentPrompt({
+    manifest: registered.manifest,
+    agent,
+    policy: registered.promptPolicy,
+  });
 }
 
 function adaptProviderConnection(

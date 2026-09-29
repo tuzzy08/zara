@@ -5,6 +5,7 @@ export default tseslint.config(
   {
     ignores: [
       "node_modules/**",
+      ".zara-data/**",
       "**/dist/**",
       "**/dist-js/**",
       "**/*.d.ts",

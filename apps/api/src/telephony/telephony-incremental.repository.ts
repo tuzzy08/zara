@@ -65,6 +65,8 @@ export interface TelephonyPremiumDispatchSnapshot {
   publishedVersionId: string;
   resolvedManifest: CompiledRuntimeManifest;
   resolvedConversationPolicy: PremiumRealtimeConversationPolicy;
+  promptPolicyRevision: number;
+  promptPolicyHash: string;
   workerTarget: {
     workerId: string;
     releaseId: string;

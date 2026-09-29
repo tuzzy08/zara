@@ -5,6 +5,7 @@
   "description": "Voice agent automation platform",
   "type": "module",
   "scripts": {
+    "billing:collect-shared": "tsx apps/api/src/billing/collect-shared-provider-billing.ts",
     "build": "npm run build --workspace @zara/core && npm run build --workspace @zara/auth-client && npm run build --workspace @zara/ui && npm run build --workspace @zara/api && npm run build --workspace @zara/web && npm run build --workspace @zara/platform-admin && npm run build --workspace @zara/pstn-protocol-simulator",
     "db:check": "npm run db:generate && git diff --exit-code -- apps/api/src/database/migrations",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
@@ -20,6 +21,8 @@
     "load:pstn:release": "npm run load:release --workspace @zara/pstn-protocol-simulator --",
     "smoke:pstn-protocol": "npm run smoke --workspace @zara/pstn-protocol-simulator",
     "eval:runtime": "vitest run --config ls.vitest.config.ts",
+    "eval:prompts": "vitest run --config prompt.vitest.config.ts",
+    "eval:typesafe": "vitest run --config typesafe.vitest.config.ts",
     "lint": "eslint .",
     "preview:web": "npm run preview --workspace @zara/web",
     "start": "npm run start:api",

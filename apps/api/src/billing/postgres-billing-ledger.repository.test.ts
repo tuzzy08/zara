@@ -8,6 +8,10 @@ describe("PostgresBillingLedgerRepository", () => {
 
   beforeEach(() => {
     const database = newDb();
+    database.public.none(`create table billing_delivery_decisions (
+      id text primary key, sequence serial, enabled boolean, catalog_id text,
+      release_id text, effective_at timestamptz
+    )`);
     database.public.none(`
       create table billing_customers (
         tenant_id text primary key,
@@ -91,6 +95,9 @@ describe("PostgresBillingLedgerRepository", () => {
         last_error text,
         created_at timestamptz not null,
         delivered_at timestamptz,
+        charge_release_id text,
+        charge_promoted_at timestamptz,
+        delivery_decision_id text,
         primary key (tenant_id, id)
       )
     `);
@@ -615,6 +622,46 @@ describe("PostgresBillingLedgerRepository", () => {
     await expect(
       Promise.all([repository.listLedgerEntries("tenant-a"), repository.listOutboxEntries("tenant-a")]),
     ).resolves.toEqual([[ledgerEntry], [outboxEntry]]);
+  });
+
+  it("selects only new complete usage under the current enable decision", async () => {
+    const repository = new PostgresBillingLedgerRepository(pool);
+    await pool.query(`insert into billing_delivery_decisions values
+      ('decision-1', 1, true, 'catalog-1', 'release-1', '2026-08-10T00:00:00Z')`);
+    const ledgerEntry = {
+      id: "new-usage", organizationId: "tenant-a", idempotencyKey: "new-usage",
+      entryType: "runtime_charge" as const, catalogId: "catalog-1", currency: "usd" as const,
+      customerAmountMinor: 18, quantity: 60, unit: "second",
+      occurredAt: "2026-08-10T00:02:00.000Z", createdAt: "2026-08-10T00:02:00.000Z",
+      metadata: { usageStartedAt: "2026-08-10T00:01:00.000Z", billingDisposition: "shadow", commercialMode: "subscription" },
+    };
+    const outboxEntry = {
+      id: "new-usage", organizationId: "tenant-a", aggregateType: "billing_ledger_entry" as const,
+      aggregateId: "new-usage", eventType: "polar.usage.report" as const,
+      payload: { deliveryMode: "shadow", quantity: 60 }, status: "pending" as const,
+      attemptCount: 0, nextAttemptAt: ledgerEntry.createdAt, createdAt: ledgerEntry.createdAt,
+    };
+    await repository.appendLedgerEntryWithOutbox({ ledgerEntry, outboxEntry });
+    for (const [id, changes] of [
+      ["historical", { metadata: { ...ledgerEntry.metadata, usageStartedAt: "2026-08-09T23:59:00.000Z" } }],
+      ["missing-start", { metadata: { billingDisposition: "shadow", commercialMode: "subscription" } }],
+      ["wrong-catalog", { catalogId: "catalog-old" }],
+      ["incomplete", { customerAmountMinor: undefined }],
+    ] as const) {
+      await repository.appendLedgerEntryWithOutbox({
+        ledgerEntry: { ...ledgerEntry, ...changes, id, idempotencyKey: id },
+        outboxEntry: { ...outboxEntry, id, aggregateId: id },
+      });
+    }
+    const claimed = await repository.claimDueOutbox("2026-08-10T00:03:00Z", 10, "2026-08-10T00:04:00Z", "release-1");
+    expect(claimed).toEqual([expect.objectContaining({ id: "new-usage", payload: expect.objectContaining({ deliveryMode: "charge" }) })]);
+    await repository.appendLedgerEntryWithOutbox({ ledgerEntry: { ...ledgerEntry, id: "pending-old", idempotencyKey: "pending-old" }, outboxEntry: { ...outboxEntry, id: "pending-old", aggregateId: "pending-old" } });
+    await pool.query(`insert into billing_delivery_decisions values ('stop',2,false,null,null,'2026-08-10T00:03:00Z')`);
+    await expect(repository.claimDueOutbox("2026-08-10T00:04:00Z", 10, "2026-08-10T00:05:00Z", "release-1")).resolves.toEqual([]);
+    await repository.appendLedgerEntryWithOutbox({ ledgerEntry: { ...ledgerEntry, id: "stopped", idempotencyKey: "stopped" }, outboxEntry: { ...outboxEntry, id: "stopped", aggregateId: "stopped" } });
+    await pool.query(`insert into billing_delivery_decisions values ('enable-new',3,true,'catalog-1','release-1','2026-08-10T00:05:00Z')`);
+    await repository.appendLedgerEntryWithOutbox({ ledgerEntry, outboxEntry });
+    await expect(repository.claimDueOutbox("2026-08-10T00:06:00Z", 10, "2026-08-10T00:07:00Z", "release-1")).resolves.toEqual([]);
   });
 
   it("commits one PAYG session debit and one credits-only outbox event exactly once", async () => {

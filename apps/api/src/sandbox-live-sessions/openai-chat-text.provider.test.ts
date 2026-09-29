@@ -6,8 +6,67 @@ import type {
 } from "@zara/core";
 
 import { OpenAiChatTextProvider } from "./openai-chat-text.provider";
+import { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
+import { usageRecordingTestPool } from "../billing/provider-usage-recording.test-support";
 
 describe("OpenAiChatTextProvider", () => {
+  it.each(["gpt-4.1-mini", "unmapped-pinned-model"])("keeps a sota route above the explicit model %s", async (modelId) => {
+    let requestedModel: unknown;
+    const provider = new OpenAiChatTextProvider({ apiKey: "test-key", fetch: async (_url, init) => {
+      requestedModel = JSON.parse(String(init?.body)).model;
+      return Response.json({ choices: [{ message: { content: "Hello" } }] });
+    } });
+    const input = { manifest: createManifest(), activeAgent: { ...createAgent(), modelProvider: "openai" as const, modelId },
+      transcript: "Hello", tier: "sota" as const, context: { callPhase: "greeting" as const } };
+    await collect(provider.streamText(input));
+    expect(requestedModel).toBe("gpt-4.1");
+    expect(provider.resolveRequestedModel(input)).toEqual({ provider: "openai", modelId: "gpt-4.1" });
+  });
+  it("keeps a failed provider request unresolved", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const provider = new OpenAiChatTextProvider({ apiKey: "test-key",
+        usageRecorder: new ProviderUsageRecordingRepository(pool), fetch: async () => { throw new Error("Network unavailable"); } });
+      await expect(collect(provider.streamText({ manifest: createManifest(), activeAgent: createAgent(),
+        transcript: "Question", tier: "standard", context: { callPhase: "discovery" } }))).rejects.toThrow("Network unavailable");
+      expect(await new ProviderUsageRecordingRepository(pool).listTenantRequests("tenant-west-africa"))
+        .toMatchObject([{ result: null }]);
+    } finally { await pool.end(); }
+  });
+  it.each([undefined, null, { prompt_tokens: -1, completion_tokens: 7, total_tokens: 6 },
+    { prompt_tokens: 30, completion_tokens: 7, total_tokens: 38 }])(
+    "keeps missing or invalid usage unresolved without losing the reply (%j)", async usage => {
+      const pool = usageRecordingTestPool();
+      try {
+        const provider = new OpenAiChatTextProvider({ apiKey: "test-key",
+          usageRecorder: new ProviderUsageRecordingRepository(pool),
+          fetch: async () => new Response(JSON.stringify({ id: "chatcmpl-usage", created: 1788692400,
+            choices: [{ message: { content: "Reply" } }], usage })) });
+        expect(await collect(provider.streamText({ manifest: createManifest(), activeAgent: createAgent(),
+          transcript: "Question", tier: "standard", context: { callPhase: "discovery" } }))).toEqual(["Reply"]);
+        expect(await new ProviderUsageRecordingRepository(pool).listTenantRequests("tenant-west-africa"))
+          .toMatchObject([{ result: null }]);
+      } finally { await pool.end(); }
+    });
+  it("saves provider token counts without saving the conversation", async () => {
+    const pool = usageRecordingTestPool();
+    try {
+      const provider = new OpenAiChatTextProvider({ apiKey: "secret-test-key", projectId: "proj-shared",
+        usageRecorder: new ProviderUsageRecordingRepository(pool),
+        fetch: async (_url, init) => {
+          expect(new Headers(init?.headers).get("OpenAI-Project")).toBe("proj-shared");
+          return new Response(JSON.stringify({ id: "chatcmpl-usage", created: 1788692400,
+          choices: [{ message: { content: "Private reply" } }],
+          usage: { prompt_tokens: 30, completion_tokens: 7, total_tokens: 37 } }));
+        } });
+      expect(await collect(provider.streamText({ callSessionId: "call-recorded", manifest: createManifest(), activeAgent: createAgent(),
+        transcript: "Private caller text", tier: "standard", context: { callPhase: "discovery" } }))).toEqual(["Private reply"]);
+      const rows = await new ProviderUsageRecordingRepository(pool).listTenantRequests("tenant-west-africa");
+      expect(rows).toMatchObject([{ sessionId: "call-recorded", externalScopeId: "proj-shared", result: {
+        providerRequestId: "chatcmpl-usage", totals: { inputTokens: 30, outputTokens: 7, requestCount: 1 } } }]);
+      expect(JSON.stringify(rows)).not.toMatch(/Private|secret-test-key/);
+    } finally { await pool.end(); }
+  });
   it("posts a chat completion request and yields the returned text", async () => {
     const recordedCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     const fetchMock = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -17,7 +76,7 @@ describe("OpenAiChatTextProvider", () => {
           choices: [
             {
               message: {
-                content: "I can help with your billing request.",
+                content: '{"action":{"type":"respond","responseText":"I can help with your billing request."}}',
               },
             },
           ],
@@ -52,11 +111,13 @@ describe("OpenAiChatTextProvider", () => {
         intent: "billing",
         language: "en",
       } satisfies ModelRoutingContext,
+      agentActionMode: true,
+      agentContext: { latestCallerTurn: "I need help with billing", recentTranscript: [], availableActions: [], toolResults: [] },
     })) {
       chunks.push(chunk);
     }
 
-    expect(chunks).toEqual(["I can help with your billing request."]);
+    expect(chunks).toEqual(['{"type":"respond","responseText":"I can help with your billing request."}']);
     expect(recordedCalls).toHaveLength(1);
     expect(recordedCalls[0]?.[0]).toBe("https://api.openai.com/v1/chat/completions");
     expect(recordedCalls[0]?.[1]).toMatchObject({
@@ -68,6 +129,14 @@ describe("OpenAiChatTextProvider", () => {
     });
     expect(JSON.parse(String(recordedCalls[0]?.[1]?.body))).toMatchObject({
       model: "gpt-4.1",
+      max_completion_tokens: 1_024,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "zara_agent_action",
+          strict: true,
+        },
+      },
       messages: [
         {
           role: "system",
@@ -79,7 +148,40 @@ describe("OpenAiChatTextProvider", () => {
     });
   });
 
-  it("uses an explicit OpenAI model id from the active role before tier defaults", async () => {
+  it("uses the spoken-response schema when the turn has no actions", async () => {
+    let body: Record<string, unknown> | undefined;
+    const provider = new OpenAiChatTextProvider({
+      apiKey: "openai-test-key",
+      fetch: (async (_url, init) => {
+        body = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ choices: [{ message: { content: "A short reply." } }] }));
+      }) as typeof fetch,
+    });
+
+    await collect(provider.streamText({
+      manifest: createManifest(), activeAgent: createAgent(), transcript: "Hello",
+      tier: "cheap", context: { callPhase: "greeting" }, agentActionMode: false,
+    }));
+
+    expect(body).toMatchObject({ max_completion_tokens: 512 });
+    expect(body).not.toHaveProperty("response_format");
+  });
+
+  it("fails before provider I/O when the whole request exceeds its input budget", async () => {
+    let calls = 0;
+    const provider = new OpenAiChatTextProvider({ apiKey: "openai-test-key", fetch: (async () => {
+      calls += 1;
+      return new Response();
+    }) as typeof fetch });
+
+    await expect(collect(provider.streamText({
+      manifest: createManifest(), activeAgent: createAgent(), transcript: "x".repeat(100_000),
+      tier: "cheap", context: { callPhase: "greeting" },
+    }))).rejects.toThrow("input context budget");
+    expect(calls).toBe(0);
+  });
+
+  it("uses an explicit OpenAI model when server configuration maps it to the required tier", async () => {
     const recordedBodies: unknown[] = [];
     const fetchMock = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       recordedBodies.push(JSON.parse(String(init?.body)));
@@ -116,7 +218,7 @@ describe("OpenAiChatTextProvider", () => {
       activeAgent: {
         ...createAgent(),
         modelProvider: "openai",
-        modelId: "gpt-4.1-mini-2026-01-01",
+        modelId: "gpt-4.1",
       },
       transcript: "hello",
       tier: "sota",
@@ -126,7 +228,7 @@ describe("OpenAiChatTextProvider", () => {
     }));
 
     expect(recordedBodies[0]).toMatchObject({
-      model: "gpt-4.1-mini-2026-01-01",
+      model: "gpt-4.1",
     });
   });
 
@@ -262,7 +364,9 @@ describe("OpenAiChatTextProvider", () => {
     const provider = new OpenAiChatTextProvider({
       apiKey: "openai-test-key",
       fetch: fetchMock,
-      getPromptPolicy: async () => ({
+    });
+
+    const promptPolicy = {
         guardrails: ["Use the platform-admin guardrail from the durable policy."],
         agentClassTemplates: {
           receptionist: {
@@ -286,8 +390,7 @@ describe("OpenAiChatTextProvider", () => {
             },
           },
         },
-      }),
-    });
+      };
 
     await collect(provider.streamText({
       manifest: createManifest(),
@@ -297,6 +400,7 @@ describe("OpenAiChatTextProvider", () => {
       context: {
         callPhase: "greeting",
       },
+      promptPolicy,
     }));
 
     const body = recordedBodies[0] as {

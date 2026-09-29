@@ -1,9 +1,9 @@
 import type { SandwichTextModelProvider } from "@zara/core";
+import type { ProviderUsageRecordingRepository } from "../billing/provider-usage-recording.repository";
 
 import { GeminiChatTextProvider } from "./gemini-chat-text.provider";
 import { OpenAiChatTextProvider } from "./openai-chat-text.provider";
 import type { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
-import type { SandboxTextPromptPolicy } from "./sandbox-text-model-prompts";
 import {
   UnavailableLiveSandboxTextModelProvider,
 } from "./sandbox-live-sessions.providers";
@@ -14,8 +14,9 @@ type LiveSandboxProviderConfig = ReturnType<typeof resolveLiveSandboxProviderCon
 export function createLiveSandboxTextModelProvider(
   config: LiveSandboxProviderConfig,
   options: {
+    usageRecorder?: ProviderUsageRecordingRepository | undefined;
+    openAiProjectId?: string | undefined;
     fetch?: typeof fetch | undefined;
-    getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined;
   } = {},
 ): SandwichTextModelProvider {
   const openAiProvider =
@@ -26,9 +27,10 @@ export function createLiveSandboxTextModelProvider(
         })
       : new OpenAiChatTextProvider({
           apiKey: config.openAiApiKey,
+          usageRecorder: options.usageRecorder,
+          projectId: options.openAiProjectId,
           baseUrl: config.openAiBaseUrl,
           fetch: options.fetch,
-          getPromptPolicy: options.getPromptPolicy,
           modelByTier: config.openAiModelByTier,
         });
   const geminiProvider =
@@ -41,14 +43,11 @@ export function createLiveSandboxTextModelProvider(
           apiKey: config.geminiApiKey,
           baseUrl: config.geminiBaseUrl,
           fetch: options.fetch,
-          getPromptPolicy: options.getPromptPolicy,
           modelByTier: config.geminiModelByTier,
         });
 
   return new SandboxTextModelRouterProvider({
     openai: openAiProvider,
     "google-gemini": geminiProvider,
-  }, {
-    getPromptPolicy: options.getPromptPolicy,
   });
 }

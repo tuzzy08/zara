@@ -172,11 +172,13 @@ describe("PstnPremiumCallExecution media-provider", () => {
       expect(sentProviderMessages[1]).toMatchObject({
         type: "response.create",
         response: {
-          instructions: expect.stringContaining(
-            'Begin with exactly: "Hello, this is Jane from Tuzzy Labs. How may I help you today?"',
-          ),
+          instructions: expect.stringContaining("# Platform Rules"),
         },
       });
+      const greetingInstructions = (sentProviderMessages[1]?.response as { instructions: string }).instructions;
+      expect(greetingInstructions).toContain("# Response Directive");
+      expect(greetingInstructions.split("# Response Directive")[1]).not.toContain("Jane");
+      expect(greetingInstructions.split("# Response Directive")[1]).not.toContain("Tuzzy Labs");
       expect(connectedMediaProfile).toBe("pstn");
 
       providerMessageHandler?.(JSON.stringify({
@@ -324,9 +326,7 @@ describe("PstnPremiumCallExecution media-provider", () => {
       expect(Buffer.from(audio, "base64")).toHaveLength(640);
       expect(greetingMessage).toMatchObject({
         realtimeInput: {
-          text: expect.stringContaining(
-            'Begin with exactly: "Hello, this is Jane from Tuzzy Labs. How may I help you today?"',
-          ),
+          text: "Give the opening greeting now. Use the configured agent name and business name from Business Configuration. Do not claim the caller has already said anything.",
         },
       });
     });

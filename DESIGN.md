@@ -26,6 +26,10 @@ Tenant `/memory` should keep knowledge-base setup in the operational shell rathe
 
 ## 1. Visual Theme & Atmosphere
 
+Tenant agent instructions use a compact example inside the existing text field. The example covers purpose, process, tools, limits, handoff, and style. Keep the same example in the reusable-agent form and workflow inspector. Each instruction field allows up to 12,000 characters. Do not add another setup screen for prompt writing.
+
+Both fields include **Improve instructions**. Open a compact review panel beside the field with the original text, an editable suggestion, changes and reasons, missing information, and configuration conflicts. Generation must not replace the current text. **Use these instructions** changes only the draft. Keep **Restore original** available while the applied text is unchanged. Block apply when the source text or agent settings have changed. Remind the builder to check business facts. Publishing remains a separate action.
+
 Vercel's website is the visual thesis of developer infrastructure made invisible — a design system so restrained it borders on philosophical. The page is overwhelmingly white (`#ffffff`) with near-black (`#171717`) text, creating a gallery-like emptiness where every element earns its pixel. This isn't minimalism as decoration; it's minimalism as engineering principle. The Geist design system treats the interface like a compiler treats code — every unnecessary token is stripped away until only structure remains.
 
 The custom Geist font family is the crown jewel. Geist Sans uses aggressive negative letter-spacing (-2.4px to -2.88px at display sizes), creating headlines that feel compressed, urgent, and engineered — like code that's been minified for production. At body sizes, the tracking relaxes but the geometric precision persists. Geist Mono completes the system as the monospace companion for code, terminal output, and technical labels. Both fonts enable OpenType `"liga"` (ligatures) globally, adding a layer of typographic sophistication that rewards close reading.
@@ -127,6 +131,11 @@ What distinguishes Vercel from other monochrome design systems is its shadow-as-
 - Tenant sign-in and sign-up use the same restrained centered card, brand mark, eyebrow, 32px heading, compact field stack, and one primary dark submit action.
 - `/signup` changes only the mode-specific heading, user name field, organization name field, submit label, and secondary text link. Do not introduce a second landing page or marketing panel for account creation.
 - The alternate auth action is a quiet inline link below the form using the system link blue and 13px body copy.
+
+### Billing
+
+- Use `Subscription details` for the tenant subscription panel heading.
+- After hosted checkout, refresh billing facts in place for a bounded period. Do not require a page reload or show a new loading panel for each background read. Payment and subscription state must come from the API.
 
 ### Buttons
 

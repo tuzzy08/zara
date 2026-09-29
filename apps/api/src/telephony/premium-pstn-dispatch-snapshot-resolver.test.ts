@@ -8,8 +8,11 @@ import { PremiumPstnDispatchSnapshotResolver } from "./premium-pstn-dispatch-sna
 describe("PremiumPstnDispatchSnapshotResolver", () => {
   it("freezes the exact manifest defaults and conversation policy used by a premium dispatch", async () => {
     const manifest = createManifest();
-    const getPromptPolicy = vi.fn().mockResolvedValue({
+    const promptPolicy = {
       schemaVersion: 1,
+      version: 8,
+      guardrails: ["Stay safe."],
+      updatedBy: "staff-1",
       updatedAt: "2026-07-25T10:00:00.000Z",
       agentClassTemplates: {
         receptionist: {
@@ -26,6 +29,11 @@ describe("PremiumPstnDispatchSnapshotResolver", () => {
           },
         },
       },
+    };
+    const selectPromptPolicy = vi.fn().mockResolvedValue({
+      revision: 8,
+      hash: "prompt-hash-8",
+      policy: promptPolicy,
     });
     const conversationPolicy = structuredClone(
       defaultPremiumRealtimeConversationPolicy,
@@ -34,7 +42,7 @@ describe("PremiumPstnDispatchSnapshotResolver", () => {
       {
         load: vi.fn().mockResolvedValue(manifest),
       },
-      { getPromptPolicy },
+      { selectPromptPolicy },
       {
         getPolicy: vi.fn().mockResolvedValue(conversationPolicy),
       },
@@ -51,6 +59,10 @@ describe("PremiumPstnDispatchSnapshotResolver", () => {
       realtimeModelId: "gpt-realtime-2.1",
     });
     expect(result.resolvedConversationPolicy).toEqual(conversationPolicy);
+    expect(result).toMatchObject({
+      promptPolicyRevision: 8,
+      promptPolicyHash: "prompt-hash-8",
+    });
     expect(result.resolvedManifest).not.toBe(manifest);
     expect(result.resolvedConversationPolicy).not.toBe(conversationPolicy);
   });
@@ -64,7 +76,7 @@ describe("PremiumPstnDispatchSnapshotResolver", () => {
         }),
       },
       {
-        getPromptPolicy: vi.fn(),
+        selectPromptPolicy: vi.fn(),
       },
       {
         getPolicy: vi.fn(),

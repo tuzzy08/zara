@@ -172,6 +172,9 @@ export class PostgresProviderEvidenceRepository implements BillingProviderEviden
       fetchedAt: string;
     },
   ) {
+    if (input.payload.scope === "platform") {
+      throw new Error("Shared provider evidence cannot be assigned to a tenant.");
+    }
     const inserted = await this.database.query(
        `insert into billing_provider_evidence_reports (
          tenant_id, id, catalog_id, provider, evidence_kind, source_report_id, source_hash,
@@ -228,6 +231,9 @@ export function reconcileProviderNativeReport(
   input: BillingCycleEvidenceInput,
   report: BillingProviderEvidenceReport,
 ): ProviderNativeReconciliation {
+  if (report.payload.scope === "platform") {
+    return nativeMismatch(input, report, "", ["shared_provider_evidence_not_tenant_scoped"]);
+  }
   const forbiddenQuantity = Object.keys(report.payload.quantities).length > 0;
   const facts = Array.isArray(report.payload.facts) ? report.payload.facts : [];
   if (facts.length === 0) return nativeMismatch(input, report, "", [
@@ -241,8 +247,13 @@ export function reconcileProviderNativeReport(
       : report.provider === "gemini"
         ? reconcileGemini(input, report, facts)
         : nativeMismatch(input, report, "", ["provider_native_contract_unsupported"]);
-  if (!forbiddenQuantity) return result;
-  return { ...result, status: "mismatch", issues: ["provider_native_zara_quantity_forbidden", ...result.issues] };
+  if (forbiddenQuantity) {
+    return { ...result, status: "mismatch", issues: ["provider_native_zara_quantity_forbidden", ...result.issues] };
+  }
+  // Valid provider facts alone do not prove agreement with independently recorded usage.
+  return result.status === "matched"
+    ? { ...result, status: "mismatch", issues: ["provider_observation_comparison_missing"] }
+    : result;
 }
 
 function reconcileCartesia(
@@ -585,16 +596,16 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function integer(value: unknown) {
-  const normalized = typeof value === "number" ? value : Number(value);
-  if (!Number.isSafeInteger(normalized) || normalized < 0) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error("Reconciliation quantity must be a non-negative integer.");
   }
-  return normalized;
+  return value;
 }
 
 function isMeterKey(value: string): value is BillingReconciliationMeterKey {
   return value === "standard_runtime_seconds"
     || value === "premium_runtime_seconds"
     || value === "platform_telephony_charge_minor"
+    || value === "subscription_charge_minor"
     || value === "payg_charge_minor";
 }

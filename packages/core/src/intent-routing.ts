@@ -54,6 +54,15 @@ export interface IntentClassifierOutput {
   confidence: number;
   reason: string;
   usedFallback: boolean;
+  providerAssessment?: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+    questionRevision: string;
+    policyRevision: string;
+    sourceHash: string;
+  } | undefined;
 }
 
 export interface IntentRouteClassificationResolution {
@@ -89,6 +98,50 @@ export interface AgentRoutePolicyClassificationResolution {
   transfer?: AgentTransferContext | undefined;
 }
 
+export function resolveAgentRoutePolicyAction(input: {
+  routePolicy: DraftWorkflowAgentRoutePolicy;
+  branchId: string;
+  sourceAgent: RuntimeAgentRef;
+  targetAgents: AgentRoutePolicyRuntimeAgentRef[];
+  transferId?: string | undefined;
+  reason: string;
+  callerNeedSummary: string;
+  recentToolResults?: ToolExecutionResult[] | undefined;
+}): AgentRoutePolicyClassificationResolution {
+  const branch = input.routePolicy.branches.find((candidate) => candidate.id === input.branchId);
+  if (branch === undefined || branch.target.type !== "agent") {
+    throw new Error("Agent handoff target is not a configured agent branch.");
+  }
+  const target = cloneAgentRoutePolicyTarget(branch.target);
+  const targetAgent = findAgentRoutePolicyTarget(input.targetAgents, branch.target.agentId);
+  const intent: IntentRouteResult = {
+    nodeId: input.routePolicy.sourceAgentId,
+    matchedBranchId: branch.id,
+    intentKey: branch.intentKey,
+    label: branch.label,
+    decisionOrigin: "agent_action",
+    reason: input.reason,
+    usedFallback: false,
+    targetNodeId: branch.target.agentId,
+  };
+  return {
+    intent,
+    target,
+    ...(targetAgent === undefined ? {} : {
+      announcementText: renderAgentRoutePolicyAnnouncement(input.routePolicy, targetAgent, branch),
+      transfer: buildAgentRoutePolicyTransfer({
+        sourceAgent: input.sourceAgent,
+        targetAgent,
+        transferId: input.transferId,
+        intent,
+        callerNeedSummary: input.callerNeedSummary,
+        recentToolResults: input.recentToolResults ?? [],
+        branch,
+      }),
+    }),
+  };
+}
+
 export function resolveIntentRouteClassification(
   input: ResolveIntentRouteClassificationInput,
 ): IntentRouteClassificationResolution {
@@ -98,7 +151,6 @@ export function resolveIntentRouteClassification(
     return buildFallbackResolution({
       nodeId: input.nodeId,
       route: input.route,
-      confidence: 0,
       reason: "Intent classifier returned invalid structured output.",
       warning: {
         code: "intent_classifier.invalid_output",
@@ -112,7 +164,6 @@ export function resolveIntentRouteClassification(
     return buildFallbackResolution({
       nodeId: input.nodeId,
       route: input.route,
-      confidence: 0,
       reason: "Intent classifier returned an invalid confidence score.",
       warning: {
         code: "intent_classifier.invalid_confidence",
@@ -127,6 +178,7 @@ export function resolveIntentRouteClassification(
       nodeId: input.nodeId,
       route: input.route,
       confidence: parsedOutput.confidence,
+      providerAssessment: parsedOutput.providerAssessment,
       reason: normalizeReason(parsedOutput.reason, `Classifier selected fallback '${input.route.fallback.label}'.`),
     });
   }
@@ -136,6 +188,7 @@ export function resolveIntentRouteClassification(
       nodeId: input.nodeId,
       route: input.route,
       confidence: parsedOutput.confidence,
+      providerAssessment: parsedOutput.providerAssessment,
       reason: `Classifier confidence ${parsedOutput.confidence.toFixed(2)} was below threshold ${input.route.classifier.confidenceThreshold.toFixed(2)}.`,
       warning: {
         code: "intent_classifier.low_confidence",
@@ -152,6 +205,7 @@ export function resolveIntentRouteClassification(
       nodeId: input.nodeId,
       route: input.route,
       confidence: parsedOutput.confidence,
+      providerAssessment: parsedOutput.providerAssessment,
       reason: "Intent classifier selected an unknown branch.",
       warning: {
         code: "intent_classifier.unknown_branch",
@@ -166,6 +220,7 @@ export function resolveIntentRouteClassification(
       nodeId: input.nodeId,
       route: input.route,
       confidence: parsedOutput.confidence,
+      providerAssessment: parsedOutput.providerAssessment,
       reason: "Intent classifier returned an intent key that does not match the selected branch.",
       warning: {
         code: "intent_classifier.intent_mismatch",
@@ -183,6 +238,8 @@ export function resolveIntentRouteClassification(
       label: matchedBranch.label,
       confidence: parsedOutput.confidence,
       reason: normalizeReason(parsedOutput.reason, `Matched configured intent branch '${matchedBranch.label}'.`),
+      decisionOrigin: "classifier",
+      ...(parsedOutput.providerAssessment === undefined ? {} : { providerAssessment: parsedOutput.providerAssessment }),
       usedFallback: false,
       targetNodeId: matchedBranch.targetNodeId,
     },
@@ -242,6 +299,7 @@ function parseIntentClassifierOutput(output: unknown): IntentClassifierOutput | 
   const confidence = record["confidence"];
   const reason = record["reason"];
   const usedFallback = record["usedFallback"];
+  const assessment = record["providerAssessment"];
 
   if (
     !(typeof matchedBranchId === "string" || matchedBranchId === null)
@@ -252,6 +310,17 @@ function parseIntentClassifierOutput(output: unknown): IntentClassifierOutput | 
   ) {
     return null;
   }
+  if (assessment !== undefined && (typeof assessment !== "object" || assessment === null)) return null;
+  const providerAssessment = assessment as Record<string, unknown> | undefined;
+  if (providerAssessment !== undefined && (
+    typeof providerAssessment["model"] !== "string"
+    || !Number.isSafeInteger(providerAssessment["inputTokens"]) || (providerAssessment["inputTokens"] as number) < 0
+    || !Number.isSafeInteger(providerAssessment["outputTokens"]) || (providerAssessment["outputTokens"] as number) < 0
+    || typeof providerAssessment["latencyMs"] !== "number" || !Number.isFinite(providerAssessment["latencyMs"]) || providerAssessment["latencyMs"] < 0
+    || typeof providerAssessment["questionRevision"] !== "string"
+    || typeof providerAssessment["policyRevision"] !== "string"
+    || typeof providerAssessment["sourceHash"] !== "string"
+  )) return null;
 
   return {
     matchedBranchId,
@@ -259,13 +328,23 @@ function parseIntentClassifierOutput(output: unknown): IntentClassifierOutput | 
     confidence,
     reason,
     usedFallback,
+    ...(providerAssessment === undefined ? {} : { providerAssessment: {
+      model: providerAssessment["model"] as string,
+      inputTokens: providerAssessment["inputTokens"] as number,
+      outputTokens: providerAssessment["outputTokens"] as number,
+      latencyMs: providerAssessment["latencyMs"] as number,
+      questionRevision: providerAssessment["questionRevision"] as string,
+      policyRevision: providerAssessment["policyRevision"] as string,
+      sourceHash: providerAssessment["sourceHash"] as string,
+    } }),
   };
 }
 
 function buildFallbackResolution(input: {
   nodeId: string;
   route: IntentRouteNodeConfig;
-  confidence: number;
+  confidence?: number | undefined;
+  providerAssessment?: IntentClassifierOutput["providerAssessment"];
   reason: string;
   warning?: RuntimeWarning | undefined;
 }): IntentRouteClassificationResolution {
@@ -274,7 +353,9 @@ function buildFallbackResolution(input: {
     matchedBranchId: null,
     intentKey: null,
     label: null,
-    confidence: input.confidence,
+    ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+    ...(input.providerAssessment !== undefined ? { providerAssessment: input.providerAssessment } : {}),
+    decisionOrigin: "fallback",
     reason: normalizeReason(input.reason, `Using fallback '${input.route.fallback.label}'.`),
     usedFallback: true,
     targetNodeId: input.route.fallback.targetNodeId,
@@ -356,7 +437,7 @@ function buildAgentRoutePolicyTransfer(input: {
           matchedIntent: {
             intentKey: input.intent.intentKey,
             label: input.intent.label,
-            confidence: input.intent.confidence,
+            ...(input.intent.confidence !== undefined ? { confidence: input.intent.confidence } : {}),
           },
         }
       : {}),

@@ -45,6 +45,7 @@ export class GeminiIntentClassifierProvider implements LiveSandboxIntentClassifi
       `${this.config.baseUrl ?? "https://generativelanguage.googleapis.com"}/v1beta/models/${encodeURIComponent(this.modelId)}:generateContent`,
       {
         method: "POST",
+        ...(input.abortSignal === undefined ? {} : { signal: input.abortSignal }),
         headers: {
           "Content-Type": "application/json",
           "x-goog-api-key": this.config.apiKey,
@@ -131,6 +132,19 @@ function buildGeminiIntentClassifierRequestBody(input: LiveSandboxIntentClassifi
     generationConfig: {
       temperature: 0,
       responseMimeType: "application/json",
+      maxOutputTokens: 256,
+      responseJsonSchema: {
+        type: "object",
+        properties: {
+          matchedBranchId: { type: ["string", "null"] },
+          intentKey: { type: ["string", "null"] },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          reason: { type: "string" },
+          usedFallback: { type: "boolean" },
+        },
+        required: ["matchedBranchId", "intentKey", "confidence", "reason", "usedFallback"],
+        additionalProperties: false,
+      },
     },
   };
 }
@@ -148,6 +162,7 @@ function parseIntentClassifierOutput(text: string): IntentClassifierOutput {
   const confidence = record["confidence"];
   const reason = record["reason"];
   const usedFallback = record["usedFallback"];
+  const allowedKeys = new Set(["matchedBranchId", "intentKey", "confidence", "reason", "usedFallback"]);
 
   if (
     !(typeof matchedBranchId === "string" || matchedBranchId === null)
@@ -155,6 +170,7 @@ function parseIntentClassifierOutput(text: string): IntentClassifierOutput {
     || typeof confidence !== "number"
     || typeof reason !== "string"
     || typeof usedFallback !== "boolean"
+    || Object.keys(record).some((key) => !allowedKeys.has(key))
   ) {
     throw new Error("Intent classifier returned malformed JSON.");
   }

@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { maxAgentInstructionsCharacters } from "@zara/core";
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
@@ -59,6 +60,10 @@ export class AgentsService {
 
     if (instructions.length === 0) {
       throw new BadRequestException("Agent instructions are required.");
+    }
+
+    if (instructions.length > maxAgentInstructionsCharacters) {
+      throw new BadRequestException(`Agent instructions must not exceed ${maxAgentInstructionsCharacters} characters.`);
     }
 
     if (defaultLanguage.length === 0) {

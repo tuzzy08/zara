@@ -16,6 +16,9 @@ describe("BillingPolarOutboxWorker", () => {
 
   beforeEach(() => {
     const database = newDb();
+    database.public.none(`create table billing_delivery_decisions (
+      id text primary key, sequence serial, enabled boolean, catalog_id text, release_id text, effective_at timestamptz
+    ); insert into billing_delivery_decisions values ('decision-248',1,true,'catalog-1','release-248','2026-08-01T00:00:00Z')`);
     database.public.none(`
       create table billing_ledger_entries (
         id text not null, tenant_id text not null, idempotency_key text not null,
@@ -31,7 +34,7 @@ describe("BillingPolarOutboxWorker", () => {
         status text not null, attempt_count integer not null default 0,
         next_attempt_at timestamptz not null, last_error text,
         created_at timestamptz not null, delivered_at timestamptz,
-        charge_release_id text, charge_promoted_at timestamptz,
+        charge_release_id text, charge_promoted_at timestamptz, delivery_decision_id text,
         primary key (tenant_id, id)
       );
       create table billing_payg_credit_entries (
@@ -186,6 +189,7 @@ describe("BillingPolarOutboxWorker", () => {
         assertDeliveryAllowed: async () => {
           checks += 1;
           if (checks === 2) throw new Error("Charge delivery is stopped: Incident stop.");
+          return { allowed: true, decisionId: "decision-248" };
         },
       },
     );
@@ -209,7 +213,7 @@ describe("BillingPolarOutboxWorker", () => {
       { ingestUsageEvent: vi.fn(async () => ({ providerEventId: "polar_usage_entry-1" })) },
       { deliveryEnabled: true, releaseId: "release-248", batchSize: 1, maxAttempts: 3, retryDelayMs: 1_000 },
       undefined,
-      { assertDeliveryAllowed: async (now) => { checkedAt.push(now); } },
+      { assertDeliveryAllowed: async (now) => { checkedAt.push(now); return { allowed: true, decisionId: "decision-248" }; } },
       { now: () => "2026-08-12T12:00:05.000Z" },
     );
 
@@ -381,7 +385,7 @@ describe("BillingPolarOutboxWorker", () => {
       },
     });
     await pool.query(`update billing_outbox set
-      charge_release_id = 'release-248',
+      charge_release_id = 'release-248', delivery_decision_id = 'decision-248',
       charge_promoted_at = '2026-08-10T01:00:00.500Z'
       where tenant_id = 'tenant-payg' and id = 'polar_payg_debit_call-1'`);
     const ingestUsageEvent = vi.fn(async () => ({
@@ -455,10 +459,10 @@ async function seedUsage(
   });
   if (deliveryMode === "charge") {
     await pool.query(`update billing_outbox set
-      charge_release_id = 'release-248',
+      charge_release_id = 'release-248', delivery_decision_id = 'decision-248',
       charge_promoted_at = '2026-08-10T00:00:01.500Z'
       where tenant_id = 'tenant-a' and id = 'polar_usage_entry-1'`);
   }
 }
 
-const allowDelivery = { assertDeliveryAllowed: async () => undefined };
+const allowDelivery = { assertDeliveryAllowed: async () => ({ allowed: true, decisionId: "decision-248" }) };

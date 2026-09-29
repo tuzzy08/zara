@@ -42,6 +42,11 @@ describe("TrustedCallCommercialModeResolver", () => {
         tenant_id text not null, catalog_id text not null, entry_type text not null, customer_amount_minor bigint,
         quantity bigint not null, unit text not null, occurred_at timestamptz not null, metadata jsonb not null
       );
+      create table billing_subscription_call_reservations (
+        tenant_id text, id text, catalog_id text, plan_slug text, status text, finalized_at timestamptz,
+        session_id text, meter_class text, billing_mode text, actual_seconds bigint,
+        reserved_included_seconds bigint, actual_provider_connected_seconds bigint, route_rate_minor_per_minute bigint
+      );
 
       insert into billing_subscriptions values
         ('tenant-sub','sub-1','catalog-1','growth','active','2026-09-01T00:00:00Z'),
@@ -139,6 +144,49 @@ describe("TrustedCallCommercialModeResolver", () => {
     await expect(resolver.resolve("tenant-conflict", now)).resolves.toEqual({ mode: "unavailable" });
     await expect(resolver.resolve("tenant-expired", now)).resolves.toEqual({ mode: "unavailable" });
     await expect(resolver.resolve("tenant-missing", now)).resolves.toEqual({ mode: "unavailable" });
+    await pool.query(`insert into billing_subscription_call_reservations values
+      ('tenant-sub','finalized-call','catalog-1','growth','finalized','2026-08-11T09:00:00Z',
+        'finalized-session','standard','byo',180,120,0,null)`);
+    await expect(resolver.resolve("tenant-sub", now)).resolves.toMatchObject({
+      availableIncludedSeconds: 0, availableOverageMinor: 88,
+    });
+    await pool.query(`update billing_subscription_call_reservations set billing_mode = 'platform_managed',
+      actual_provider_connected_seconds = 61, route_rate_minor_per_minute = 35`);
+    await pool.query(`insert into billing_payg_credit_entries values
+      ('tenant-sub','grant-sub','grant',20,null),
+      ('tenant-sub','subscription-payg-debit:finalized-call','debit',20,null)`);
+    await expect(resolver.resolve("tenant-sub", now)).resolves.toMatchObject({
+      availableIncludedSeconds: 0, availableOverageMinor: 38,
+    });
+    await pool.query(`insert into billing_ledger_entries values
+      ('tenant-sub','catalog-1','runtime_charge',0,180,'second','2026-08-11T09:00:00Z',
+        '{"billingClass":"standard_runtime_seconds","callSessionId":"finalized-session","settlementMeterKey":"subscription_charge_minor","includedRuntimeSeconds":120}')`);
+    await expect(resolver.resolve("tenant-sub", now)).resolves.toMatchObject({ availableOverageMinor: 38 });
+    await pool.query(`insert into billing_ledger_entries values
+      ('tenant-sub','catalog-1','telephony_charge',62,61,'connected_second','2026-08-11T09:00:00Z',
+        '{"billingClass":"platform_telephony_charge_minor","callSessionId":"finalized-session","settlementMeterKey":"subscription_charge_minor"}')`);
+    await expect(resolver.resolve("tenant-sub", now)).resolves.toMatchObject({ availableOverageMinor: 38 });
+    await pool.query(`delete from billing_ledger_entries where tenant_id = 'tenant-sub'`);
+    await pool.query(`delete from billing_subscription_call_reservations`);
+    await pool.query(`insert into billing_ledger_entries values
+      ('tenant-sub','catalog-1','runtime_charge',0,90,'second','2026-08-10T00:00:00Z',
+        '{"billingClass":"standard_runtime_seconds"}'),
+      ('tenant-sub','catalog-1','runtime_charge',3,60,'second','2026-08-10T01:00:00Z',
+        '{"billingClass":"standard_runtime_seconds","settlementMeterKey":"subscription_charge_minor","includedRuntimeSeconds":30}'),
+      ('tenant-sub','catalog-1','telephony_charge',5,60,'connected_second','2026-08-10T01:00:00Z',
+        '{"billingClass":"platform_telephony_charge_minor","settlementMeterKey":"subscription_charge_minor"}')`);
+    await expect(resolver.resolve("tenant-sub", now)).resolves.toMatchObject({
+      mode: "subscription", availableIncludedSeconds: 0, availableOverageMinor: 92,
+    });
+    await pool.query(`update billing_ledger_entries set quantity = 120
+      where tenant_id = 'tenant-sub' and metadata->>'settlementMeterKey' is null`);
+    await expect(resolver.resolve("tenant-sub", now)).resolves.toMatchObject({
+      mode: "subscription", availableIncludedSeconds: 0, availableOverageMinor: 86,
+    });
+    await pool.query(`update billing_ledger_entries set customer_amount_minor = null
+      where tenant_id = 'tenant-sub' and metadata->>'settlementMeterKey' = 'subscription_charge_minor'
+        and entry_type = 'runtime_charge'`);
+    await expect(resolver.resolve("tenant-sub", now)).resolves.toEqual({ mode: "unavailable" });
     await pool.end();
   });
 });

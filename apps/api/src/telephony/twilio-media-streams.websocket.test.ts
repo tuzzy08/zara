@@ -43,6 +43,8 @@ import {
   type TwilioNumberRoutingProvider,
 } from "./twilio-number-routing.provider";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
+import { PstnSandwichCallExecution } from "./pstn-sandwich-call-execution";
+import { createStandardPstnTestExecution } from "./pstn-sandwich-call-execution.test-support";
 import {
   PstnPremiumCallExecution,
   type PstnPremiumCallOutput,
@@ -74,6 +76,76 @@ import { defaultPremiumRealtimeConversationPolicy } from "../premium-realtime-po
 
 describe("Twilio Media Streams websocket bridge", () => {
   const sockets: WebSocket[] = [];
+
+  it("records a runtime-completed standard call as completed after acknowledged goodbye audio", async () => {
+    const { app, moduleRef, phoneNumber, authToken, standardExecution } = await createRoutedTwilioApp();
+    try {
+      const callSid = "CA-standard-completed";
+      const streamSid = "MZ-standard-completed";
+      const webhook = await answerViaVerifiedWebhook({ app, phoneNumber, authToken, callSid,
+        accountSid: "AC1234567890abcdef1234567890abcd", eventSid: "EVT-standard-completed" });
+      const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${extractTwilioStreamUrl(webhook.text).pathname}`);
+      sockets.push(socket);
+      let sequence = 2;
+      let marks = 0;
+      socket.on("message", data => {
+        const message = JSON.parse(String(data));
+        if (message.event === "mark") {
+          marks += 1;
+          socket.send(JSON.stringify({ event: "mark", streamSid, sequenceNumber: String(sequence++), mark: message.mark }));
+        }
+      });
+      await nextOpen(socket);
+      socket.send(JSON.stringify(createStartMessage({ callSid, streamSid,
+        token: extractTwilioStreamParameter(webhook.text, "zaraStreamToken") })));
+      await vi.waitFor(() => expect(standardExecution.sttSockets).toHaveLength(1));
+      const provider = standardExecution.sttSockets[0]!;
+      provider.message({ type: "Turn", turn_order: 0, transcript: "Hello", end_of_turn: true });
+      await vi.waitFor(() => expect(marks).toBe(2));
+      const closed = nextClose(socket);
+      provider.message({ type: "Turn", turn_order: 1, transcript: "Thank you", end_of_turn: true });
+      expect(await closed).toEqual({ code: 1000, reason: "standard_call_completed" });
+      const repository = moduleRef.get<InMemoryTelephonyIncrementalRepository>(TELEPHONY_INCREMENTAL_REPOSITORY);
+      await vi.waitFor(async () => expect(await repository.loadCallRuntimeContext({ tenantId: "tenant-west-africa",
+        callSessionId: `${callSid}:telephony` })).toMatchObject({ outcome: "found", context: { lifecycleState: { stage: "completed" } } }));
+    } finally { await app.close(); }
+  }, 30_000);
+
+  it("connects an authorized standard call to STT and returns speech through the Twilio socket", async () => {
+    const { app, phoneNumber, authToken, standardExecution } = await createRoutedTwilioApp({ standardAudioBytes: 8160 });
+    try {
+      const callSid = "CA-standard-runtime";
+      const streamSid = "MZ-standard-runtime";
+      const webhook = await answerViaVerifiedWebhook({ app, phoneNumber, authToken, callSid,
+        accountSid: "AC1234567890abcdef1234567890abcd", eventSid: "EVT-standard-runtime" });
+      const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}${extractTwilioStreamUrl(webhook.text).pathname}`);
+      sockets.push(socket);
+      const received: Array<Record<string, unknown>> = [];
+      socket.on("message", data => received.push(JSON.parse(String(data))));
+      await nextOpen(socket);
+      socket.send(JSON.stringify(createStartMessage({ callSid, streamSid,
+        token: extractTwilioStreamParameter(webhook.text, "zaraStreamToken") })));
+      for (let index = 0; index < 3; index += 1) socket.send(JSON.stringify({ event: "media", streamSid,
+        sequenceNumber: String(index + 2), media: { track: "inbound", chunk: String(index + 1), timestamp: String(index * 20),
+          payload: Buffer.alloc(160, 127).toString("base64") } }));
+      await vi.waitFor(() => expect(standardExecution.sttSockets).toHaveLength(1));
+      const provider = standardExecution.sttSockets[0]!;
+      await vi.waitFor(() => expect(provider.sent.filter(Buffer.isBuffer)).toEqual([Buffer.alloc(480, 127)]));
+      provider.message({ type: "Turn", turn_order: 0, transcript: "Are you open?", end_of_turn: true });
+      await vi.waitFor(() => expect(received.some(message => message.event === "media")).toBe(true));
+      expect(received.find(message => message.event === "media")).toMatchObject({ event: "media", streamSid,
+        media: { payload: Buffer.alloc(160, 127).toString("base64") } });
+      await vi.waitFor(() => expect(received.filter(message => message.event === "media")).toHaveLength(50));
+      const mark = received.find(message => message.event === "mark")!.mark;
+      socket.send(JSON.stringify({ event: "mark", streamSid, sequenceNumber: "5", mark }));
+      await vi.waitFor(() => expect(received.filter(message => message.event === "media")).toHaveLength(51));
+      const closed = nextClose(socket);
+      socket.send(JSON.stringify({ event: "stop", streamSid, sequenceNumber: "6", stop: { callSid,
+        accountSid: "AC1234567890abcdef1234567890abcd" } }));
+      await closed;
+      expect(provider.sent).toContain('{"type":"Terminate"}');
+    } finally { await app.close(); }
+  }, 30_000);
 
   afterEach(() => {
     while (sockets.length > 0) {
@@ -2469,6 +2541,7 @@ describe("Twilio Media Streams websocket bridge", () => {
 });
 
 async function createRoutedTwilioApp(options?: {
+  standardAudioBytes?: number;
   runtimeProfile?: "cost-optimized" | "premium-realtime";
   processRole?: PstnMediaProcessRole;
   workerId?: string;
@@ -2503,6 +2576,8 @@ async function createRoutedTwilioApp(options?: {
 }) {
   process.env.PAYG_MAXIMUM_CALL_SECONDS ??= "300";
   process.env.PAYG_RESERVATION_TTL_SECONDS ??= "360";
+  const incrementalRepository = options?.incrementalRepository ?? new InMemoryTelephonyIncrementalRepository();
+  const standardExecution = await createStandardPstnTestExecution(incrementalRepository, options?.standardAudioBytes);
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
@@ -2558,10 +2633,9 @@ async function createRoutedTwilioApp(options?: {
       ),
     )
     .overrideProvider(TELEPHONY_INCREMENTAL_REPOSITORY)
-    .useValue(
-      options?.incrementalRepository
-      ?? new InMemoryTelephonyIncrementalRepository(),
-    )
+    .useValue(incrementalRepository)
+    .overrideProvider(PstnSandwichCallExecution)
+    .useValue(standardExecution.execution)
     .overrideProvider(PSTN_CALL_ADMISSION)
     .useValue(options?.admission ?? new InMemoryPstnCallAdmission())
     .overrideProvider(PremiumPstnDispatchSnapshotResolver)
@@ -2725,6 +2799,7 @@ async function createRoutedTwilioApp(options?: {
     moduleRef,
     phoneNumber,
     authToken,
+    standardExecution,
   };
 }
 
@@ -2921,6 +2996,8 @@ function createPremiumSnapshotResolution(input: {
     resolvedConversationPolicy: structuredClone(
       defaultPremiumRealtimeConversationPolicy,
     ),
+    promptPolicyRevision: 1,
+    promptPolicyHash: "a".repeat(64),
   };
 }
 

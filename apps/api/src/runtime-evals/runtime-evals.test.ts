@@ -66,8 +66,8 @@ describe("runtime eval fixtures", () => {
 
     expect(score(fixture(fixtures, "toolbelt-missing-input"), {
       toolCallIds: [],
-      missingInputRequested: true,
-      redactedTrace: "asked caller for the missing order id",
+      missingInputRejected: true,
+      redactedTrace: "rejected the tool request without an order id",
     }).scores).toMatchObject({
       assignedToolOnly: 1,
       missingInputBehavior: 1,
@@ -76,7 +76,7 @@ describe("runtime eval fixtures", () => {
 
     expect(score(fixture(fixtures, "toolbelt-missing-input"), {
       toolCallIds: ["tool-order-status", "tool-unassigned-refund"],
-      missingInputRequested: false,
+      missingInputRejected: false,
       redactedTrace: "used an unassigned refund tool",
     }).scores).toMatchObject({
       assignedToolOnly: 0,
@@ -100,7 +100,7 @@ describe("runtime eval fixtures", () => {
     });
 
     expect(score(fixture(fixtures, "policy-guard-tool-output"), {
-      policyWarnings: ["tool_output.untrusted", "agent_action.invalid"],
+      policyWarnings: ["agent_action.invalid"],
       redactedTrace: "safe summary without raw credential marker",
     }).scores).toMatchObject({
       policyWarnings: 1,
@@ -148,14 +148,14 @@ describe("runtime eval execution", () => {
     expect(resolveRuntimeEvalRunConfig({})).toMatchObject({
       upload: false,
       project: "zara-runtime-evals",
-      datasetVersion: "v1",
+      datasetVersion: "v2",
       metadata: {
         packetSchema: "turn-runtime-packet.v1",
         modelAlias: "local-fixture",
         releaseVersion: "local",
       },
       tags: [
-        "dataset:v1",
+        "dataset:v2",
         "packet:turn-runtime-packet.v1",
         "model:local-fixture",
         "release:local",

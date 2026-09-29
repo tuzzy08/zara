@@ -214,6 +214,20 @@ export interface ExtractedMemoryDraftResponse {
   text: string;
   source: MemorySourceReference;
   confidence: number;
+  assessment?: {
+    choice: MemoryScope;
+    selectedProbability: number;
+    distributionConfidence: number;
+    model: string;
+    questionRevision: string;
+    policyRevision: string;
+    sourceRevision: string;
+    // Count usage and latency once per batchId when aggregating drafts.
+    batchId: string;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+  } | undefined;
   approvalState: "pending";
   status: "draft";
   createdBy: string;
@@ -222,7 +236,29 @@ export interface ExtractedMemoryDraftResponse {
 
 export interface FilteredMemoryExtractionCandidateResponse {
   transcriptEventId: string;
-  reason: "sensitive_data" | "not_caller_asserted" | "not_memory_worthy";
+  reason: "sensitive_data" | "not_caller_asserted" | "not_memory_worthy" | "assessment_unavailable" | "assessment_uncertain" | "incomplete_input";
+}
+
+export interface MemoryShadowAssessmentResponse {
+  transcriptEventId: string;
+  choice: MemoryScope | "none" | "unavailable";
+  selectedProbability?: number | undefined;
+  distributionConfidence?: number | undefined;
+  model?: string | undefined;
+  batchId?: string | undefined;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  latencyMs?: number | undefined;
+}
+
+export interface MemoryJudgmentMetadataResponse {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+  questionRevision: string;
+  policyRevision: string;
+  sourceRevision: string;
 }
 
 export interface RetrieveMemoryRequest {
@@ -474,9 +510,26 @@ export interface KnowledgeReviewDraftResponse {
   changeType?: KnowledgeReviewDraftChangeType | undefined;
   currentKnowledgeRecordId?: string | undefined;
   sourceUri?: string | undefined;
+  sourceRevision?: string | undefined;
   title: string;
   text: string;
   suggestedKind: TenantKnowledgeKind;
+  kindUncertain?: boolean | undefined;
+  kindAssessment?: {
+    choice: TenantKnowledgeKind | "no_clear_type";
+    selectedProbability: number;
+    distributionConfidence: number;
+    model: string;
+    questionRevision: string;
+    policyRevision: string;
+    sourceRevision: string;
+    // Count usage and latency once per batchId when aggregating drafts.
+    batchId: string;
+    highRiskProbability?: number | undefined;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+  } | undefined;
   sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
   activationBlockers?: KnowledgeActivationBlocker[] | undefined;
   kindConfirmed: boolean;

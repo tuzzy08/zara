@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useState, type CSSProperti
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 
+import { InstructionImprovement } from "./InstructionImprovement";
 import {
   addEdge,
   Background,
@@ -40,6 +41,7 @@ import { Button, Select } from "@zara/ui";
 
 import {
   buildRuntimeManifestPreview,
+  maxAgentInstructionsCharacters,
   createAgentRoleNode,
   createEndNode,
   createHumanEscalationNode,
@@ -1858,6 +1860,7 @@ function useWorkflowBuilderScreenModel({
     actorUserId: resolvedActorUserId,
     actorRole: activeTenantRole,
     organizationId: resolvedOrganizationId,
+    activeWorkspaceId,
     voiceLibraryState,
     liveCanvas,
     liveSandbox,
@@ -2233,6 +2236,8 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
 
       {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
         <AgentRoleInspector
+          key={`${model.organizationId}:${model.activeWorkspaceId}:${selectedNode.id}`}
+          workspaceId={model.activeWorkspaceId}
           agentClassOptions={model.agentClassOptions}
           actorUserId={model.actorUserId}
           actorRole={model.actorRole}
@@ -3059,6 +3064,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
 }
 
 function AgentRoleInspector({
+  workspaceId,
   agentClassOptions,
   actorUserId,
   actorRole,
@@ -3075,6 +3081,7 @@ function AgentRoleInspector({
   onChange,
   onVoiceUpdated,
 }: {
+  workspaceId: string;
   agentClassOptions: AgentClassOption[];
   actorUserId?: string | undefined;
   actorRole: TenantRole;
@@ -3166,10 +3173,25 @@ function AgentRoleInspector({
           <textarea
             aria-invalid={instructionsMissing ? true : undefined}
             value={role.instructions}
+            maxLength={maxAgentInstructionsCharacters}
+            placeholder={"Purpose: What should the agent achieve?\nProcess: What should it ask and do?\nTools: When should it use assigned tools?\nLimits: What must it never promise?\nHandoff: When should it transfer?\nStyle and examples: How should it answer?"}
             rows={6}
             onChange={(event) => onChange({ instructions: event.target.value })}
           />
         </label>
+        {organizationId ? <InstructionImprovement organizationId={organizationId}
+          value={role.instructions} onChange={instructions => onChange({ instructions })}
+          context={{ workspaceId, name: role.name, businessName: role.businessName, agentClass: role.kind,
+            languagePolicy: role.languagePolicy,
+            tools: (role.toolbeltAssignments ?? []).map(tool => ({ id: tool.id, connector: tool.connector, toolId: tool.toolId, label: tool.label,
+              whenToUse: tool.whenToUse, requiredInputs: tool.requiredInputs
+                ?? (Array.isArray(tool.inputSchema?.required) ? tool.inputSchema.required.filter((field): field is string => typeof field === "string") : []),
+              requiresHumanApproval: tool.requiresHumanApproval,
+              available: !tool.requiresAuthorization || tool.connectionStatus === "connected" })),
+            handoffTargets: routeTargetOptions.filter(target => role.routePolicy?.branches.some(branch =>
+              branch.target.type === "agent" && branch.target.agentId === target.agentId))
+              .map(target => ({ id: target.agentId, label: target.label })),
+          }} /> : null}
       </InspectorSection>
       {role.routePolicy === undefined ? null : (
         <InspectorSection title="Routing" requiredIssue={routingDetailsMissing}>
@@ -4335,6 +4357,7 @@ function AgentRoleLanguageSettings({
         <span>English prompt</span>
         <textarea
           value={languagePrompts.en ?? ""}
+          maxLength={maxAgentInstructionsCharacters}
           rows={3}
           onChange={(event) =>
             onChange({

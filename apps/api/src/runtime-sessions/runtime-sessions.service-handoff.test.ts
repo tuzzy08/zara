@@ -1,12 +1,55 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TurnRuntimePacket } from "@zara/core";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
+import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { hashRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.repository";
 import { baseProviderMessageInput, basePacket, buildRoutePolicyManifest, buildConcreteAgentConfigRoutePolicyManifest, withTargetRealtimeConfig, withAgentRealtimeConfig, openAiHandoffMessage, openAiResponseDone, openAiResponseCreated, handoffResponseMetadata, createLoop } from "./runtime-sessions.service.test-support";
 
 describe("RuntimeSessionsService handoff", () => {
+  it("does not wait for a pending shadow assessment before accepting a handoff", async () => {
+    const oldMode = process.env.TYPESAFE_HANDOFF_MODE;
+    const oldKey = process.env.TYPESAFE_API_KEY;
+    const oldModel = process.env.TYPESAFE_MODEL;
+    process.env.TYPESAFE_HANDOFF_MODE = "shadow";
+    process.env.TYPESAFE_API_KEY = "test-key";
+    process.env.TYPESAFE_MODEL = "jev-1.13.0";
+    let release: ((response: Response) => void) | undefined;
+    const pending = new Promise<Response>((resolve) => { release = resolve; });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => pending);
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const service = new RuntimeSessionsService(createLoop());
+      const manifest = buildRoutePolicyManifest();
+      const session = await service.createRealtimeSession({ manifest, activeAgentId: "agent-front", budgetAllowed: true, organizationId: "tenant-1", workspaceId: "workspace-customer-success", actorUserId: "user-1" });
+      const packet = basePacket();
+      packet.availableActions = [{ kind: "internal_handoff", actionType: "handoff_to_agent", name: "zara_handoff_to_agent", description: "", targets: [{ targetAgentId: "agent-billing", targetAgentName: "Billing specialist", targetAgentKind: "billing" }], inputSchema: {} }];
+      const result = await service.processProviderMessage({ ...baseProviderMessageInput(), session, manifest, activeAgentId: "agent-front", transcript: "Francis needs invoice status help.", packet, rawProviderMessage: openAiHandoffMessage({ providerCallId: "shadow-handoff", announcementAlreadySpoken: false }) });
+      expect(result.providerMessages[0]).toMatchObject({ type: "conversation.item.create" });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      release?.(new Response(null, { status: 503 }));
+      await service.onModuleDestroy();
+    } finally {
+      fetchSpy.mockRestore();
+      randomSpy.mockRestore();
+      if (oldMode === undefined) delete process.env.TYPESAFE_HANDOFF_MODE; else process.env.TYPESAFE_HANDOFF_MODE = oldMode;
+      if (oldKey === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.TYPESAFE_MODEL; else process.env.TYPESAFE_MODEL = oldModel;
+    }
+  });
+
   it("handles OpenAI internal handoff tool calls without executing connector grants", async () => {
       const loop = createLoop();
-      const service = new RuntimeSessionsService(loop);
+      const promptPolicy = {
+        ...structuredClone(defaultRuntimePromptPolicy),
+        guardrails: ["UNIQUE HANDOFF PLATFORM RULE"],
+      };
+      const service = new RuntimeSessionsService(loop, {
+        selectPromptPolicy: async () => ({
+          revision: promptPolicy.version,
+          hash: hashRuntimePromptPolicy(promptPolicy),
+          policy: promptPolicy,
+        }),
+      });
       const manifest = buildRoutePolicyManifest();
       const session = await service.createRealtimeSession({
         manifest,
@@ -64,7 +107,7 @@ describe("RuntimeSessionsService handoff", () => {
         expect.objectContaining({
           type: "response.create",
           response: {
-            instructions: "Say exactly this handoff message to the caller, then stop: \"I'll connect you with Billing specialist.\"",
+            instructions: expect.stringContaining("Say exactly this handoff message to the caller, then stop: \"I'll connect you with Billing specialist.\""),
             metadata: handoffResponseMetadata(),
           },
         }),
@@ -80,6 +123,7 @@ describe("RuntimeSessionsService handoff", () => {
         activeAgentId: "agent-billing",
         callerNeedSummary: "Francis wants the status of a pending invoice.",
       });
+      expect(JSON.stringify(result.providerMessages[1])).toContain("UNIQUE HANDOFF PLATFORM RULE");
 
       await service.processProviderMessage({
         ...baseProviderMessageInput(),
@@ -164,7 +208,7 @@ describe("RuntimeSessionsService handoff", () => {
         expect.objectContaining({
           type: "session.update",
           session: expect.objectContaining({
-            instructions: expect.stringContaining("You are Billing specialist"),
+            instructions: expect.stringContaining('"name":"Billing specialist"'),
             tools: [
               expect.objectContaining({
                 description: expect.stringContaining("Search invoices"),
@@ -179,6 +223,7 @@ describe("RuntimeSessionsService handoff", () => {
           },
         }),
       ]);
+      expect(JSON.stringify(handoffResult.providerMessages[1])).toContain("UNIQUE HANDOFF PLATFORM RULE");
     });
 
   it("does not repeat the handoff announcement when the OpenAI handoff response already spoke one", async () => {
@@ -245,6 +290,12 @@ describe("RuntimeSessionsService handoff", () => {
       expect(routeContinuationMessage?.response.instructions).toContain(
         "Continue helping the caller as the active agent in this same response.",
       );
+      expect(routeContinuationMessage?.response.instructions).not.toContain(
+        "Francis wants the status of a pending invoice.",
+      );
+      expect(JSON.stringify(result.providerMessages)).toContain(
+        "Francis wants the status of a pending invoice.",
+      );
     });
 
   it("continues OpenAI handoffs with concrete agent config before stale role snapshots", async () => {
@@ -303,7 +354,7 @@ describe("RuntimeSessionsService handoff", () => {
           message.type === "session.update",
       );
       expect(sessionUpdate?.session).toMatchObject({
-        instructions: expect.stringContaining("You are James Billing"),
+        instructions: expect.stringContaining('"name":"James Billing"'),
         audio: {
           output: {
             voice: "verse",
@@ -488,7 +539,7 @@ describe("RuntimeSessionsService handoff", () => {
           callerNeedSummary: "Francis wants the status of a pending invoice.",
         },
         continuation: {
-          instruction: expect.stringContaining("You are now Billing specialist."),
+          instruction: expect.stringContaining("Continue as the configured active agent."),
         },
       });
       expect(result.providerMessages).toEqual([]);

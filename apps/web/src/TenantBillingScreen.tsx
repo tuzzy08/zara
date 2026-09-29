@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, ShieldCheck } from "lucide-react";
 import { Badge, Button, Card } from "@zara/ui";
 
 import {
-  fetchTenantBillingState,
+  watchTenantBillingState,
   openPolarCustomerPortal,
   startPaygCheckout,
   startPolarCheckout,
@@ -20,22 +20,19 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const loadBilling = useCallback(async () => {
+  useEffect(() => {
     setLoading(true);
     setErrorMessage(null);
-
-    try {
-      setBilling(await fetchTenantBillingState(organizationId));
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Billing state could not be loaded.");
-    } finally {
-      setLoading(false);
-    }
+    setBilling(null);
+    return watchTenantBillingState(organizationId, {
+      afterCheckout: new URLSearchParams(window.location.search).has("customer_session_token"),
+      onState: (state) => { setBilling(state); setLoading(false); },
+      onError: (error) => {
+        setErrorMessage(error instanceof Error ? error.message : "Billing state could not be loaded.");
+        setLoading(false);
+      },
+    });
   }, [organizationId]);
-
-  useEffect(() => {
-    void loadBilling();
-  }, [loadBilling]);
 
   const postedUsageMinor = useMemo(
     () => billing?.usage.reduce(
@@ -96,7 +93,7 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
 
           <section className="tenant-page-grid">
             <Card className="surface-card overflow-hidden">
-              <TenantSectionHeader eyebrow="Subscription" title="Polar customer state" />
+              <TenantSectionHeader eyebrow="Subscription" title="Subscription details" />
               <div className="tenant-list">
                 {billing.plan === null ? (
                   <article className="tenant-row">

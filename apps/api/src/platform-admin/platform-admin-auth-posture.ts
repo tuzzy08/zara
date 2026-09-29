@@ -31,6 +31,7 @@ export interface PlatformAuthPostureInput {
   serverAssuranceLevel?: PlatformAuthAssuranceLevel | null | undefined;
   serverSessionAgeSeconds?: number | null | undefined;
   serverSessionAuthenticatedAt?: unknown;
+  serverMfaVerifiedAt?: unknown;
   serverNow?: unknown;
   testAuthorityHeaders?: Record<string, string | string[] | undefined> | undefined;
 }
@@ -87,7 +88,10 @@ export function resolvePlatformAuthPosture(input: PlatformAuthPostureInput): Pla
   }
 
   const hasStepUp = assuranceLevel === "mfa" || assuranceLevel === "passkey";
-  const isFresh = sessionAgeSeconds <= platformStaffStepUpMaxAgeSeconds;
+  const proofAge = input.serverMfaVerifiedAt === undefined
+    ? sessionAgeSeconds
+    : resolveSessionAgeFromAuthenticatedAt({ authenticatedAt: input.serverMfaVerifiedAt, now: input.serverNow });
+  const isFresh = proofAge !== null && proofAge <= platformStaffStepUpMaxAgeSeconds;
   const canCoreMutate = (platformRole === "platform_owner" || platformRole === "platform_admin") && hasStepUp && isFresh;
   const canSupportMutate = platformRole === "platform_support" && hasStepUp && isFresh;
 

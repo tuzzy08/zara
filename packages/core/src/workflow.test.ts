@@ -83,6 +83,22 @@ function codes(errors: WorkflowValidationError[]) {
   return errors.map((error) => error.code);
 }
 
+describe("agent instruction limits", () => {
+  it.each(["instructions", "languagePrompt"])("rejects oversized %s before publish", (field) => {
+    const agent = structuredClone(billingAgent);
+    const role = agent.config.role as { instructions: string; languagePolicy: { languagePrompts?: Record<string, string> } };
+    if (field === "instructions") role.instructions = "a".repeat(12_001);
+    else role.languagePolicy.languagePrompts = { en: "a".repeat(12_001) };
+    const graph = createWorkflowGraph({
+      id: "bounded-prompt", name: "Bounded prompt", nodes: [entryNode, agent],
+      edges: [{ id: "entry-agent", sourceNodeId: "entry", targetNodeId: agent.id }],
+    });
+    expect(validateWorkflowGraph(graph).errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "agent.instructions_too_long", nodeId: agent.id }),
+    ]));
+  });
+});
+
 describe("agent route role profiles", () => {
   it("derives built-in route branches from role kind instead of agent name", () => {
     expect(resolveAgentRouteRoleProfile({ kind: "billing", name: "Bill" })).toEqual(

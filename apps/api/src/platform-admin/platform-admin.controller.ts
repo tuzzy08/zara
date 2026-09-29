@@ -8,6 +8,8 @@ import {
   Param,
   Patch,
   Post,
+  Optional,
+  ServiceUnavailableException,
   Query,
   Req,
   UseGuards,
@@ -29,6 +31,7 @@ import {
 } from "./platform-admin.service";
 import type {
   CreateRuntimePromptPolicyAgentClassInput,
+  PromoteRuntimePromptPolicyRevisionInput,
   UpdateRuntimePromptPolicyInput,
 } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import type {
@@ -41,11 +44,25 @@ import type {
   PlatformBillingControls,
   PlatformOrganizationStatus,
 } from "./platform-admin.models";
+import { BillingDeliveryControlService } from "../billing/billing-delivery-control";
 
 @Controller("platform-admin")
 @UseGuards(PlatformAdminGuard)
 export class PlatformAdminController {
-  constructor(private readonly platformAdminService: PlatformAdminService) {}
+  constructor(private readonly platformAdminService: PlatformAdminService,
+    @Optional() private readonly billingDelivery?: BillingDeliveryControlService) {}
+
+  @Get("billing/delivery")
+  getBillingDelivery() {
+    if (!this.billingDelivery) throw new ServiceUnavailableException("Billing delivery control is unavailable.");
+    return this.billingDelivery.getState();
+  }
+
+  @Patch("billing/delivery")
+  updateBillingDelivery(@Req() request: Record<string | symbol, unknown>, @Body() body: unknown) {
+    if (!this.billingDelivery) throw new ServiceUnavailableException("Billing delivery control is unavailable.");
+    return this.billingDelivery.change(getPlatformAdminContext(request), body);
+  }
 
   @Get("dashboard")
   async getDashboard() {
@@ -206,6 +223,20 @@ export class PlatformAdminController {
     assertCanMutate(context);
 
     return this.platformAdminService.updateRuntimePromptPolicy(context, body);
+  }
+
+  @Post("runtime/prompt-policy/revisions/:revision/promote")
+  async promoteRuntimePromptPolicyRevision(
+    @Req() request: Record<string | symbol, unknown>,
+    @Param("revision") revision: string,
+    @Body() body: PromoteRuntimePromptPolicyRevisionInput,
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context);
+    return this.platformAdminService.promoteRuntimePromptPolicyRevision(context, {
+      ...body,
+      revision: Number(revision),
+    });
   }
 
   @Patch("runtime/route-policy")

@@ -1,13 +1,91 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import WebSocket from "ws";
 import { premiumRealtimeProviderTransportToken } from "./premium-realtime-provider-transport";
 import { RuntimeSessionsWebSocketBridge } from "./runtime-sessions.websocket-bridge";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
-import { createRuntimeSessionsService, FakePremiumRealtimeProviderTransport, getListeningPort, nextOpen, nextClose, waitFor, withTimeout } from "./runtime-sessions.websocket.test-support";
+import { createRuntimeSessionsService, FakePremiumRealtimeProviderTransport, getListeningPort, nextOpen, nextClose, nextCloseWithReason, waitFor, withTimeout } from "./runtime-sessions.websocket.test-support";
 
 describe("RuntimeSessionsWebSocketBridge provider-lifecycle", () => {
+  it.each(["notification", "browser close", "browser termination", "provider close"])("still stops the session when %s throws", async fault => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const moduleRef = await Test.createTestingModule({ providers: [RuntimeSessionsWebSocketBridge,
+      { provide: RuntimeSessionsService, useValue: createRuntimeSessionsService() },
+      { provide: premiumRealtimeProviderTransportToken, useValue: providerTransport },
+    ] }).compile();
+    const app = moduleRef.createNestApplication();
+    await app.listen(0);
+    const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}/runtime/realtime/sessions/session-1/stream?token=token-1`);
+    const originalSend = WebSocket.prototype.send;
+    const failedSend = vi.spyOn(WebSocket.prototype, "send").mockImplementation(function (this: WebSocket, ...args) {
+      if (fault === "notification" && this !== socket && String(args[0]).includes('"type":"session.error"')) throw new Error("private-write-failure");
+      return originalSend.apply(this, args);
+    });
+    const originalBrowserClose = WebSocket.prototype.close;
+    const failedClose = vi.spyOn(WebSocket.prototype, "close").mockImplementation(function (this: WebSocket, ...args) {
+      if (fault.startsWith("browser") && this !== socket) throw new Error("private-close-failure");
+      return originalBrowserClose.apply(this, args);
+    });
+    const originalTerminate = WebSocket.prototype.terminate;
+    const failedTerminate = vi.spyOn(WebSocket.prototype, "terminate").mockImplementation(function (this: WebSocket) {
+      if (fault === "browser termination" && this !== socket) throw new Error("private-termination-failure");
+      return originalTerminate.call(this);
+    });
+    const providerCloseReasons: string[] = [];
+    try {
+      await withTimeout(nextOpen(socket), "websocket open");
+      const connection = providerTransport.connections[0]!.connection;
+      connection.send = () => { throw new Error("private-provider-failure"); };
+      const originalClose = connection.close.bind(connection);
+      connection.close = (code, reason) => {
+        providerCloseReasons.push(reason ?? "");
+        if (fault === "provider close") throw new Error("private-provider-close-failure");
+        originalClose(code, reason);
+      };
+      const closed = nextCloseWithReason(socket);
+      connection.emitMessage(JSON.stringify({ type: "response.function_call_arguments.done" }));
+      if (fault === "browser termination") {
+        await waitFor(() => providerCloseReasons.includes("runtime_message_failed"));
+        socket.terminate();
+      }
+      expect(await withTimeout(closed, "safe websocket close")).toEqual(fault.startsWith("browser")
+        ? { code: 1006, reason: "" } : { code: 1011, reason: "runtime_message_failed" });
+      expect(providerCloseReasons).toContain("runtime_message_failed");
+    } finally {
+      failedSend.mockRestore();
+      failedClose.mockRestore();
+      failedTerminate.mockRestore();
+      socket.terminate();
+      await app.close();
+    }
+  });
+  it.each(["browser audio", "provider continuation"])("closes the browser safely when %s reaches a closed provider", async source => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const moduleRef = await Test.createTestingModule({ providers: [RuntimeSessionsWebSocketBridge,
+      { provide: RuntimeSessionsService, useValue: createRuntimeSessionsService() },
+      { provide: premiumRealtimeProviderTransportToken, useValue: providerTransport },
+    ] }).compile();
+    const app = moduleRef.createNestApplication();
+    await app.listen(0);
+    const socket = new WebSocket(`ws://127.0.0.1:${getListeningPort(app)}/runtime/realtime/sessions/session-1/stream?token=token-1`);
+    const messages: unknown[] = [];
+    socket.on("message", message => messages.push(JSON.parse(message.toString())));
+    try {
+      await withTimeout(nextOpen(socket), "websocket open");
+      providerTransport.connections[0]!.connection.send = () => { throw new Error("private-database-secret"); };
+      const closed = nextCloseWithReason(socket);
+      if (source === "browser audio") socket.send(JSON.stringify({ type: "audio.append", audioBase64: "AAA=" }));
+      else providerTransport.connections[0]!.connection.emitMessage(JSON.stringify({ type: "response.function_call_arguments.done" }));
+      expect(await withTimeout(closed, "safe websocket close")).toEqual({ code: 1011, reason: "runtime_message_failed" });
+      expect(messages).toContainEqual(expect.objectContaining({ type: "session.error",
+        payload: { message: "Premium realtime session failed." } }));
+      expect(JSON.stringify(messages)).not.toContain("private-database-secret");
+    } finally {
+      socket.terminate();
+      await app.close();
+    }
+  });
   it("waits for provider setup acknowledgement before reporting the premium session ready", async () => {
       const providerTransport = new FakePremiumRealtimeProviderTransport();
       const runtimeSessionsService = createRuntimeSessionsService();

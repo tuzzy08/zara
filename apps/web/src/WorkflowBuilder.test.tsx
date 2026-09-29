@@ -320,6 +320,12 @@ describe("WorkflowBuilderScreen", () => {
       target: { value: "Greet callers and route the request to the right next step." },
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Improve instructions" }));
+    await screen.findByLabelText("Suggested instructions");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe("Greet callers and route the request to the right next step.");
+    expect(JSON.parse(window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Use these instructions" }));
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe("Purpose\nGreet callers and clarify their request.");
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Publish" }).disabled).toBe(false);
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
 
@@ -345,6 +351,7 @@ describe("WorkflowBuilderScreen", () => {
 
       expect(storedVersions).toHaveLength(1);
       expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
+      expect(JSON.stringify(storedVersions[0]?.graph)).toContain("Greet callers and clarify their request.");
       expect(storedVersions[0]?.manifestPreview.budget).toEqual({
         monthlyCapUsd: 0,
         currentSpendUsd: 0,
@@ -422,6 +429,15 @@ function createWorkflowBuilderFetchMock() {
       return jsonResponse(200, {
         agents: [],
       });
+    }
+
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/agents/improve-instructions") {
+      const body = JSON.parse(String(init?.body));
+      expect(body.workspaceId).toBe("workspace-default");
+      expect(body.tools).toEqual([]);
+      expect(body.handoffTargets).toEqual([]);
+      return jsonResponse(201, { originalInstructions: body.instructions, instructions: "Purpose\nGreet callers and clarify their request.",
+        changes: ["Clarified the purpose."], questions: [], conflicts: [], toolIds: [], handoffTargetIds: [] });
     }
 
     if (requestUrl.pathname.startsWith("/organizations/tenant-west-africa/workflows/")) {

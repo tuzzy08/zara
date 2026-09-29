@@ -325,11 +325,21 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
         manifest,
         activeAgentId: turnInput.activeAgentId,
       });
+      const requestedModel = input.model.resolveRequestedModel?.({
+        callSessionId: sessionSnapshot.callSessionId,
+        manifest,
+        activeAgent,
+        transcript,
+        tier: routingDecision.tier,
+        context: turnContext,
+      });
 
       emit("routing.model_selected", {
         tier: routingDecision.tier,
-        provider: activeAgent.modelProvider ?? "openai",
-        ...(activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
+        provider: requestedModel?.provider ?? activeAgent.modelProvider ?? "openai",
+        ...(requestedModel !== undefined
+          ? { modelId: requestedModel.modelId }
+          : activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
           ? { modelId: activeAgent.modelId.trim() }
           : {}),
         source: routingDecision.source,
@@ -348,6 +358,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
       } else {
         try {
           for await (const chunk of input.model.streamText({
+            callSessionId: sessionSnapshot.callSessionId,
             manifest,
             activeAgent,
             transcript,

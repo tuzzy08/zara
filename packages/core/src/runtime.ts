@@ -12,6 +12,7 @@ import type {
   TelemetryPolicy,
   TelephonyOwnershipMode,
   TelephonyProvider,
+  TextModelProviderId,
   ToolDefinition,
   VoiceRuntimeKind,
   WorkflowNode,
@@ -113,6 +114,7 @@ export interface ModelRoutingContext {
   intent?: string | undefined;
   callPhase: RuntimeCallPhase;
   confidence?: number | undefined;
+  intentConfidence?: number | undefined;
   language?: string | undefined;
   toolRisk?: ToolDefinition["risk"] | undefined;
   requestedToolId?: ID | undefined;
@@ -129,7 +131,8 @@ export interface ModelRoutingDecisionLog {
     activeAgentId: ID;
     intent?: string | undefined;
     callPhase: RuntimeCallPhase;
-    confidence: number;
+    confidence?: number | undefined;
+    intentConfidence?: number | undefined;
     language: string;
     risk?: ToolDefinition["risk"] | undefined;
     requestedToolId?: ID | undefined;
@@ -208,7 +211,13 @@ export interface SandwichSttProvider {
 }
 
 export interface SandwichTextModelProvider {
+  resolveRequestedModel?(input: Parameters<SandwichTextModelProvider["streamText"]>[0]): {
+    provider: TextModelProviderId;
+    modelId: string;
+  } | undefined;
   streamText(input: {
+    abortSignal?: AbortSignal | undefined;
+    callSessionId?: ID | undefined;
     manifest: CompiledRuntimeManifest;
     activeAgent: RuntimeAgentDefinition;
     transcript: string;
@@ -217,7 +226,26 @@ export interface SandwichTextModelProvider {
     agentContext?: AgentTurnContext | undefined;
     agentActionMode?: boolean | undefined;
     untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
+    promptPolicy?: SandwichPromptPolicy | undefined;
   }): AsyncIterable<string>;
+}
+
+export interface SandwichPromptPolicy {
+  guardrails: string[];
+  agentClassTemplates: Partial<Record<string, {
+    basePrompt: string;
+    modelDefaults?: {
+      text: {
+        provider: TextModelProviderId;
+        modelTier: Exclude<ModelTier, "rules">;
+        modelId?: string | undefined;
+      };
+      realtime: {
+        provider: RealtimeProviderId;
+        modelId?: string | undefined;
+      };
+    } | undefined;
+  }>>;
 }
 
 export type RuntimeUntrustedContextSource =
@@ -413,6 +441,8 @@ export interface PremiumRealtimeSession {
   runtime: RealtimeProviderId;
   policy: "premium-realtime";
   model: string;
+  promptPolicyRevision: number;
+  promptPolicyHash: string;
   providerConfig: PremiumRealtimeProviderSessionConfig;
   voice: RuntimeTtsVoice;
   transportUrl: string;
@@ -776,7 +806,14 @@ export function selectModelRoutingDecision(input: {
   const matchingRule = input.manifest.modelRouting.find((rule) =>
     modelRoutingRuleMatches(rule, normalizedContext),
   );
-
+  if (normalizedContext.risk === "high" && (normalizedContext.intentConfidence === undefined || normalizedContext.intentConfidence < 0.45) && matchingRule?.useTier !== "sota") {
+    return buildRoutingDecision({
+      tier: "sota",
+      source: "safety_override",
+      reason: "High-risk actions without clear intent are forced onto the safest tier.",
+      context: normalizedContext,
+    });
+  }
   if (matchingRule !== undefined) {
     const tier = raiseTierToRoutingFloor(matchingRule.useTier, runtimeProfile.routingFloor);
 
@@ -795,15 +832,6 @@ export function selectModelRoutingDecision(input: {
       source: "rule",
       matchedRuleId: matchingRule.id,
       reason: matchingRule.reason,
-      context: normalizedContext,
-    });
-  }
-
-  if (normalizedContext.risk === "high" && normalizedContext.confidence < 0.45) {
-    return buildRoutingDecision({
-      tier: "sota",
-      source: "safety_override",
-      reason: "Low-confidence turns with high-risk actions are forced onto the safest tier.",
       context: normalizedContext,
     });
   }
@@ -917,11 +945,22 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         manifest: turnInput.manifest,
         activeAgentId: activeAgent.agentId,
       });
+      const requestedModel = input.model.resolveRequestedModel?.({
+        callSessionId: turnInput.callSessionId,
+        manifest: turnInput.manifest,
+        activeAgent,
+        transcript,
+        tier: routingDecision.tier,
+        context: { ...turnInput.context, confidence, language },
+        untrustedContext: turnInput.untrustedContext?.map(cloneUntrustedContextItem),
+      });
 
       emit("routing.model_selected", {
         tier: routingDecision.tier,
-        provider: activeAgent.modelProvider ?? "openai",
-        ...(activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
+        provider: requestedModel?.provider ?? activeAgent.modelProvider ?? "openai",
+        ...(requestedModel !== undefined
+          ? { modelId: requestedModel.modelId }
+          : activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
           ? { modelId: activeAgent.modelId.trim() }
           : {}),
         source: routingDecision.source,
@@ -959,6 +998,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       } else if (input.tts.synthesizeStreaming !== undefined) {
         const responseChunks: string[] = [];
         const modelStream = input.model.streamText({
+          callSessionId: turnInput.callSessionId,
           manifest: turnInput.manifest,
           activeAgent,
           transcript,
@@ -1042,6 +1082,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       } else {
         try {
           for await (const chunk of input.model.streamText({
+            callSessionId: turnInput.callSessionId,
             manifest: turnInput.manifest,
             activeAgent,
             transcript,
@@ -1315,6 +1356,8 @@ export function createPremiumRealtimeSession(input: {
   activeAgentId: ID;
   budgetAllowed: boolean;
   resolvedProviderConfig: PremiumRealtimeProviderSessionConfig;
+  promptPolicyRevision?: number | undefined;
+  promptPolicyHash?: string | undefined;
   now?: (() => string) | undefined;
   ttlMinutes?: number | undefined;
 }): PremiumRealtimeSession {
@@ -1346,6 +1389,8 @@ export function createPremiumRealtimeSession(input: {
     runtime: providerConfig.provider,
     policy: "premium-realtime",
     model: providerConfig.model,
+    promptPolicyRevision: input.promptPolicyRevision ?? 0,
+    promptPolicyHash: input.promptPolicyHash ?? "unversioned",
     providerConfig,
     voice: runtimeProfile.ttsVoice,
     transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(`${input.manifest.manifestId}:premium-session`)}/stream`,
@@ -1831,7 +1876,8 @@ function normalizeRoutingContext(
     activeAgentId: activeAgent.agentId,
     intent: context.intent,
     callPhase: context.callPhase,
-    confidence: context.confidence ?? 0,
+    ...(context.confidence !== undefined ? { confidence: context.confidence } : {}),
+    ...(context.intentConfidence !== undefined ? { intentConfidence: context.intentConfidence } : {}),
     language: context.language ?? activeAgent.languagePolicy.defaultLanguage,
     risk: resolveToolRisk(context, manifest.tools),
     ...(context.requestedToolId !== undefined ? { requestedToolId: context.requestedToolId } : {}),
@@ -1854,11 +1900,11 @@ function modelRoutingRuleMatches(
     return false;
   }
 
-  if (rule.when.minConfidence !== undefined && context.confidence < rule.when.minConfidence) {
+  if (rule.when.minConfidence !== undefined && (context.confidence === undefined || context.confidence < rule.when.minConfidence)) {
     return false;
   }
 
-  if (rule.when.maxConfidence !== undefined && context.confidence > rule.when.maxConfidence) {
+  if (rule.when.maxConfidence !== undefined && (context.confidence === undefined || context.confidence > rule.when.maxConfidence)) {
     return false;
   }
 

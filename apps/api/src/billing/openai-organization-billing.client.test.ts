@@ -3,6 +3,60 @@ import { describe, expect, it, vi } from "vitest";
 import { OpenAiOrganizationBillingClient } from "./openai-organization-billing.client";
 
 describe("OpenAI organization billing client", () => {
+  it("rejects repeated transcription page cursors instead of reading a page twice", async () => {
+    const fetchImplementation = vi.fn()
+      .mockResolvedValueOnce(await response({ object: "page", data: [], has_more: true, next_page: "repeat" }))
+      .mockResolvedValueOnce(await response({ object: "page", data: [], has_more: true, next_page: "repeat" }))
+      .mockResolvedValueOnce(await response({ object: "page", data: [], has_more: false }));
+    await expect(new OpenAiOrganizationBillingClient({ adminKey: "admin", fetchImplementation })
+      .getProjectTranscriptionCycleEvidence({ projectId: "proj-a", cycleStartsAt: "2026-08-01T00:00:00.000Z",
+        cycleEndsAt: "2026-09-01T00:00:00.000Z" }))
+      .rejects.toThrow("OpenAI billing evidence pagination is invalid.");
+  });
+  it.each([
+    { seconds: "0.1" }, { seconds: null }, { seconds: -1 }, { seconds: undefined },
+    { object: "organization.usage.completions.result" },
+  ])("rejects invalid native transcription quantities or result kinds: %j", async (override) => {
+    const client = new OpenAiOrganizationBillingClient({ adminKey: "admin",
+      fetchImplementation: async () => response({ object: "page", has_more: false, data: [{
+        start_time: 1785542400, end_time: 1785628800, results: [{
+          object: "organization.usage.audio_transcriptions.result", project_id: "proj-a",
+          model: "gpt-realtime-whisper", seconds: 0.1, num_model_requests: 1, ...override,
+        }],
+      }] }),
+    });
+    await expect(client.getProjectTranscriptionCycleEvidence({ projectId: "proj-a",
+      cycleStartsAt: "2026-08-01T00:00:00.000Z", cycleEndsAt: "2026-09-01T00:00:00.000Z" }))
+      .rejects.toThrow("OpenAI transcription evidence usage is invalid.");
+  });
+  it("reads separate transcription seconds by project and model across pages", async () => {
+    const fetchImplementation = vi.fn(async (url: string) => {
+      const request = new URL(url);
+      expect(request.pathname).toBe("/v1/organization/usage/audio_transcriptions");
+      expect(request.searchParams.getAll("group_by")).toEqual(["project_id", "model"]);
+      expect(request.searchParams.get("project_ids")).toBe("proj-a");
+      expect(request.searchParams.get("start_time")).toBe("1785542400");
+      expect(request.searchParams.get("end_time")).toBe("1788220800");
+      expect(request.searchParams.get("bucket_width")).toBe("1d");
+      expect(request.searchParams.get("limit")).toBe("31");
+      const second = request.searchParams.get("page") === "next";
+      return response({ object: "page", has_more: !second, next_page: second ? null : "next", data: [{
+        object: "bucket", start_time: second ? 1785628800 : 1785542400,
+        end_time: second ? 1785715200 : 1785628800,
+        results: [{ object: "organization.usage.audio_transcriptions.result", project_id: "proj-a",
+          model: "gpt-realtime-whisper", seconds: second ? 0.2 : 0.1, num_model_requests: 1 }],
+      }] });
+    });
+    const facts = await new OpenAiOrganizationBillingClient({ adminKey: "admin", fetchImplementation })
+      .getProjectTranscriptionCycleEvidence({ projectId: "proj-a", cycleStartsAt: "2026-08-01T00:00:00.000Z",
+        cycleEndsAt: "2026-09-01T00:00:00.000Z" });
+    expect(facts).toEqual([
+      { projectId: "proj-a", model: "gpt-realtime-whisper", bucketStartsAt: "2026-08-01T00:00:00.000Z",
+        bucketEndsAt: "2026-08-02T00:00:00.000Z", seconds: 0.1, requestCount: 1 },
+      { projectId: "proj-a", model: "gpt-realtime-whisper", bucketStartsAt: "2026-08-02T00:00:00.000Z",
+        bucketEndsAt: "2026-08-03T00:00:00.000Z", seconds: 0.2, requestCount: 1 },
+    ]);
+  });
   it("treats optional token counters as zero", async () => {
     const fetchImplementation = vi.fn()
       .mockResolvedValueOnce(await response({ object: "page", data: [{

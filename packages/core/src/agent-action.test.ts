@@ -46,12 +46,19 @@ describe("agent action parsing", () => {
   });
 
   it("parses handoff-to-agent actions only when handoff actions are enabled", () => {
-    expect(parseAgentActionText(JSON.stringify({
+    expect(() => parseAgentActionText(JSON.stringify({
       type: "handoff_to_agent",
       targetAgentId: "agent-billing",
       reason: "Caller needs help with a pending invoice.",
       callerNeedSummary: "Caller wants to check the status of a pending invoice.",
       targetNodeId: "node-billing",
+    }), { allowHandoffAction: true })).toThrow("unexpected fields");
+
+    expect(parseAgentActionText(JSON.stringify({
+      type: "handoff_to_agent",
+      targetAgentId: "agent-billing",
+      reason: "Caller needs help with a pending invoice.",
+      callerNeedSummary: "Caller wants to check the status of a pending invoice.",
     }), { allowHandoffAction: true })).toEqual({
       type: "handoff_to_agent",
       targetAgentId: "agent-billing",

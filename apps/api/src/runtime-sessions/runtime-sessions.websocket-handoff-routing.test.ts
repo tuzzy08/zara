@@ -6,7 +6,7 @@ import type { TurnRuntimePacket } from "@zara/core";
 import { premiumRealtimeProviderTransportToken } from "./premium-realtime-provider-transport";
 import { RuntimeSessionsWebSocketBridge } from "./runtime-sessions.websocket-bridge";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
-import { createRuntimeSessionsService, FakePremiumRealtimeProviderTransport, getListeningPort, nextOpen, nextClose, waitFor, withTimeout } from "./runtime-sessions.websocket.test-support";
+import { createRuntimeSessionsService, FakePremiumRealtimeProviderTransport, getListeningPort, nextOpen, nextClose, nextCloseWithReason, waitFor, withTimeout } from "./runtime-sessions.websocket.test-support";
 
 describe("RuntimeSessionsWebSocketBridge handoff-routing", () => {
   it("handles OpenAI handoff-capable turns before sending an explicit provider response", async () => {
@@ -154,6 +154,11 @@ describe("RuntimeSessionsWebSocketBridge handoff-routing", () => {
           type: "response.create",
         },
       ]);
+      processProviderMessage.mockRejectedValueOnce(new Error("old-private-provider-error"));
+      providerTransport.connections[0]!.connection.emitMessage(JSON.stringify({ type: "response.done" }));
+      socket.send(JSON.stringify({ type: "audio.append", audioBase64: "AAA=" }));
+      await waitFor(() => providerTransport.connections[1]!.connection.sent.some(message => message.type === "input_audio_buffer.append"));
+      expect(socket.readyState).toBe(WebSocket.OPEN);
       expect(messages).toEqual(expect.arrayContaining([
         expect.objectContaining({
           type: "agent.route.announcement",
@@ -169,7 +174,20 @@ describe("RuntimeSessionsWebSocketBridge handoff-routing", () => {
         }),
       ]));
 
-      socket.close();
+      const connect = providerTransport.connect.bind(providerTransport);
+      providerTransport.connect = async input => {
+        const connection = await connect(input);
+        connection.send = () => { throw new Error("replacement-private-provider-error"); };
+        return connection;
+      };
+      const failedClose = nextCloseWithReason(socket);
+      providerTransport.connections[1]!.connection.emitMessage(JSON.stringify({ type: "response.done" }));
+      try {
+        expect(await withTimeout(failedClose, "replacement failure close")).toEqual({ code: 1011, reason: "runtime_message_failed" });
+        expect(JSON.stringify(messages)).not.toMatch(/old-private|replacement-private/);
+      } finally {
+        socket.close();
+      }
       await withTimeout(nextClose(socket), "websocket close");
       await app.close();
     }, 20_000);

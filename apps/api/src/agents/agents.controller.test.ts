@@ -14,11 +14,44 @@ import {
 import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import { AgentsModule } from "./agents.module";
+import { InstructionImprovementService } from "./instruction-improvement.service";
 
 describe("AgentsController", () => {
+  it("guards the instruction review endpoint and uses the authenticated actor", async () => {
+    const improve = vi.spyOn(InstructionImprovementService.prototype, "improve").mockResolvedValue({
+      originalInstructions: "Help callers", instructions: "Purpose\nHelp callers", changes: [], questions: [], conflicts: [], toolIds: [], handoffTargetIds: [],
+    });
+    const app = await createTestingApp({ tenantAuth: false });
+    const body = { workspaceId: "workspace-default", instructions: "Help callers", actorRole: "owner", organizationId: "other-tenant" };
+    try {
+      expect((await request(app.getHttpServer()).post("/organizations/tenant-west-africa/agents/improve-instructions").send(body)).status).toBe(401);
+      expect(improve).not.toHaveBeenCalled();
+      const response = await withTestTenantAuth(request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/agents/improve-instructions").send(body));
+      expect(response.status).toBe(201);
+      expect(response.body.originalInstructions).toBe("Help callers");
+      expect(improve).toHaveBeenCalledWith(body, expect.objectContaining({ organizationId: "tenant-west-africa", userId: "user-ops-lead" }));
+    } finally { improve.mockRestore(); await app.close(); }
+  }, 15_000);
   afterEach(() => {
     vi.unstubAllGlobals();
   });
+
+  it("rejects oversized agent instructions through the API", async () => {
+    const app = await createTestingApp();
+    try {
+      const response = await withTestTenantAuth(request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/agents").send({
+          workspaceId: "workspace-default", name: "Support", businessName: "Eval business",
+          agentClass: "support", instructions: "a".repeat(12_001), defaultLanguage: "en",
+          runtimeProfile: "cost-optimized",
+        }));
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain("12000 characters");
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
 
   it("requires tenant membership for reusable agent routes", async () => {
     const app = await createTestingApp({ tenantAuth: false });

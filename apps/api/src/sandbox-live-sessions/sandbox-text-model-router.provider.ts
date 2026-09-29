@@ -2,7 +2,6 @@ import type {
   SandwichTextModelProvider,
   TextModelProviderId,
 } from "@zara/core";
-import type { SandboxTextPromptPolicy } from "./sandbox-text-model-prompts";
 
 interface ProviderAvailability {
   configured: boolean;
@@ -11,16 +10,11 @@ interface ProviderAvailability {
 
 type ProviderMap = Record<TextModelProviderId, SandwichTextModelProvider>;
 
-interface SandboxTextModelRouterProviderOptions {
-  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined;
-}
-
 export class SandboxTextModelRouterProvider implements SandwichTextModelProvider {
   readonly availability: ProviderAvailability;
 
   constructor(
     private readonly providers: ProviderMap,
-    private readonly options: SandboxTextModelRouterProviderOptions = {},
   ) {
     this.availability = resolveRouterAvailability(providers);
   }
@@ -33,7 +27,7 @@ export class SandboxTextModelRouterProvider implements SandwichTextModelProvider
   }
 
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-    const effectiveInput = await applyPromptPolicyModelDefaults(input, this.options.getPromptPolicy);
+    const effectiveInput = applyPromptPolicyModelDefaults(input);
     const providerId = effectiveInput.activeAgent.modelProvider ?? "openai";
     const provider = this.providers[providerId];
     const availability = this.getProviderAvailability(providerId);
@@ -46,13 +40,18 @@ export class SandboxTextModelRouterProvider implements SandwichTextModelProvider
 
     yield* provider.streamText(effectiveInput);
   }
+
+  resolveRequestedModel(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+    const effectiveInput = applyPromptPolicyModelDefaults(input);
+    const provider = this.providers[effectiveInput.activeAgent.modelProvider ?? "openai"];
+    return provider.resolveRequestedModel?.(effectiveInput);
+  }
 }
 
-async function applyPromptPolicyModelDefaults(
+function applyPromptPolicyModelDefaults(
   input: Parameters<SandwichTextModelProvider["streamText"]>[0],
-  getPromptPolicy: SandboxTextModelRouterProviderOptions["getPromptPolicy"],
-): Promise<Parameters<SandwichTextModelProvider["streamText"]>[0]> {
-  const promptPolicy = await getPromptPolicy?.();
+): Parameters<SandwichTextModelProvider["streamText"]>[0] {
+  const promptPolicy = input.promptPolicy;
   const template = promptPolicy?.agentClassTemplates[input.activeAgent.kind]
     ?? promptPolicy?.agentClassTemplates.custom;
   const defaults = template?.modelDefaults;
@@ -63,10 +62,8 @@ async function applyPromptPolicyModelDefaults(
 
   return {
     ...input,
-    tier: defaults.text.modelTier,
     activeAgent: {
       ...input.activeAgent,
-      defaultModelTier: defaults.text.modelTier,
       modelProvider: defaults.text.provider,
       ...(defaults.text.modelId !== undefined ? { modelId: defaults.text.modelId } : {}),
       realtimeProvider: input.activeAgent.realtimeProvider ?? defaults.realtime.provider,

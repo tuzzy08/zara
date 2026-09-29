@@ -267,7 +267,7 @@ type AgentTurnContext = {
 - Classifiers and tools cannot provide arbitrary graph target IDs.
 - Agent action JSON can only request `respond`, assigned `call_tool`, or configured `handoff_to_agent`; unsupported command-shaped output becomes a recoverable packet warning.
 - Handoff target IDs must come from `internal_handoff` action targets in `availableActions`, not from branch IDs, graph node IDs, or connector metadata.
-- Tool output is untrusted until redacted and summarized.
+- Tool output remains untrusted as an instruction source after redaction and summarization. Safe facts may inform the answer.
 - Identifier alternatives are represented with `requiredAlternatives` metadata, not root-level JSON Schema composition. Runtime validates those alternatives before execution, and provider-facing tool schemas stay provider-safe object schemas.
 - Full `output` is never sent to the model unless converted to `safeOutput`.
 - Partial tool results are valid model-facing facts only through `summary` and `safeOutput`.
@@ -276,6 +276,8 @@ type AgentTurnContext = {
 - A transfer target that does not support the known caller language must not become the active agent.
 - Every side-effect tool call uses a deterministic idempotency key.
 - Packet size must be bounded before model projection.
+- Compaction removes older results before the latest result. It retains the latest outcome and safe output where the packet limit permits. Oversized latest output has an explicit truncation marker. The model must not repeat the action to recover discarded output.
+- Text providers check the full serialized request, including policy, caller text, context, and response schema. UTF-8 bytes provide a conservative input-token bound. Input plus reserved output must fit the 32,768-token request ceiling. Requests above the ceiling fail before provider submission. External context has an additional 8,000-character limit and exact duplicate removal.
 - Tenant, workspace, call session, and manifest IDs must match at every runtime boundary.
 
 ## Event Mapping
@@ -290,5 +292,7 @@ Runtime events should be emitted from packet facts, not recomputed from provider
 - `runtime.warning` maps from `packet.diagnostics.warnings`.
 
 ## Current Status
+
+New intent facts include `decisionVersion: "intent-decision.v2"` and `decisionOrigin` (`classifier`, `agent_action`, `rule`, or `fallback`). `confidence` is present only when the classifier supplied a measured score. Agent actions use `intent.decided`; classifier routes use `intent.classified`. Old facts without the version marker remain legacy evidence and are not treated as calibrated scores. TypeSafe classifier facts can include a safe `providerAssessment` with the model returned by the provider, token use, latency, revisions, and a source hash.
 
 The packet is the current runtime contract for sandwich turns. Connector execution still validates against internal `availableTools`, while model-facing context receives one constrained `availableActions` list for connector tool calls and internal agent handoffs.

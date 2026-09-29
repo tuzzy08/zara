@@ -267,7 +267,17 @@ LLM-as-judge runtime evals require a minimum score of 0.8 for each configured qu
 
 ## Eval Execution
 
+`npm run eval:typesafe` is a separate paid, synthetic provider check. It requires server-side `TYPESAFE_API_KEY` and `TYPESAFE_MODEL`. Expected labels stay in the scorer, outside provider input. Deterministic contract tests do not prove semantic quality. The initial synthetic cases are not a release qualification set. Keep feature modes off until held-out quality, cost, latency, privacy, and rollback checks pass. See [the TypeSafe plan](TypeSafe-Implementation-Plan.md).
+
+`post_call.analysis.judged` records bounded decision scores, model, token usage, elapsed time, source revision, and question/policy revisions. Usage measures provider consumption only; it does not create customer charges. Unknown intent confidence must not be recorded as zero or one, and transcription confidence is a separate signal.
+
 The eval command uses the separate `ls.vitest.config.ts` config with `.eval.ts` files. Evals import from `langsmith/vitest` and use the `langsmith/vitest/reporter` reporter when LangSmith tracking is enabled.
+
+`npm run eval:runtime` passes fixture inputs through production provider adapters, action parsing, tool checks, and route resolution. Provider responses are scripted for this deterministic check. The executor does not receive expected answers. A changed classifier result must fail its score. The missing-input score checks that the server rejects an incomplete tool request; it does not claim that a live model asked the right question. The corrected executor uses dataset version `v2` by default, so its results remain distinct from the original reference-only gate.
+
+`npm run eval:prompts` is a separate live-provider check with synthetic inputs. It checks missing-input questions, injected tool instructions, failed tools, conversation history, conflicting tenant instructions, and allowed or blocked language changes. Set `OPENAI_API_KEY` and `GEMINI_API_KEY`. Optional `OPENAI_PROMPT_EVAL_MODEL` and `GEMINI_PROMPT_EVAL_MODEL` select exact models. Failures identify the provider, model, policy revision, and policy hash. Missing credentials fail this command. Ordinary tests do not load these live tests. These short checks supplement the release evaluation dataset; they do not prove all model behaviour.
+
+The same command includes `instruction-improvement.live.eval.ts`. It uses the production improvement service to draft instructions from synthetic order-support input. It compares original and improved instructions through both production text adapters for missing inputs, a ready tool call, failed lookup, and an unsupported delivery promise. It records each result, response length, and latency. These checks make paid provider requests, use no real tools or customer database, and do not prove general quality improvement. Review generated business rules and examples as well as scores. Change the drafting model with `INSTRUCTION_IMPROVEMENT_MODEL`; runtime evaluation model overrides remain separate.
 
 Regular local and CI test commands must continue to pass without LangSmith credentials. Eval jobs should support:
 

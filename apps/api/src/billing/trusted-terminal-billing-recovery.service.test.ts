@@ -227,7 +227,7 @@ describe("TrustedTerminalBillingRecoveryService", () => {
     const subscription = {
       finalizeByReservationKey: vi.fn(async () => {
         order.push("settlement");
-        return { outcome: "finalized", duplicate: false, paygAppliedMinor: 6 };
+        return { outcome: "finalized", duplicate: false, paygAppliedMinor: 6, includedRuntimeSeconds: 45 };
       }),
     };
     const service = new TrustedTerminalBillingRecoveryService(
@@ -269,6 +269,30 @@ describe("TrustedTerminalBillingRecoveryService", () => {
     })).resolves.toMatchObject({ status: "completed", paygAppliedMinor: 6 });
 
     expect(order).toEqual(["settlement", "usage"]);
+  });
+
+  it.each([undefined, null, -1, 0.5, 76])("keeps recovery pending for invalid included runtime %s", async (includedRuntimeSeconds) => {
+    const usage = { recordTerminalCall: vi.fn() };
+    const service = new TrustedTerminalBillingRecoveryService(
+      new TerminalBillingRecoveryRepository(pool), usage,
+      { finalizeTerminalCall: vi.fn() },
+      { finalizeByReservationKey: vi.fn().mockResolvedValue({
+        outcome: "finalized", duplicate: false, paygAppliedMinor: 6, includedRuntimeSeconds,
+      }) },
+    );
+    await expect(service.submit({
+      id: "invalid-included", idempotencyKey: "invalid-included",
+      usageFact: { ...usageFact, commercialMode: "subscription", planSlug: "growth" },
+      settlement: { commercialMode: "subscription", fact: {
+        organizationId: "tenant-recovery", reservationKey: "subscription-call:call-recovery",
+        sessionId: "call-recovery", actualSeconds: 75, outcome: "transferred",
+        runtimePath: "pstn-sandwich", ownershipMode: "byo", provider: "twilio",
+        direction: "inbound", catalogId: "catalog-pinned-v1", planSlug: "growth",
+        now: usageFact.occurredAt,
+      } },
+      now: "2026-08-11T10:00:01.000Z",
+    })).resolves.toMatchObject({ status: "pending",
+      lastError: "Subscription finalization did not return valid included runtime." });
   });
 
   it("fences a stale worker after an expired lease is reclaimed", async () => {

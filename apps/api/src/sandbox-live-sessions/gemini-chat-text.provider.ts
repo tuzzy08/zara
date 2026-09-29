@@ -4,9 +4,10 @@ import {
   buildSandboxTextSystemPrompt,
   buildSandboxTextTurnPrompt,
   buildSandboxUntrustedContextMessage,
-  type SandboxTextPromptPolicy,
 } from "./sandbox-text-model-prompts";
 import { resolveModelForTier } from "./openai-chat-text.provider";
+import { buildAgentActionResponseSchema, unwrapAgentActionResponse } from "./agent-action-response-schema";
+import { assertTextModelRequestBudget, selectBoundedUntrustedContext } from "./sandbox-text-request-budget";
 
 interface GeminiGenerateContentResponse {
   candidates?: Array<{
@@ -26,7 +27,6 @@ export interface GeminiChatTextProviderConfig {
   baseUrl?: string | undefined;
   fetch?: typeof fetch | undefined;
   modelByTier?: Partial<Record<Exclude<ModelTier, "rules">, string>> | undefined;
-  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined;
 }
 
 export class GeminiChatTextProvider implements SandwichTextModelProvider {
@@ -52,16 +52,20 @@ export class GeminiChatTextProvider implements SandwichTextModelProvider {
   }
 
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-    const model = resolveGeminiModel(input, this.modelByTier);
+    const { modelId: model } = this.resolveRequestedModel(input);
+    const requestBody = buildGeminiRequestBody(input);
+    const outputTokens = input.agentActionMode === true ? 1_024 : 512;
+    assertTextModelRequestBudget(requestBody, outputTokens);
     const response = await this.fetchImplementation(
       `${this.config.baseUrl ?? "https://generativelanguage.googleapis.com"}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: "POST",
+        ...(input.abortSignal === undefined ? {} : { signal: input.abortSignal }),
         headers: {
           "Content-Type": "application/json",
           "x-goog-api-key": this.config.apiKey,
         },
-        body: JSON.stringify(await buildGeminiRequestBody(input, this.config.getPromptPolicy)),
+        body: JSON.stringify(requestBody),
       },
     );
     const payload = await response.json() as GeminiGenerateContentResponse;
@@ -79,15 +83,16 @@ export class GeminiChatTextProvider implements SandwichTextModelProvider {
       throw new Error("Gemini generateContent returned no text.");
     }
 
-    yield text;
+    yield input.agentActionMode === true ? unwrapAgentActionResponse(text, input.agentContext) : text;
+  }
+
+  resolveRequestedModel(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+    const explicitModelId = input.activeAgent.modelProvider === "google-gemini" ? input.activeAgent.modelId?.trim() : undefined;
+    return { provider: "google-gemini" as const, modelId: resolveModelForTier(input.tier, this.modelByTier, explicitModelId) };
   }
 }
 
-async function buildGeminiRequestBody(
-  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
-  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined,
-) {
-  const promptPolicy = await getPromptPolicy?.();
+function buildGeminiRequestBody(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
   const contents = [
     {
       role: "user",
@@ -99,12 +104,13 @@ async function buildGeminiRequestBody(
     },
   ];
 
-  if (input.untrustedContext !== undefined && input.untrustedContext.length > 0) {
+  const untrustedContext = selectBoundedUntrustedContext(input.untrustedContext, input.agentContext);
+  if (untrustedContext.length > 0) {
     contents.push({
       role: "user",
       parts: [
         {
-          text: buildSandboxUntrustedContextMessage(input.untrustedContext),
+          text: buildSandboxUntrustedContextMessage(untrustedContext),
         },
       ],
     });
@@ -114,23 +120,23 @@ async function buildGeminiRequestBody(
     systemInstruction: {
       parts: [
         {
-          text: buildSandboxTextSystemPrompt(input.manifest, input.activeAgent, promptPolicy),
+          text: buildSandboxTextSystemPrompt(
+            input.manifest,
+            input.activeAgent,
+            input.promptPolicy,
+            input.context.language,
+            input,
+          ),
         },
       ],
     },
     contents,
+    generationConfig: input.agentActionMode === true
+      ? {
+          responseMimeType: "application/json",
+          responseJsonSchema: buildAgentActionResponseSchema(input.agentContext),
+          maxOutputTokens: 1_024,
+        }
+      : { maxOutputTokens: 512 },
   };
-}
-
-function resolveGeminiModel(
-  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
-  models: Record<Exclude<ModelTier, "rules">, string>,
-) {
-  const explicitModelId = input.activeAgent.modelProvider === "google-gemini"
-    ? input.activeAgent.modelId?.trim()
-    : undefined;
-
-  return explicitModelId !== undefined && explicitModelId.length > 0
-    ? explicitModelId
-    : resolveModelForTier(input.tier, models);
 }

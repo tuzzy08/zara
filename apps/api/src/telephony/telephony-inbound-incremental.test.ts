@@ -2397,6 +2397,7 @@ describe("TelephonyService incremental inbound persistence", () => {
           commercialMode: "subscription",
           runtimeSeconds: 61,
           occurredAt: "2026-08-09T10:01:01.000Z",
+          usageStartedAt: "2026-08-09T10:00:00.000Z",
         }),
         settlement: expect.objectContaining({
           commercialMode: "subscription",

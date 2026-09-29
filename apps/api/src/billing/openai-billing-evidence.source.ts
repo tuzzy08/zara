@@ -24,19 +24,30 @@ export class OpenAiDirectBillingEvidenceSource implements BillingProviderEvidenc
 
   async collectCycle(input: BillingCycleEvidenceInput): Promise<BillingProviderEvidenceReport | null> {
     const collectedAt = this.now();
-    const cycleStart = Date.parse(input.cycleStartsAt);
-    const cycleEnd = Date.parse(input.cycleEndsAt);
-    const collectionTime = Date.parse(collectedAt);
-    if (!Number.isFinite(cycleStart) || !Number.isFinite(cycleEnd) || cycleStart >= cycleEnd) {
-      throw new Error("OpenAI billing evidence cycle is invalid.");
-    }
-    if (!Number.isFinite(collectionTime) || collectionTime < cycleEnd) {
-      throw new Error("OpenAI billing evidence cycle is not complete.");
-    }
-    const projectId = (await this.mappings.getProjectId({
-      ...input,
-    }))?.trim();
+    assertCompletedCycle(input, collectedAt);
+    const projectId = (await this.mappings.getProjectId(input))?.trim();
     if (!projectId) return null;
+    return this.collectProjectCycle(input, projectId, collectedAt, false);
+  }
+
+  async collectSharedCycle(input: {
+    externalScopeId: string;
+    cycleStartsAt: string;
+    cycleEndsAt: string;
+  }): Promise<BillingProviderEvidenceReport> {
+    const collectedAt = this.now();
+    assertCompletedCycle(input, collectedAt);
+    const projectId = input.externalScopeId.trim();
+    if (!projectId) throw new Error("OpenAI shared project ID is required.");
+    return this.collectProjectCycle(input, projectId, collectedAt, true);
+  }
+
+  private async collectProjectCycle(
+    input: Pick<BillingCycleEvidenceInput, "cycleStartsAt" | "cycleEndsAt">,
+    projectId: string,
+    collectedAt: string,
+    shared: boolean,
+  ): Promise<BillingProviderEvidenceReport> {
     const evidence = await this.client.getProjectCycleEvidence({
       projectId,
       cycleStartsAt: input.cycleStartsAt,
@@ -52,6 +63,7 @@ export class OpenAiDirectBillingEvidenceSource implements BillingProviderEvidenc
       evidenceKind: "runtime_usage",
       sourceReportId: `openai-organization:${sourceDigest}`,
       payload: {
+        ...(shared ? { scope: "platform" } : {}),
         // The official organization APIs return token usage and costs. They do
         // not return realtime duration. Do not convert tokens to billed seconds.
         quantities: {},
@@ -63,6 +75,21 @@ export class OpenAiDirectBillingEvidenceSource implements BillingProviderEvidenc
         facts,
       },
     };
+  }
+}
+
+function assertCompletedCycle(
+  input: Pick<BillingCycleEvidenceInput, "cycleStartsAt" | "cycleEndsAt">,
+  collectedAt: string,
+) {
+  const start = Date.parse(input.cycleStartsAt);
+  const end = Date.parse(input.cycleEndsAt);
+  const now = Date.parse(collectedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
+    throw new Error("OpenAI billing evidence cycle is invalid.");
+  }
+  if (!Number.isFinite(now) || now < end) {
+    throw new Error("OpenAI billing evidence cycle is not complete.");
   }
 }
 
