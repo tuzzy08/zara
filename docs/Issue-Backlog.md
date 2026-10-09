@@ -1,5 +1,22 @@
 # Issue Backlog
 
+### ISSUE-249: Migrate production from Coolify to Dokploy
+
+- Priority: P1
+- Area: Deployment / Data / Security
+- Status: Implemented
+- External: [GitHub #124](https://github.com/tuzzy08/zara/issues/124)
+- Handover: [ISSUE-249](Handovers/ISSUE-249-dokploy-production-migration.md)
+
+Migration completed on 2026-10-09 under owner-approved maintenance. Exact release `b000517` runs in Dokploy. All four restored volumes match the cold backup; native environment, healthy services, HTTPS, auth readiness, and worker WebSocket routing are verified. Root/wildcard DNS now target `148.113.252.188`. Old Zara remains stopped with Auto Deploy off, data/backups retained, and temporary source SSH access removed. Owner workspace acceptance and paid billing tests were not performed; billing activation remains separate.
+
+Acceptance criteria:
+- Preserve the database, object versions, Redis durable state, API state, and required secrets through secure transfer and a verified restore.
+- Deploy an immutable verified release in Dokploy without concurrent source/target live processing.
+- Verify service health, auth, domains, and exact worker/WebSocket routing.
+- Obtain maintenance-window and DNS-cutover approval; retain the old server for rollback and remove temporary source SSH authorization after migration.
+- Keep billing activation and paid tests separate from migration.
+
 This is the canonical local backlog. External tracker issues must mirror these items. Linear is the current default external tracker unless a future pass explicitly moves issue tracking to GitHub. Every item has a matching handover document in docs/Handovers.
 
 External reconciliation rule: do not create repo-local issues only. Every new issue must include an `External:` line linking the Linear or GitHub tracker issue, and its handover must carry the same external link.
@@ -28,7 +45,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Workflow builder architecture deepening: ISSUE-125 is implemented. Workbench relationship decisions, selected-node action state, route-target eligibility, and handle mapping now sit behind a focused module interface while preserving visual builder behavior.
 - Tenant JSON state architecture deepening: ISSUE-126 is implemented. Billing, integrations, memory, and telephony file repositories now share tenant-scoped JSON persistence mechanics while preserving feature-specific validation; integrations module wiring treats blank state-directory env values as unset before constructing the shared adapter.
 - Agent model provider selection: ISSUE-127 is implemented as a runtime/platform-admin-governed capability. Runtime agents preserve text model provider/model ID when policy supplies it, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events without tenant inspector provider/model controls.
-- Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
+- Marketing landing and dedicated auth: ISSUE-130 is implemented. The Zhara landing page covers voice and non-voice agents, go-to-market work, and company workflow automation. It retains the Armory reference, with updated Scale sales contact, compact buttons, and larger integration icons. The 2026-10-09 pass is local; the handover records the prior broader sign-out test limitation.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, tenant/platform shell session rendering that avoids Better Auth session, active-organization, and active-member hook readers, production auth-context membership expansion from one Postgres query, production secure cookies/proxy headers/database-backed rate limiting with a normal-read-safe default bucket, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
 - Runtime-aware builder controls: ISSUE-132 is implemented. Builder startup opens a blank draft unless a session draft exists, explicit toolbar load/delete for saved workflows, workflow naming, toolbox-only tenant runtime selection, platform-admin-owned provider/model policy, language selection, intent fallback-to-caller handling, and tenant-connection-backed reusable-agent toolbelt assignment now match runtime expectations.
@@ -3190,9 +3207,11 @@ Edge cases:
 - Handover: [docs/Handovers/ISSUE-130-voice-agent-agency-landing-and-auth.md](../docs/Handovers/ISSUE-130-voice-agent-agency-landing-and-auth.md)
 - External: [Linear ZAR-139](https://linear.app/zara-voice/issue/ZAR-139/issue-130-voice-agent-agency-landing-and-dedicated-auth-page)
 
+Current refinement (2026-10-09): public landing branding is Zhara. The page covers voice and non-voice agents, go-to-market services, and company workflow automation. Scale uses Contact sales (sales@zharaai.com). Removed the two pricing paragraphs, repeated Operational signal labels, and Our approach section. Corrected CTA spacing and enlarged integration icons. Focused tests, typecheck, lint, build, and desktop/mobile browser checks pass locally. Deployment and the prior unrelated sign-out smoke failure remain separate.
+
 Acceptance criteria:
 - Signed-out visitors on `/` see the voice-agent agency landing page instead of the tenant auth form
-- Landing page includes product-positioned SEO copy, voice-system capabilities, workflow-builder proof, operational telemetry, results, approved subscription and PAYG pricing, FAQ, final CTA, and footer
+- Landing page includes product-positioned SEO copy, voice and non-voice agent services, company workflow automation, workflow-builder proof, operational telemetry, results, approved subscription and PAYG pricing, FAQ, final CTA, and footer
 - `/login` and `/signup` render dedicated auth pages for tenant access
 - Authenticated users who visit `/login` or `/signup` are returned to the tenant app
 
@@ -5638,7 +5657,7 @@ Acceptance criteria:
 - Labels: billing, devops, observability, testing, security, tdd-required
 - Status: In Progress
 - Blocked by: ISSUE-241, ISSUE-242, ISSUE-243, ISSUE-244, ISSUE-245, ISSUE-246, ISSUE-247
-- Remaining release work: securely install the absent production Polar token; finish benefits/meters/catalogue mappings and webhook verification; verify production backup/active-call checks; deploy; and save the owner enable decision. The user approved the prices and all four private Tomdile products exist. Each subscription has net usage at USD 0.01 per unit. CI on `fd55623` passes. PR #123 remains unmerged; production billing is not enabled. The agent owns approved release work; the user retains the paid live test. This supersedes older pending-price, pending-CI, and slice ownership notes below.
+- Remaining release work: finish production benefits/meters/catalogue mappings and webhook verification, select production Polar mode, and save the owner enable decision. The installed Polar token is present; its organization and production validity still need verification. PR #123 is merged as `b000517`; pre-merge and post-merge CI pass. A verified cold volume archive and retained MinIO image are saved on the production host. Deployment `ttqlafsfp9qv8y1zr6uicmjk` succeeded with healthy services and migration exit 0. The existing worker domain now uses HTTPS and target port 4020; its public readiness check passes after deployment `c4au64ggxqt63goqlthfx96c`. Charge delivery remains false and Polar remains in sandbox mode. The user retains the paid live test. This supersedes older pending-token, pending-merge, and slice ownership notes below.
 - Handover: [docs/Handovers/ISSUE-248-shadow-billing-release.md](../docs/Handovers/ISSUE-248-shadow-billing-release.md)
 - External: [Linear ZAR-269](https://linear.app/zara-voice/issue/ZAR-269/run-shadow-billing-reconcile-draft-invoices-and-release-real-charges)
 

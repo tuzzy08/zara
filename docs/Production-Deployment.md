@@ -1,5 +1,13 @@
 # Production Deployment
 
+## Current deployed instance (2026-10-09)
+
+The owner-operated instance now runs in Dokploy on `148.113.252.188`, not the old Coolify host. Tenant, admin, API, and realtime origins are `https://zharaai.com`, `https://admin.zharaai.com`, `https://api.zharaai.com`, and `https://realtime.zharaai.com`. The www alias also serves the tenant app.
+
+Dokploy project `Zara` / production / `zara-production` uses the existing `compose.coolify.yml` single-worker baseline, native Environment settings, and immutable tag `zara-dokploy-20261009-b000517`. Autodeploy is off. Each worker replacement needs a fresh worker ID and the exact API release ID.
+
+Old Coolify Zara is stopped with Auto Deploy off and data retained. Do not restart it against copied old state after target writes. See `docs/Handovers/ISSUE-249-dokploy-production-migration.md` for restore evidence and rollback constraints. Billing enable and the owner's paid test remain separate. Broader standards below do not establish two-worker HA or recurring backup qualification for this instance.
+
 ## Production Environment
 
 Production runs public deployment units behind separate origins:
