@@ -4,7 +4,7 @@ External: [Linear ZAR-139](https://linear.app/zara-voice/issue/ZAR-139/issue-130
 
 ## Status
 
-Implemented.
+Implemented. The 2026-10-09 Zhara landing-page changes are complete locally; no deployment was performed.
 
 ## Goal
 
@@ -433,3 +433,100 @@ Review the corrected workflow graph in the normal landing preview. Change path r
 ### Next Recommended Step
 
 Use deployed catalog data when the public site gains a server-rendered marketing data path. Until then, update this rate sheet with every approved catalog change.
+
+
+## Armory Comparison And Refinement (2026-10-08)
+
+### Reference And Scope
+
+- Compared the live Zara page at https://zharaai.com/ with the user-confirmed https://armory.framer.ai/ and its `/pricing` page in the Codex in-app browser.
+- Kept approved Zara subscription prices, runtime quantities, overage rates, prepaid credit, trial terms, product claims, and dedicated auth routes.
+
+### Work Completed
+
+- Rebuilt pricing as a semantic comparison table with shared row labels, aligned plan summaries and actions, and a continuous dark Growth column on a light surface.
+- Added named plan actions to `/signup`, retained the PAYG row, and made billing notes readable.
+- Added a named, keyboard-scrollable mobile comparison region with fixed row labels and a scroll hint.
+- Replaced the outline glyphs with an original, consistent pixel family. Each glyph uses one SVG path to limit DOM size.
+- Matched the reference's lower-left hero headline and upper-right capability list. Moved the existing animated routing console into the operating-approach section.
+- Reduced visible grid lines from twelve to four, aligned desktop section introductions, relaxed heading tracking and line height, enlarged body copy, and standardized striped labels and icon-tile buttons.
+- Replaced stacked use-case rows with three desktop columns, corrected the uneven telemetry/proof grids, and removed decorative arrows that looked like links from non-interactive use-case panels.
+- Preserved shared SVG coordinates for workflow nodes, ports, and paths, and kept the mobile workflow canvas horizontally inspectable.
+- Updated DESIGN.md to record the current reference and layout rules.
+
+### Comparison Record
+
+| Area | Reference | Former Zara page | Resolution |
+| --- | --- | --- | --- |
+| Pricing | Light four-column comparison, dark Growth column | Three independent dark cards, repeated labels, undersized section heading | Shared semantic table and consistent heading scale |
+| Hero | Full background, headline below left, capabilities above right | Dim background and a large foreground console | Brighter approved poster and matching composition; console moved to approach |
+| Icons and actions | Pixel-style marks, contrasting icon tiles | Thin outline glyphs and small text arrows | One pixel family and common action treatment |
+| Grid and type | Four visible columns and regular sans headings | Twelve lines and compressed headings | Four visible columns, aligned introductions, readable body text |
+| Repeated panels | Balanced rows with varied composition | Orphan proof card and uneven telemetry rows | Complete desktop rows and mobile stacks |
+
+### Tests And Browser Checks
+
+- RED: the existing signed-out acquisition smoke test failed because `Compare subscription plans` did not exist.
+- GREEN: the new table, named plan actions, and Growth-to-signup assertions passed in the subsequent focused run. No decorative CSS or source-text tests were added.
+- The broader four-test app run passed the new acquisition check and two tenant-context checks, but its unchanged sign-out check failed while waiting for `/`. An isolated sign-out recheck also exceeded its time limit. This is a remaining test limitation; no authentication production code was changed.
+- Web typecheck and scoped ESLint passed. UI-smoke boundary passed: 9 approved files, 25 declared tests.
+- Web production build passed with the existing large-chunk warning.
+- Browser review at 1280×720, 1440×1000, and 390×844: meaningful content, no framework overlay, no page-level horizontal overflow, no relevant console warnings/errors, desktop pricing alignment, mobile fixed labels and keyboard horizontal scroll, hero/capability composition, workflow ports, feature selection, FAQ expansion, and Growth-to-signup navigation.
+- Screenshots are saved outside the repository in this chat's visualization directory.
+
+### Pending Work
+
+- No required landing refinement remains.
+- Deploy the reviewed change through the normal release process when requested.
+- Investigate the broader sign-out test failure separately before treating the whole app suite as green.
+
+### Risks And Decisions
+
+- This is a local implementation, not a production deployment.
+- Reference fidelity uses Zara's own artwork, prices, wording, and capabilities. Armory's company logos, customer claims, service prices, and annual billing toggle were not copied.
+- The marketing page still owns its scroll container because the tenant application locks body scrolling.
+- Mobile pricing intentionally scrolls horizontally to preserve cross-plan row alignment; row labels stay visible.
+
+### Next Recommended Step
+
+Review the local page, then include the change in the normal release after the separate auth test limitation is resolved.
+
+## Zhara Services And Layout Follow-up (2026-10-09)
+
+### Work Completed
+
+- Changed all visible landing-page brand text, accessible labels, page title, and initial HTML title to Zhara. Internal package names and existing image filenames remain stable.
+- Added voice agents, non-voice agents, go-to-market tasks, and company workflow automation to the hero, capabilities, practical examples, FAQ, and closing copy. The voice-specific product preview remains a voice example.
+- Replaced Scale's displayed $499 monthly price and signup action with one Contact sales link to the user-supplied sales@zharaai.com address. Other plan values and backend billing rules are unchanged.
+- Removed the marked trial and billing-note paragraphs, repeated Operational signal labels, and Our approach section. Removed the console component and its now-unused styles.
+- Fixed the closing button's excess space by restricting the section icon style to its direct child. The button now measures 44px tall.
+- Enlarged integration icons from 38px to 72px, removed negative label spacing, and increased label size. Adjusted the footer wordmark for the longer name.
+- Updated DESIGN.md, the backlog, roadmap, and Linear ZAR-139.
+
+### Tests Run
+
+- RED: the updated acquisition smoke test failed because the Contact sales link was missing. A browser assertion also failed for the same missing action. The initial forks run could not start a worker; retrying with threads produced the expected assertion failure.
+- GREEN: the focused acquisition test passed with the sales mailto target, Zhara home label, Starter/Growth signup links, and Growth-to-signup navigation.
+- REFACTOR: the same focused test passed after removing the unused approach component and CSS. One passed, three unrelated tests skipped.
+- Passed web TypeScript check, scoped ESLint, test-boundary check (9 files / 25 tests), and production build. The existing large-chunk build warning remains.
+- Browser review used the in-app browser at the normal desktop size, 1440x1000, and 390x844. Verified visible content, no error overlay, no relevant console warnings/errors, no page-level horizontal overflow, sales destination, keyboard access to Scale, 44px closing button, 72px integration icons, removed text, and the Act control state change.
+- Screenshots are stored outside the repository in this chat's visualization directory.
+
+### Pending Work, Risks, And Decisions
+
+- No required implementation work remains for this landing-page pass. Changes are local only.
+- The Our approach instruction was interpreted as removal of the whole section, as stated to the user. A later correction can restore that section.
+- The brand change is scoped to the public landing page; package identifiers and tenant/auth UI are outside this page pass.
+- Mailto destination was checked without sending an email. Delivery and the visitor's mail application are not tested.
+- The prior unrelated sign-out smoke failure remains recorded; this pass does not claim the full app suite is green.
+
+### Next Recommended Step
+
+Review the local page and include the change in the normal release process when requested.
+
+## Commit Preparation (2026-10-09)
+
+- Prepared the completed landing-page changes for the user-requested commit. Included only ISSUE-130 entries from the shared backlog and roadmap.
+- Retained the completed test and browser evidence above; no production code changed in this pass.
+- The local server returned HTTP 200 during preview recovery. A fresh in-app browser tab displayed the page with no console errors. No server or page-code change was needed.
+- Status remains Implemented. Deployment and the separate sign-out test limitation remain pending as recorded above.

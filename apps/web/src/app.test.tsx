@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type {
   ZaraAuthClient,
   ZaraAuthContext,
@@ -33,7 +33,7 @@ describe("tenant application shell", () => {
     window.sessionStorage.clear();
   });
 
-  it("offers authentication without mounting the tenant shell for signed-out visitors", () => {
+  it("offers authentication without mounting the tenant shell for signed-out visitors", async () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
         <App authClient={createAuthClient(null)} />
@@ -45,6 +45,19 @@ describe("tenant application shell", () => {
         .every((link) => link.getAttribute("href") === "/login"),
     ).toBe(true);
     expect(screen.queryByLabelText("Tenant")).toBeNull();
+
+    const pricing = screen.getByRole("table", { name: "Compare subscription plans" });
+    expect(within(pricing).getByRole("rowheader", { name: "Standard runtime" })).toBeTruthy();
+    for (const plan of ["Starter", "Growth"]) {
+      expect(within(pricing).getByRole("columnheader", { name: new RegExp(plan) })).toBeTruthy();
+      expect(within(pricing).getByRole("link", { name: `Start with ${plan}` }).getAttribute("href")).toBe("/signup");
+    }
+    expect(within(pricing).getByRole("columnheader", { name: /Scale/ })).toBeTruthy();
+    expect(within(pricing).getByRole("link", { name: "Contact sales" }).getAttribute("href")).toBe("mailto:sales@zharaai.com");
+    expect(within(pricing).queryByRole("link", { name: "Start with Scale" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Zhara home" }).getAttribute("href")).toBe("/");
+    fireEvent.click(within(pricing).getByRole("link", { name: "Start with Growth" }));
+    expect(await screen.findByRole("heading", { name: "Create your Zara account" })).toBeTruthy();
   });
 
   it("gates a tenant route, enters the shell after sign-in, and returns home after sign-out", async () => {
