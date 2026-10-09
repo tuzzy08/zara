@@ -4,7 +4,7 @@
 
 The owner-operated instance now runs in Dokploy on `148.113.252.188`, not the old Coolify host. Tenant, admin, API, and realtime origins are `https://zharaai.com`, `https://admin.zharaai.com`, `https://api.zharaai.com`, and `https://realtime.zharaai.com`. The www alias also serves the tenant app.
 
-Dokploy project `Zara` / production / `zara-production` uses the existing `compose.coolify.yml` single-worker baseline, native Environment settings, and immutable tag `zara-dokploy-20261009-b000517`. Autodeploy is off. Each worker replacement needs a fresh worker ID and the exact API release ID.
+Dokploy project `Zara` / production / `zara-production` uses the existing `compose.coolify.yml` single-worker baseline, native Environment settings, and immutable tag `zara-dokploy-20261009-2e4414b` (commit `2e4414ba4c362fd4f941ed237d204e7ba22d4c26`, PR #125). Autodeploy is off. API and worker release IDs match this commit; the worker ID is `zara-dokploy-20261009-03`. Each worker replacement needs a fresh worker ID and the exact API release ID. Billing charge delivery remains disabled.
 
 Old Coolify Zara is stopped with Auto Deploy off and data retained. Do not restart it against copied old state after target writes. See `docs/Handovers/ISSUE-249-dokploy-production-migration.md` for restore evidence and rollback constraints. Billing enable and the owner's paid test remain separate. Broader standards below do not establish two-worker HA or recurring backup qualification for this instance.
 

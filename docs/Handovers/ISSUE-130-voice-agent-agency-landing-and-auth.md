@@ -4,7 +4,7 @@ External: [Linear ZAR-139](https://linear.app/zara-voice/issue/ZAR-139/issue-130
 
 ## Status
 
-Implemented. The 2026-10-09 Zhara landing-page changes are complete locally; no deployment was performed.
+Implemented and deployed. The 2026-10-09 Zhara landing-page changes run in Dokploy at commit `2e4414ba4c362fd4f941ed237d204e7ba22d4c26` (PR #125). Earlier local-only notes below are historical.
 
 ## Goal
 
@@ -551,3 +551,21 @@ Review the local page and include the change in the normal release process when 
 - Push the test repair, require all PR checks to pass, merge to dev, and require the merge commit checks to pass before the authorized Dokploy release.
 - Production remains at b000517. Billing charge delivery stays disabled. No checks were bypassed and no paid test was run.
 - This test checks navigation and plan actions, not invoice calculations or email delivery. No instrumentation or production refactor was needed because the CI failure directly identified a stale presentation assertion.
+
+## Verified Production Release (2026-10-09)
+
+### Work Completed And Checks
+
+- PR https://github.com/tuzzy08/zara/pull/125 merged into dev only after CI, Migration Check, GitGuardian, and preview checks passed on cdf7291. Merge commit `2e4414ba4c362fd4f941ed237d204e7ba22d4c26` then passed CI run 37912956418 and Migration Check 37912956447. No separate GitGuardian merge check was emitted; both commits have identical Git tree `a2449fb32fc40c7d0476d0448a761931c2d4d9f2`, so the checked content is unchanged.
+- Published immutable tag `zara-dokploy-20261009-2e4414b`. Dokploy cloned that exact SHA and completed a build-only job before replacement. Restored and verified its normal native Compose command before deployment. Final deployment completed successfully in 26 seconds.
+- Native Environment changes were limited to SOURCE_COMMIT, ZARA_RELEASE_ID, PSTN_WORKER_RELEASE_ID, and fresh PSTN_WORKER_ID `zara-dokploy-20261009-03`. Existing secrets were retained without display; clipboard was cleared. BILLING_CHARGE_DELIVERY_ENABLED remains false. Generated environment file permissions were restored to 600.
+- Worker readiness showed zero active and starting calls before SIGTERM/drain. Old worker exited 0 at 09:56:50 UTC; replacement started at 09:57:24 UTC. No old/new worker overlap occurred. New worker is registered, ready, and has 20 free slots. API and worker release IDs match the exact deployed commit.
+- Seven services are healthy; migration and storage initializer exited 0. Unchanged data services and platform-admin image were retained by Compose. All six normal-TLS HTTP checks returned 200: apex, www, admin, API readiness, auth readiness, and realtime readiness.
+- Browser verified the new Zhara landing, named pricing table, approved Scale sales mailto, Growth-to-signup navigation, and sign-in screen. No landing console warnings or errors were observed. Evidence screenshot is stored outside the repository as `release-2e4414b-pricing.png` in this chat's visualization directory.
+- Fresh pre-release logical database backup: `/home/ubuntu/zara-migration-20261009/pre-release-2e4414b.dump`, SHA256 `daf0e4c1aeab9641d0f6b0be8d20d833f6c9e465859dbbcb7ad16fd3daeba72b`. Archive listing passed. Existing migration backup sets, volumes, and the old stopped Coolify deployment were not changed.
+
+### Pending Work And Risks
+
+- No required work remains for this release. Stop the PR release monitor after recording completion.
+- Owner sign-in with an existing account and genuine paid testing were not performed. Billing enable remains a separate owner action. The sales link was checked without sending email.
+- No HA, recurring backup/PITR, or API shutdown-hook changes were added. The prior migration limitations remain recorded under ISSUE-249. This release did not bypass checks or change production billing rules.
