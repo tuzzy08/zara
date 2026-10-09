@@ -530,3 +530,24 @@ Review the local page and include the change in the normal release process when 
 - Retained the completed test and browser evidence above; no production code changed in this pass.
 - The local server returned HTTP 200 during preview recovery. A fresh in-app browser tab displayed the page with no console errors. No server or page-code change was needed.
 - Status remains Implemented. Deployment and the separate sign-out test limitation remain pending as recorded above.
+
+## PR 125 CI Repair (2026-10-09)
+
+### Work Completed
+
+- Replaced the stale four-card and four-signup-link assertions with accessible plan actions in the approved comparison table. Starter, Growth, and prepaid credit still lead to signup; Scale leads to the approved sales address and has no signup action.
+- Changed only the existing smoke test and this handover. No production UI, pricing, auth, or billing code changed. Status remains Implemented; production deployment is pending PR checks.
+
+### Tests Run
+
+- RED evidence: CI run 37902020376 on PR 125 head 89a21aa failed at the old four-article assertion (expected four, received one). The remaining 2,251 tests passed; 54 were skipped. Migration Check and GitGuardian passed.
+- GREEN: `npx vitest run apps/web/src/MarketingLandingPageMockup.test.tsx --pool=threads --maxWorkers=1` passed, one test.
+- Related regression: `npx vitest run apps/web/src/MarketingLandingPageMockup.test.tsx apps/web/src/app.test.tsx --pool=threads --maxWorkers=1` passed, five tests. This includes the previously recorded sign-out test; that earlier local limitation did not recur.
+- Scoped ESLint, `npm run test:boundaries` (9 files / 25 tests), and `git diff --check` passed.
+- An earlier local test process exited before producing a result. No result from that attempt is treated as a pass.
+
+### Pending Work, Risks, And Next Step
+
+- Push the test repair, require all PR checks to pass, merge to dev, and require the merge commit checks to pass before the authorized Dokploy release.
+- Production remains at b000517. Billing charge delivery stays disabled. No checks were bypassed and no paid test was run.
+- This test checks navigation and plan actions, not invoice calculations or email delivery. No instrumentation or production refactor was needed because the CI failure directly identified a stale presentation assertion.
