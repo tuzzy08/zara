@@ -1,5 +1,22 @@
 # Issue Backlog
 
+### ISSUE-249: Migrate production from Coolify to Dokploy
+
+- Priority: P1
+- Area: Deployment / Data / Security
+- Status: Implemented
+- External: [GitHub #124](https://github.com/tuzzy08/zara/issues/124)
+- Handover: [ISSUE-249](Handovers/ISSUE-249-dokploy-production-migration.md)
+
+Migration completed on 2026-10-09 under owner-approved maintenance. Exact release `b000517` runs in Dokploy. All four restored volumes match the cold backup; native environment, healthy services, HTTPS, auth readiness, and worker WebSocket routing are verified. Root/wildcard DNS now target `148.113.252.188`. Old Zara remains stopped with Auto Deploy off, data/backups retained, and temporary source SSH access removed. Owner workspace acceptance and paid billing tests were not performed; billing activation remains separate.
+
+Acceptance criteria:
+- Preserve the database, object versions, Redis durable state, API state, and required secrets through secure transfer and a verified restore.
+- Deploy an immutable verified release in Dokploy without concurrent source/target live processing.
+- Verify service health, auth, domains, and exact worker/WebSocket routing.
+- Obtain maintenance-window and DNS-cutover approval; retain the old server for rollback and remove temporary source SSH authorization after migration.
+- Keep billing activation and paid tests separate from migration.
+
 This is the canonical local backlog. External tracker issues must mirror these items. Linear is the current default external tracker unless a future pass explicitly moves issue tracking to GitHub. Every item has a matching handover document in docs/Handovers.
 
 External reconciliation rule: do not create repo-local issues only. Every new issue must include an `External:` line linking the Linear or GitHub tracker issue, and its handover must carry the same external link.
