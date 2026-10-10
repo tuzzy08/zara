@@ -12,6 +12,7 @@ import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME } from "@zara/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { App } from "./App";
+import { TenantLoginScreen } from "./TenantLoginScreen";
 
 function LocationPathProbe() {
   return <div data-testid="location-path">{useLocation().pathname}</div>;
@@ -28,6 +29,7 @@ describe("tenant application shell", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     document.documentElement.removeAttribute("data-theme");
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -90,6 +92,28 @@ describe("tenant application shell", () => {
       expect(screen.getByTestId("location-path").textContent).toBe("/");
       expect(screen.queryByLabelText("Tenant")).toBeNull();
     });
+
+    cleanup();
+    const onAuthChanged = vi.fn();
+    const fetch = vi.fn().mockResolvedValueOnce(new Response("{}", { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "test-only", user: {} })));
+    vi.stubGlobal("fetch", fetch);
+    render(<MemoryRouter><TenantLoginScreen mode="signin" onAuthChanged={onAuthChanged}
+      authClient={{ ...createAuthClient(null), signInEmail: async () => ({ ok: true, twoFactorRedirect: true }) }} /></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByLabelText("Authenticator code")).toBeTruthy();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(onAuthChanged).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Authenticator code"), { target: { value: "000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify code" }));
+    expect(await screen.findByText(/Verification failed/)).toBeTruthy();
+    expect(onAuthChanged).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Authenticator code"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify code" }));
+    await waitFor(() => expect(onAuthChanged).toHaveBeenCalledTimes(1));
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ credentials: "include", body: JSON.stringify({ code: "123456", trustDevice: false }) });
   });
 
   it("requires a multi-tenant user to select an organization before entering the shell", async () => {

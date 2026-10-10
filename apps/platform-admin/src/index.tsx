@@ -695,7 +695,8 @@ export function PlatformAdminApp({
             MFA or passkey required
           </output>
         )}
-        {!platformAuth.mfaVerified && !platformAuth.passkeyVerified ? (
+        {platformAuth.reason === "mfa_required" || platformAuth.reason === "support_step_up_required"
+          || (!platformAuth.mfaVerified && !platformAuth.passkeyVerified) ? (
           <MfaPanel key={session.data.user.id} allowSetup onVerified={() => window.location.reload()} />
         ) : null}
         <section className="metric-grid" aria-label={`${activeView.title} metrics`}>

@@ -73,6 +73,12 @@ describe("platform admin auth gate", () => {
     expect(passwordOnly).toContain("disabled=\"\"");
     expect(passwordOnly).toContain("Sign out");
 
+    const staleProof = renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient({
+      ...platformSession,
+      platformAuth: { ...platformSession.platformAuth!, mutationAllowed: false, reason: "mfa_required" },
+    })} route="/billing" />);
+    expect(staleProof).toContain("Authenticator code");
+
     vi.stubGlobal("fetch", vi.fn(async () => new Response("null", { status: 200 })));
     for (const session of [platformSession, passwordOnlyPlatformSession, {
       ...passwordOnlyPlatformSession, platformRole: "platform_owner" as const,

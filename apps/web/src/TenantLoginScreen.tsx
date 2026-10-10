@@ -1,6 +1,6 @@
-import { type FormEvent, useEffect, useReducer } from "react";
+import { type FormEvent, useEffect, useReducer, useRef, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import type { ZaraAuthClient } from "@zara/auth-client";
+import { verifyPlatformMfa, type ZaraAuthClient } from "@zara/auth-client";
 import { Alert, Button, Card, Field, FieldGroup, FieldLabel, Input } from "@zara/ui";
 
 interface TenantLoginState {
@@ -63,6 +63,9 @@ export function TenantLoginScreen({
   onAuthChanged: () => void;
 }) {
   const navigate = useNavigate();
+  const [requiresMfa, setRequiresMfa] = useState(false);
+  const [code, setCode] = useState("");
+  const verificationPending = useRef(false);
   const [loginState, dispatchLogin] = useReducer(tenantLoginReducer, initialTenantLoginState);
   const {
     email,
@@ -105,6 +108,12 @@ export function TenantLoginScreen({
       return;
     }
 
+    if (result.twoFactorRedirect) {
+      dispatchLogin({ type: "set-field", field: "password", value: "" });
+      setRequiresMfa(true);
+      return;
+    }
+
     if (isSignup) {
       navigate("/", { replace: true });
     }
@@ -139,6 +148,39 @@ export function TenantLoginScreen({
   const title = isSignup ? "Create your Zara account" : "Sign in to Zara";
   const submitLabel = isSignup ? "Create account" : "Sign in";
   const submittingLabel = isSignup ? "Creating account" : "Signing in";
+
+  async function verifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (verificationPending.current || !/^\d{6}$/.test(code)) return;
+    verificationPending.current = true;
+    dispatchLogin({ type: "submit-start" });
+    try {
+      const result = await verifyPlatformMfa(code);
+      if (!result.ok) {
+        dispatchLogin({ type: "set-error", message: "Verification failed. Use a new authenticator code and try again." });
+        return;
+      }
+      onAuthChanged();
+    } finally {
+      setCode("");
+      verificationPending.current = false;
+      dispatchLogin({ type: "submit-finish" });
+    }
+  }
+
+  if (requiresMfa) return <main className="auth-screen">
+    <Card className="auth-card" aria-labelledby="tenant-mfa-title">
+      <h1 id="tenant-mfa-title">Verify your sign-in</h1>
+      <p>Enter a current six-digit code from your authenticator app.</p>
+      <form className="auth-form" onSubmit={verifyCode}>
+        <Field><FieldLabel htmlFor="tenant-mfa-code">Authenticator code</FieldLabel>
+          <Input id="tenant-mfa-code" autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}"
+            maxLength={6} value={code} disabled={submitting} required onChange={(event) => setCode(event.target.value)} /></Field>
+        {errorMessage === null ? null : <Alert role="alert">{errorMessage}</Alert>}
+        <Button className="auth-submit" type="submit" disabled={submitting || !/^\d{6}$/.test(code)}>Verify code</Button>
+      </form>
+    </Card>
+  </main>;
 
   return (
     <main className="auth-screen">
