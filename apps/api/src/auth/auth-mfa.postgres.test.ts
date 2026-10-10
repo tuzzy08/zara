@@ -19,7 +19,7 @@ describe.skipIf(!process.env.ZARA_TEST_POSTGRES_URL)("durable MFA assurance", ()
       emailAndPassword: { enabled: true }, plugins: [twoFactor({ issuer: "Zara" }), mfaAssurance],
     });
     try {
-      for (const file of ["0003_auth_organizations.sql", "0042_auth_mfa_assurance.sql"]) {
+      for (const file of ["0003_auth_organizations.sql", "0042_auth_mfa_assurance.sql", "0043_auth_mfa_attempt_limits.sql"]) {
         await pools[0]!.query(readFileSync(`apps/api/src/database/migrations/${file}`, "utf8").replaceAll('"public".', `"${schema}".`));
       }
       const first = createAuth(pools[0]!);

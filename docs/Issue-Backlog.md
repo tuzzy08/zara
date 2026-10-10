@@ -5651,6 +5651,11 @@ Acceptance criteria:
 
 ### ISSUE-248: Shadow billing qualification and controlled charge release
 
+2026-10-10 MFA checkpoint: owner approved setup/verification UI, dependency repairs, and review against production `2e4414b`. Native staff MFA and sign-in challenge handling are implemented locally. Desktop/mobile synthetic checks and the isolated PostgreSQL MFA/owner-delivery tests pass. Migration 0043 adds the patched auth package's failed-code count and lock expiry. Final dependency, regression, review, CI, and deployment checks remain. Status remains In Progress; charges remain off. This supersedes the MFA input request below.
+
+2026-10-10 checkpoint: billing owner-control UI is implemented locally with RED/GREEN coverage for access restrictions, enable/stop, safe retries, conflicts, and unknown reads. Four focused tests, scoped type/lint, and the UI boundary check pass. No deployment or real charge change occurred. Owner reports MFA is not set up; awaiting approval for a native MFA setup/verification screen. Rendered review and release checks remain. Status remains In Progress. See the issue handover for current Dokploy state; older Coolify entries below are historical.
+
+
 - Priority: P0
 - Area: Billing / Deployment / Observability
 - Milestone: Production Billing

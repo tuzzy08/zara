@@ -16,7 +16,8 @@
     "@zara/auth-client": "file:../../packages/auth-client",
     "@zara/ui": "file:../../packages/ui",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-qr-code": "^2.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",

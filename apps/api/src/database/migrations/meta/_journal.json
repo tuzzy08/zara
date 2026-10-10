@@ -302,6 +302,13 @@
       "when": 1790502640683,
       "tag": "0042_auth_mfa_assurance",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791649864606,
+      "tag": "0043_auth_mfa_attempt_limits",
+      "breakpoints": true
     }
   ]
 }

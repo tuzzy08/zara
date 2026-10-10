@@ -38,6 +38,9 @@
     "typecheck": "tsc -b --force && node scripts/patch-esm-extensions.mjs apps/api/dist-js packages/core/dist",
     "typecheck:core": "tsc -p packages/core/tsconfig.json"
   },
+  "overrides": {
+    "esbuild": "0.28.2"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -46,6 +49,7 @@
     "@eslint/js": "^9.39.1",
     "concurrently": "^9.2.1",
     "dotenv-cli": "^11.0.0",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^9.39.1",
     "langsmith": "^0.7.2",
     "openevals": "^0.2.0",

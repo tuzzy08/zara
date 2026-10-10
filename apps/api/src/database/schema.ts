@@ -134,6 +134,8 @@ export const authTwoFactors = pgTable("twoFactor", {
   secret: text("secret").notNull(),
   backupCodes: text("backupCodes").notNull(),
   verified: boolean("verified").default(true),
+  failedVerificationCount: integer("failedVerificationCount").default(0),
+  lockedUntil: timestamp("lockedUntil", { withTimezone: true }),
   lastVerifiedStep: bigint("lastVerifiedStep", { mode: "number" }).notNull().default(-1),
 }, (table) => ({ userIndex: uniqueIndex("auth_two_factor_user_idx").on(table.userId) }));
 

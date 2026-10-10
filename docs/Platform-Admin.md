@@ -15,7 +15,11 @@ Tenant roles such as owner or admin never grant platform-admin access. Staff aut
 
 ## Auth Posture
 
-Migration `0042_auth_mfa_assurance.sql` enables the native Better Auth authenticator flow. Use `POST /api/auth/two-factor/enable` with the signed-in user's password, save the returned backup codes privately, and add the returned TOTP URI to an authenticator. Then call `POST /api/auth/two-factor/verify-totp` with a current code. These are cookie-authenticated APIs; no new UI is included in this billing pass.
+Migration `0042_auth_mfa_assurance.sql` enables the native Better Auth authenticator flow. Migration `0043_auth_mfa_attempt_limits.sql` adds the failed-code count and lock expiry required by patched Better Auth 1.6.33. Retain both migrations on application rollback.
+
+Staff without fresh verification see an authenticator panel. For first setup, enter the current password, scan the locally generated QR code, save the backup codes privately, then verify a current code. Existing authenticator users enter a current code without repeating setup. The sign-in form also handles the native second-factor challenge. Setup secrets stay in component memory, not browser storage or an external QR service, and are cleared after verification. These controls call the cookie-authenticated native `/api/auth/two-factor/enable` and `/api/auth/two-factor/verify-totp` routes. Server-owned context remains the authority after page reload.
+
+The Billing page exposes owner-only Enable billing and Stop billing controls. Each change requires fresh assurance, a reason, and confirmation. Connection failures retain the same request ID and body; a conflict requires a new review. The panel shows the latest saved owner decision, not effective delivery state. Infrastructure permission and matching release/catalog settings still apply.
 
 Only a successful, unused TOTP step creates a server-owned session proof. Each API instance shares the database replay check. Proof expires after 15 minutes; the staff session still has an eight-hour maximum. A new session or backup-code login does not create fresh privileged proof. Disabled MFA cannot grant mutation access. Do not send passwords, authenticator secrets, or backup codes in chat or logs.
 

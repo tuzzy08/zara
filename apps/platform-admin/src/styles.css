@@ -496,6 +496,38 @@ h1 {
   display: grid;
 }
 
+.billing-delivery-panel,
+.mfa-panel {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  margin-block: 24px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.billing-delivery-panel h2,
+.mfa-panel h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.billing-delivery-panel p,
+.mfa-panel p {
+  margin: 0;
+  color: var(--zara-muted-strong);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.billing-delivery-panel dd { margin: 4px 0 16px; }
+.billing-delivery-panel .admin-form-actions { flex-wrap: wrap; }
+.mfa-panel { box-shadow: var(--zara-shadow-soft); border-radius: 8px; }
+.mfa-panel .auth-form { max-width: 400px; }
+.mfa-enrollment { display: grid; gap: 16px; }
+.mfa-enrollment svg { max-width: 100%; height: auto; background: white; padding: 12px; box-sizing: content-box; }
+.mfa-enrollment ul { margin: 0; padding-left: 20px; }
+
 .data-row {
   display: grid;
   gap: 12px;
