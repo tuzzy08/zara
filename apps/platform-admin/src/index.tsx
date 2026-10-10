@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { BillingDeliveryPanel } from "./billing-delivery-panel";
+import { MfaPanel } from "./mfa-panel";
 import {
   platformAdminAuthClient,
   type ZaraAuthClient,
@@ -693,6 +695,10 @@ export function PlatformAdminApp({
             MFA or passkey required
           </output>
         )}
+        {platformAuth.reason === "mfa_required" || platformAuth.reason === "support_step_up_required"
+          || (!platformAuth.mfaVerified && !platformAuth.passkeyVerified) ? (
+          <MfaPanel key={session.data.user.id} allowSetup onVerified={() => window.location.reload()} />
+        ) : null}
         <section className="metric-grid" aria-label={`${activeView.title} metrics`}>
           {activeView.metrics.map((metric) => (
             <Card className="metric-card" key={metric.label}>
@@ -707,6 +713,13 @@ export function PlatformAdminApp({
         </section>
         {activeRoute === "/dashboard" || activeRoute === "/organizations" || activeRoute === "/billing" ? (
           <PlatformBillingPanel route={activeRoute} />
+        ) : null}
+        {activeRoute === "/billing" ? (
+          <BillingDeliveryPanel
+            apiUrl={resolvePlatformAdminApiUrl("/platform-admin/billing/delivery")}
+            isOwner={session.data.platformRole === "platform_owner"}
+            canMutate={platformAuth.mutationAllowed}
+          />
         ) : null}
         {activeRoute === "/telephony" ? (
           <PlatformTelephonyProvisioningPanel canMutate={platformAuth.mutationAllowed} />
@@ -867,6 +880,7 @@ function platformSessionFromContext(context: ZaraAuthContext): ZaraAuthSession |
 
 function AdminSignInForm({ authClient }: { authClient: ZaraAuthClient }) {
   const [message, setMessage] = useState<string | null>(null);
+  const [requiresMfa, setRequiresMfa] = useState(false);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -880,12 +894,19 @@ function AdminSignInForm({ authClient }: { authClient: ZaraAuthClient }) {
       return;
     }
 
+    if (result.twoFactorRedirect) {
+      setRequiresMfa(true);
+      return;
+    }
+
     setMessage("Signed in. Loading Zara Admin.");
 
     if (typeof window !== "undefined") {
       window.location.assign("/dashboard");
     }
   }
+
+  if (requiresMfa) return <MfaPanel onVerified={() => window.location.assign("/billing")} />;
 
   return (
     <form className="auth-form" method="post" onSubmit={onSubmit}>

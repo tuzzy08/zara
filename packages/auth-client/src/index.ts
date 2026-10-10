@@ -159,7 +159,7 @@ export interface ZaraRevokeSessionInput {
 }
 
 export type ZaraAuthActionResult =
-  | { ok: true }
+  | { ok: true; twoFactorRedirect?: boolean }
   | { ok: false; message: string };
 
 export type ZaraInvitationActionResult =
@@ -207,6 +207,25 @@ export const authClientPackageName = "@zara/auth-client";
 export const tenantAuthClient = createZaraBetterAuthClient("tenant");
 export const platformAdminAuthClient = createZaraBetterAuthClient("platform-admin");
 
+export async function enablePlatformMfa(password: string): Promise<
+  { ok: true; totpURI: string; backupCodes: string[] } | { ok: false; message: string }
+> {
+  const result = await requestProductJson(resolveAuthBaseUrl("platform-admin"), "/api/auth/two-factor/enable", {
+    method: "POST", body: JSON.stringify({ password }),
+  });
+  if (!result.ok) return result;
+  const data = asRecord(result.payload);
+  if (typeof data["totpURI"] !== "string" || !data["totpURI"].startsWith("otpauth://totp/")
+    || !Array.isArray(data["backupCodes"]) || !data["backupCodes"].every((code: unknown) => typeof code === "string")) {
+    return { ok: false, message: "MFA setup response is invalid. Do not verify until setup is restored." };
+  }
+  return { ok: true, totpURI: data["totpURI"], backupCodes: data["backupCodes"] as string[] };
+}
+
+export async function verifyPlatformMfa(code: string): Promise<ZaraAuthActionResult> {
+  return requestBetterAuthAction(resolveAuthBaseUrl("platform-admin"), "/two-factor/verify-totp", { code, trustDevice: false });
+}
+
 function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthClient {
   const baseURL = resolveAuthBaseUrl(app);
   let restoredTenantSession: ZaraAuthSession | null = null;
@@ -246,6 +265,11 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       });
 
       if (!signInAction.ok) {
+        return signInAction;
+      }
+      if (signInAction.twoFactorRedirect) {
+        restoredPlatformSession = null;
+        restoredTenantSession = null;
         return signInAction;
       }
 
@@ -603,7 +627,9 @@ async function requestBetterAuthAction(
     method: "POST",
   });
 
-  return result.ok ? { ok: true } : result;
+  return result.ok
+    ? asRecord(result.payload)["twoFactorRedirect"] === true ? { ok: true, twoFactorRedirect: true } : { ok: true }
+    : result;
 }
 
 function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {

@@ -16,6 +16,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "better-auth": "^1.6.10"
+    "better-auth": "~1.6.33"
   }
 }
