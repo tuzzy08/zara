@@ -112,6 +112,7 @@ export interface ZaraSignUpEmailInput {
   name: string;
   organizationName: string;
   callbackURL?: string | undefined;
+  resume?: boolean;
 }
 
 export interface ZaraSelectOrganizationInput {
@@ -159,7 +160,7 @@ export interface ZaraRevokeSessionInput {
 }
 
 export type ZaraAuthActionResult =
-  | { ok: true; twoFactorRedirect?: boolean }
+  | { ok: true; twoFactorRedirect?: boolean; verificationRequired?: boolean }
   | { ok: false; message: string };
 
 export type ZaraInvitationActionResult =
@@ -262,6 +263,7 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       const signInAction = await requestBetterAuthAction(baseURL, "/sign-in/email", {
         email: input.email,
         password: input.password,
+        ...(input.callbackURL === undefined ? {} : { callbackURL: input.callbackURL }),
       });
 
       if (!signInAction.ok) {
@@ -353,6 +355,8 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         password: input.password,
         name: input.name,
         organizationName,
+        ...(input.callbackURL === undefined ? {} : { callbackURL: input.callbackURL }),
+        ...(input.resume === undefined ? {} : { resume: input.resume }),
       });
 
       if (!onboardingResult.ok) {
@@ -363,6 +367,7 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       }
 
       restoredTenantSession = onboardingResult.session;
+      if (onboardingResult.session === null) return { ok: true, verificationRequired: true };
       return { ok: true };
     },
     selectOrganization: async (input) => {
@@ -518,7 +523,7 @@ async function postTenantOnboardingSignup(
   baseURL: string,
   input: ZaraSignUpEmailInput,
 ): Promise<
-  | { ok: true; session: ZaraAuthSession }
+  | { ok: true; session: ZaraAuthSession | null }
   | { ok: false; message: string }
 > {
   try {
@@ -528,6 +533,8 @@ async function postTenantOnboardingSignup(
         password: input.password,
         name: input.name,
         organizationName: input.organizationName,
+        ...(input.callbackURL === undefined ? {} : { callbackURL: input.callbackURL }),
+        ...(input.resume === undefined ? {} : { resume: input.resume }),
       }),
       credentials: "include",
       headers: {
@@ -544,6 +551,7 @@ async function postTenantOnboardingSignup(
       };
     }
 
+    if (payload?.onboarding?.status === "verification_required") return { ok: true, session: null };
     const session = normalizeOnboardingSession(payload);
 
     return session === null

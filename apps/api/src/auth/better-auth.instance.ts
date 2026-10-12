@@ -37,6 +37,7 @@ export const zaraAuth = betterAuth({
   advanced: authRuntimeSecurity.advanced,
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
     resetPasswordTokenExpiresIn: authRuntimeSecurity.emailAndPassword.resetPasswordTokenExpiresIn,
     revokeSessionsOnPasswordReset: authRuntimeSecurity.emailAndPassword.revokeSessionsOnPasswordReset,
     sendResetPassword: async ({ user, url, token }) => {
@@ -177,8 +178,8 @@ export function resolveAuthRuntimeSecurity(env: Record<string, string | undefine
     },
     emailVerification: {
       expiresIn: readPositiveInteger(env.ZARA_AUTH_VERIFICATION_TOKEN_TTL_SECONDS, 3600),
-      sendOnSignIn: false,
-      sendOnSignUp: false,
+      sendOnSignIn: true,
+      sendOnSignUp: true,
     },
     rateLimit: {
       enabled: !isTest,

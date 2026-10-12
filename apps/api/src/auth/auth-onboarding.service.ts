@@ -36,6 +36,11 @@ export interface AuthOnboardingSignupResponse {
   activeWorkspace: OnboardedWorkspace;
 }
 
+export interface VerificationRequiredResponse {
+  ok: true;
+  onboarding: { status: "verification_required" };
+}
+
 @Injectable()
 export class AuthOnboardingService {
   private readonly onboardedTenantsBySlug = new Map<string, {
@@ -52,7 +57,7 @@ export class AuthOnboardingService {
     request: AuthOnboardingHttpRequest,
     response: AuthOnboardingHttpResponse,
     input: unknown,
-  ): Promise<AuthOnboardingSignupResponse> {
+  ): Promise<AuthOnboardingSignupResponse | VerificationRequiredResponse> {
     const normalizedInput = normalizeSignupInput(input);
     const slug = slugifyWorkspaceName(normalizedInput.organizationName);
 
@@ -79,6 +84,9 @@ export class AuthOnboardingService {
     }
 
     const authResult = await this.authenticateForOnboarding(session, normalizedInput);
+    if (authResult === null) {
+      return { ok: true, onboarding: { status: "verification_required" } };
+    }
     const user = normalizeUser(authResult.body);
     const slugCheckResult = await session.checkOrganizationSlug({ slug });
 
@@ -145,13 +153,27 @@ export class AuthOnboardingService {
     session: AuthOnboardingSessionGateway,
     input: NormalizedSignupInput,
   ) {
+    if (input.resume) {
+      const result = await session.signInEmail({
+        email: input.email,
+        password: input.password,
+        ...(input.callbackURL ? { callbackURL: input.callbackURL } : {}),
+      });
+      if (!result.ok) {
+        if (asRecord(result.body)["code"] === "EMAIL_NOT_VERIFIED") return null;
+        throw new BadRequestException({ ok: false, message: result.message });
+      }
+      return { body: result.body, resumed: true };
+    }
     const signupResult = await session.signUpEmail({
       email: input.email,
       password: input.password,
       name: input.name,
+      ...(input.callbackURL ? { callbackURL: input.callbackURL } : {}),
     });
 
     if (signupResult.ok) {
+      if (asRecord(signupResult.body)["token"] === null) return null;
       return {
         body: signupResult.body,
         resumed: false,
@@ -269,6 +291,8 @@ interface NormalizedSignupInput {
   password: string;
   name: string;
   organizationName: string;
+  resume: boolean;
+  callbackURL: string;
 }
 
 function normalizeSignupInput(input: unknown): NormalizedSignupInput {
@@ -279,6 +303,8 @@ function normalizeSignupInput(input: unknown): NormalizedSignupInput {
     password: stringValue(record["password"]),
     name: stringValue(record["name"]).trim(),
     organizationName: stringValue(record["organizationName"]).trim(),
+    resume: record["resume"] === true,
+    callbackURL: stringValue(record["callbackURL"]),
   };
 }
 

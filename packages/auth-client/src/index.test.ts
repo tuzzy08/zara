@@ -274,6 +274,7 @@ describe("tenant auth client", () => {
         body: JSON.stringify({
           email: "owner@acme.example",
           password: "correct-horse-battery",
+          callbackURL: "/login",
         }),
       }),
     );

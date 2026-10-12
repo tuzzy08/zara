@@ -9,6 +9,7 @@ import { PlatformAdminGuard, getPlatformAdminContext } from "../platform-admin/p
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { BetterAuthController } from "./better-auth.controller";
 import { AuthContextController } from "./auth-context.controller";
+import { verifiedSignup } from "../testing/verified-auth-fixture";
 
 @Controller("mfa-check")
 @UseGuards(PlatformAdminGuard)
@@ -35,7 +36,7 @@ describe("Platform owner TOTP assurance", () => {
     const email = `mfa-rotation-${crypto.randomUUID()}@example.com`;
     const password = "test-password-123";
     try {
-      expect((await first.post("/api/auth/sign-up/email").send({ email, password, name: "Owner" })).status).toBe(200);
+      expect((await verifiedSignup(first, { email, password, name: "Owner" })).status).toBe(200);
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ZARA_PLATFORM_STAFF_ROLES", `${email}=platform_owner`);
       const enrollment = await first.post("/api/auth/two-factor/enable").send({ password });
@@ -75,7 +76,7 @@ describe("Platform owner TOTP assurance", () => {
     const email = `mfa-${crypto.randomUUID()}@example.com`;
     const password = "test-password-123";
     try {
-      expect((await client.post("/api/auth/sign-up/email").send({
+      expect((await verifiedSignup(client, {
         email, password, name: "Owner", mfaVerifiedAt: new Date().toISOString(), mfaFactorId: "forged", twoFactorEnabled: true,
       })).status).toBe(200);
       vi.stubEnv("NODE_ENV", "production");

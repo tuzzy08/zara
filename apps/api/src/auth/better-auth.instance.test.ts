@@ -54,8 +54,8 @@ describe("Better Auth runtime security", () => {
       },
       emailVerification: {
         expiresIn: 3600,
-        sendOnSignUp: false,
-        sendOnSignIn: false,
+        sendOnSignUp: true,
+        sendOnSignIn: true,
       },
       emailAndPassword: {
         resetPasswordTokenExpiresIn: 3600,

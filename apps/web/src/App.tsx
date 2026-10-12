@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   Bot,
@@ -40,19 +40,11 @@ import {
 import { Button, Field, FieldLabel, Input } from "@zara/ui";
 
 import { AuthLoadingScreen } from "./AuthLoadingScreen";
-import { DashboardScreen } from "./DashboardScreen";
-import { MarketingLandingPageMockup } from "./MarketingLandingPageMockup";
 import { NavSection } from "./NavSection";
 import { ResetPasswordScreen } from "./ResetPasswordScreen";
-import { SandboxScreen } from "./SandboxScreen";
-import { TelephonyScreen } from "./TelephonyScreen";
 import { TenantAccessRequiredScreen } from "./TenantAccessRequiredScreen";
-import { TenantAgentsScreen } from "./TenantAgentsScreen";
 import { TenantLoginScreen } from "./TenantLoginScreen";
 import { TenantOrganizationChooserScreen } from "./TenantOrganizationChooserScreen";
-import { TenantBillingScreen, TenantIntegrationsScreen, TenantMemoryScreen } from "./TenantPages";
-import { WorkflowBuilderScreen } from "./WorkflowBuilder";
-import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
 import {
   createInitialWorkspaceState,
   resolveActiveWorkspaceId,
@@ -70,6 +62,17 @@ import {
   setWorkspaceMembershipRoleViaApi,
   type WorkspaceStateResponse,
 } from "./workspaceApi";
+
+const DashboardScreen = lazy(() => import("./DashboardScreen").then((module) => ({ default: module.DashboardScreen })));
+const MarketingLandingPageMockup = lazy(() => import("./MarketingLandingPageMockup").then((module) => ({ default: module.MarketingLandingPageMockup })));
+const SandboxScreen = lazy(() => import("./SandboxScreen").then((module) => ({ default: module.SandboxScreen })));
+const TelephonyScreen = lazy(() => import("./TelephonyScreen").then((module) => ({ default: module.TelephonyScreen })));
+const TenantAgentsScreen = lazy(() => import("./TenantAgentsScreen").then((module) => ({ default: module.TenantAgentsScreen })));
+const TenantBillingScreen = lazy(() => import("./TenantPages").then((module) => ({ default: module.TenantBillingScreen })));
+const TenantIntegrationsScreen = lazy(() => import("./TenantPages").then((module) => ({ default: module.TenantIntegrationsScreen })));
+const TenantMemoryScreen = lazy(() => import("./TenantPages").then((module) => ({ default: module.TenantMemoryScreen })));
+const WorkflowBuilderScreen = lazy(() => import("./WorkflowBuilder").then((module) => ({ default: module.WorkflowBuilderScreen })));
+const WorkspaceSettingsScreen = lazy(() => import("./WorkspaceSettingsScreen").then((module) => ({ default: module.WorkspaceSettingsScreen })));
 
 type Theme = "light" | "dark";
 
@@ -1020,7 +1023,8 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
 }
 
 export function App(props: AppProps = {}) {
-  return useAppModel(props);
+  const content = useAppModel(props);
+  return <Suspense fallback={<AuthLoadingScreen />}>{content}</Suspense>;
 }
 
 function upsertInvitation(invitations: ZaraInvitation[], invitation: ZaraInvitation) {

@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useReducer, useRef, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useSearchParams } from "react-router-dom";
 import { verifyPlatformMfa, type ZaraAuthClient } from "@zara/auth-client";
 import { Alert, Button, Card, Field, FieldGroup, FieldLabel, Input } from "@zara/ui";
 
@@ -8,6 +8,7 @@ interface TenantLoginState {
   organizationName: string;
   email: string;
   password: string;
+  confirmPassword: string;
   submitting: boolean;
   resetSubmitting: boolean;
   statusMessage: string | null;
@@ -15,7 +16,7 @@ interface TenantLoginState {
 }
 
 type TenantLoginAction =
-  | { type: "set-field"; field: "name" | "organizationName" | "email" | "password"; value: string }
+  | { type: "set-field"; field: "name" | "organizationName" | "email" | "password" | "confirmPassword"; value: string }
   | { type: "submit-start" }
   | { type: "submit-finish" }
   | { type: "reset-start" }
@@ -28,6 +29,7 @@ const initialTenantLoginState: TenantLoginState = {
   organizationName: "",
   email: "",
   password: "",
+  confirmPassword: "",
   submitting: false,
   resetSubmitting: false,
   statusMessage: null,
@@ -63,7 +65,11 @@ export function TenantLoginScreen({
   onAuthChanged: () => void;
 }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // This selects the form action only. The API still verifies the credentials and email.
+  const resumeSignup = searchParams.get("resume") === "true";
   const [requiresMfa, setRequiresMfa] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const verificationPending = useRef(false);
   const [loginState, dispatchLogin] = useReducer(tenantLoginReducer, initialTenantLoginState);
@@ -73,6 +79,7 @@ export function TenantLoginScreen({
     name,
     organizationName,
     password,
+    confirmPassword,
     resetSubmitting,
     statusMessage,
     submitting,
@@ -87,6 +94,10 @@ export function TenantLoginScreen({
 
   const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSignup && password !== confirmPassword) {
+      dispatchLogin({ type: "set-error", message: "Passwords do not match." });
+      return;
+    }
     dispatchLogin({ type: "submit-start" });
 
     const result = isSignup
@@ -95,16 +106,25 @@ export function TenantLoginScreen({
         password,
         name,
         organizationName,
+        resume: resumeSignup || verificationEmail === email.trim().toLowerCase(),
+        callbackURL: `${window.location.origin}/signup?resume=true`,
       })
       : await authClient.signInEmail({
         email,
         password,
+        callbackURL: `${window.location.origin}/login`,
       });
 
     dispatchLogin({ type: "submit-finish" });
 
     if (!result.ok) {
       dispatchLogin({ type: "set-error", message: result.message });
+      return;
+    }
+
+    if (result.verificationRequired) {
+      setVerificationEmail(email.trim().toLowerCase());
+      dispatchLogin({ type: "set-status", message: "Check your email. Open the verification link, then return here and select Continue after verification. If you need a new link, select Continue after verification again." });
       return;
     }
 
@@ -146,7 +166,9 @@ export function TenantLoginScreen({
   };
 
   const title = isSignup ? "Create your Zara account" : "Sign in to Zara";
-  const submitLabel = isSignup ? "Create account" : "Sign in";
+  const submitLabel = isSignup
+    ? resumeSignup || verificationEmail === email.trim().toLowerCase() ? "Continue after verification" : "Create account"
+    : "Sign in";
   const submittingLabel = isSignup ? "Creating account" : "Signing in";
 
   async function verifyCode(event: FormEvent<HTMLFormElement>) {
@@ -243,7 +265,7 @@ export function TenantLoginScreen({
               <FieldLabel>
                 <span>Password</span>
                 <Input
-                  autoComplete="current-password"
+                  autoComplete={isSignup ? "new-password" : "current-password"}
                   name="password"
                   type="password"
                   value={password}
@@ -252,6 +274,21 @@ export function TenantLoginScreen({
                 />
               </FieldLabel>
             </Field>
+            {isSignup ? (
+              <Field>
+                <FieldLabel>
+                  <span>Confirm password</span>
+                  <Input
+                    autoComplete="new-password"
+                    name="confirmPassword"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => dispatchLogin({ type: "set-field", field: "confirmPassword", value: event.target.value })}
+                    required
+                  />
+                </FieldLabel>
+              </Field>
+            ) : null}
           </FieldGroup>
           {errorMessage === null ? null : <Alert className="auth-error" role="alert">{errorMessage}</Alert>}
           {statusMessage === null ? null : <Alert className="auth-success" role="status">{statusMessage}</Alert>}
@@ -270,6 +307,11 @@ export function TenantLoginScreen({
             {resetSubmitting ? "Sending reset link" : "Send reset link"}
           </Button>
         )}
+        {isSignup ? (
+          <p className="auth-switch">
+            {resumeSignup ? "Enter your signup details to continue. Your email must be verified." : <NavLink to="/signup?resume=true">Continue an existing signup</NavLink>}
+          </p>
+        ) : null}
         <p className="auth-switch">
           {isSignup ? "Already have an account?" : "Need an account?"}{" "}
           <NavLink to={isSignup ? "/login" : "/signup"}>

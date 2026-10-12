@@ -4,6 +4,7 @@ import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
+import { verifiedSignup, verifyEmail } from "../testing/verified-auth-fixture";
 
 describe("Better Auth controller", () => {
   it("mounts the Better Auth health endpoint under /api/auth", async () => {
@@ -34,9 +35,9 @@ describe("Better Auth controller", () => {
       email,
       name: "Tenant Builder",
     });
-    expect(signupResponse.headers["set-cookie"]).toEqual(
-      expect.arrayContaining([expect.stringContaining("better-auth.session_token=")]),
-    );
+    expect(signupResponse.body.token).toBeNull();
+    expect(signupResponse.headers["set-cookie"]).toBeUndefined();
+    await verifyEmail(request.agent(app.getHttpServer()), email);
 
     const signinResponse = await request(app.getHttpServer())
       .post("/api/auth/sign-in/email")
@@ -62,9 +63,7 @@ describe("Better Auth controller", () => {
     const agent = request.agent(app.getHttpServer());
     const email = `tenant-owner-${Date.now()}@example.com`;
 
-    const signupResponse = await agent
-      .post("/api/auth/sign-up/email")
-      .send({
+    const signupResponse = await verifiedSignup(agent, {
         email,
         password: "password123",
         name: "Tenant Owner",

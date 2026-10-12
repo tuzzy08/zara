@@ -6,6 +6,7 @@ import request from "supertest";
 
 import { configureCors } from "../config/cors";
 import { AppModule } from "../app.module";
+import { verifiedOnboarding } from "../testing/verified-auth-fixture";
 import { WorkspacesModule } from "./workspaces.module";
 
 describe("WorkspacesController", () => {
@@ -24,9 +25,7 @@ describe("WorkspacesController", () => {
     expect(unauthenticatedResponse.status).toBe(401);
 
     const agent = request.agent(app.getHttpServer());
-    const signupResponse = await agent
-      .post("/api/auth/onboarding/signup")
-      .send({
+    const signupResponse = await verifiedOnboarding(agent, {
         email: `workspace-authz-${Date.now()}@example.com`,
         password: "password123",
         name: "Workspace Owner",
@@ -208,9 +207,7 @@ async function createAuthenticatedTenantApp(label: string) {
   await app.init();
 
   const agent = request.agent(app.getHttpServer());
-  const signupResponse = await agent
-    .post("/api/auth/onboarding/signup")
-    .send({
+  const signupResponse = await verifiedOnboarding(agent, {
       email: `${label}-${Date.now()}@example.com`,
       password: "password123",
       name: "Workspace Owner",
