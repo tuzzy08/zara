@@ -11,4 +11,5 @@ drizzle.config.d.ts
 drizzle.config.d.ts.map
 .zara-data/
 artifacts/pw-public-profile/
+artifacts/e2e/
 .local-agent-templates/

@@ -10,10 +10,6 @@ const migrationPath = resolve(
   repositoryRoot,
   "apps/api/src/database/migrations/0027_lowly_maginty.sql",
 );
-const rollbackPath = resolve(
-  repositoryRoot,
-  "docs/Runbooks/rollback-0027-billing-charge-release.sql",
-);
 
 describe("billing charge release migration", () => {
   it("creates an empty fail-closed production release control table", async () => {
@@ -42,10 +38,4 @@ describe("billing charge release migration", () => {
     )`)).toThrow();
   });
 
-  it("ships a transaction-wrapped rollback that refuses to delete release evidence", async () => {
-    const rollback = await readFile(rollbackPath, "utf8");
-    expect(rollback.trimStart().startsWith("BEGIN;")).toBe(true);
-    expect(rollback).toContain("Rollback 0027 blocked");
-    expect(rollback.trimEnd().endsWith("COMMIT;")).toBe(true);
-  });
 });

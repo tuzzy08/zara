@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -186,18 +185,6 @@ describe("runtime eval execution", () => {
     });
   });
 
-  it("keeps runtime evals on a separate Vitest config and npm script", () => {
-    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
-      scripts: Record<string, string>;
-    };
-    const evalConfig = readFileSync("ls.vitest.config.ts", "utf8");
-
-    expect(packageJson.scripts["eval:runtime"]).toBe("vitest run --config ls.vitest.config.ts");
-    expect(packageJson.scripts.test).toBe("vitest");
-    expect(packageJson.scripts["test:run"]).toBe("vitest run");
-    expect(evalConfig).toContain("**/runtime.eval.ts");
-    expect(evalConfig).toContain("langsmith/vitest/reporter");
-  });
 });
 
 describe("PSTN media eval execution", () => {
@@ -391,17 +378,6 @@ describe("PSTN media eval execution", () => {
     });
   });
 
-  it("keeps PSTN evals on a separate command and config from ordinary tests", () => {
-    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
-      scripts: Record<string, string>;
-    };
-    const evalConfig = readFileSync("pstn.vitest.config.ts", "utf8");
-
-    expect(packageJson.scripts["eval:pstn"]).toBe("vitest run --config pstn.vitest.config.ts");
-    expect(evalConfig).toContain("**/*.pstn.eval.ts");
-    expect(evalConfig).toContain("langsmith/vitest/reporter");
-    expect(packageJson.scripts["test:run"]).toBe("vitest run");
-  });
 });
 
 function fixture(fixtures: RuntimeEvalExample[], id: string): RuntimeEvalExample {

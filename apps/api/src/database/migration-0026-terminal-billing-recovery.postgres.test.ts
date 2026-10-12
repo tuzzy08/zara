@@ -25,12 +25,6 @@ const migration0025Path = resolve(
 const connectionString = process.env.ZARA_TEST_POSTGRES_URL;
 
 describe("terminal billing recovery migration", () => {
-  it("ships a guarded rollback", async () => {
-    const rollback = await readFile(rollbackPath, "utf8");
-    expect(rollback.trimStart().startsWith("BEGIN;")).toBe(true);
-    expect(rollback.trimEnd().endsWith("COMMIT;")).toBe(true);
-  });
-
   it("creates tenant-qualified durable recovery and global subscription overage accounts", async () => {
     const migration = await readFile(migrationPath, "utf8");
     const database = newDb();

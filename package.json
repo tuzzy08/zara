@@ -29,6 +29,7 @@
     "start:api": "npm run start --workspace @zara/api",
     "test": "vitest",
     "test:api": "vitest run --config vitest.api.config.ts",
+    "test:e2e": "node scripts/run-e2e.mjs",
     "test:boundaries": "node scripts/validate-test-suite-boundaries.mjs",
     "test:inventory": "node scripts/test-suite-inventory.mjs",
     "test:run": "vitest run",
@@ -47,6 +48,7 @@
   ],
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "1.64.0",
     "concurrently": "^9.2.1",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.11",

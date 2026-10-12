@@ -1,0 +1,18 @@
+{
+  default_sni 127.0.0.1
+  skip_install_trust
+}
+
+https://127.0.0.1 {
+  tls internal
+  @api path /api/* /organizations/* /platform-admin/* /health /health/*
+  handle @api {
+    reverse_proxy api:4010
+  }
+  handle_path /__e2e/* {
+    reverse_proxy mail:8025
+  }
+  handle {
+    reverse_proxy web:80
+  }
+}

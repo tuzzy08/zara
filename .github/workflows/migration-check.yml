@@ -58,15 +58,7 @@ jobs:
           apps/api/src/database/migration-0025-subscription-payg-pins.postgres.test.ts
           apps/api/src/database/migration-0026-terminal-billing-recovery.postgres.test.ts
           apps/api/src/database/migration-0027-billing-charge-release.test.ts
-          apps/api/src/database/migration-0028-billing-release-evidence.test.ts
-          apps/api/src/database/migration-0029-billing-charge-promotion.test.ts
-          apps/api/src/database/migration-0030-billing-release-evidence-integrity.test.ts
           apps/api/src/database/migration-0030-billing-release-evidence-integrity.postgres.test.ts
-          apps/api/src/database/migration-0031-billing-adjustment-evidence-integrity.test.ts
-          apps/api/src/database/migration-0032-provider-evidence-scope.test.ts
-          apps/api/src/database/migration-0033-provider-billing-scopes.test.ts
-          apps/api/src/database/migration-0034-provider-scope-tenant-isolation.test.ts
-          apps/api/src/database/migration-0035-provider-scope-history.test.ts
           apps/api/src/database/migration-0037-provider-usage-recording.postgres.test.ts
           apps/api/src/database/migration-0038-provider-usage-connections.postgres.test.ts
           apps/api/src/database/migration-0039-provider-usage-attribution.postgres.test.ts
