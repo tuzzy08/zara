@@ -6,6 +6,8 @@ External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-a
 
 ## Work Completed
 
+- Push checkpoint: signup commit `9fd2da6b4cb691d6d24a6847b33ff6e8fa95901c` is published in [PR #128](https://github.com/tuzzy08/zara/pull/128). Security and preview pass; CI, Migration Check and Browser E2E are running. Monitor `zara-signup-ci` checks every five minutes and permits only in-scope repairs. Linear ZAR-97 is updated. No merge or production deployment occurred. This supersedes the pre-push notes below.
+
 - 2026-10-12 release pass: user approved committing and pushing only signup changes, then monitoring CI and fixing in-scope failures. PR #127 remains open, so the signup PR will target its `codex/test-cleanup-playwright` branch to keep the signup diff separate. No merge or deployment is authorized. Unrelated working-tree changes remain excluded.
 
 - 2026-10-12: resumed signup improvements on `codex/signup-validation-performance`, based on the separate green test-cleanup PR #127. User requires password confirmation, email validation, verification before sign-in (including existing unverified accounts), and initial signup-load improvements. No production deployment is authorized in this pass.
