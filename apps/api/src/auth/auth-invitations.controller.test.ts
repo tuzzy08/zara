@@ -4,6 +4,7 @@ import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
+import { verifiedOnboarding, verifiedSignup, verifyEmail } from "../testing/verified-auth-fixture";
 
 describe("Auth invitations controller", () => {
   it("creates and accepts an existing-user invitation with workspace access and audit context", async () => {
@@ -14,9 +15,7 @@ describe("Auth invitations controller", () => {
     const invitedEmail = `invited-existing-${suffix}@example.com`;
 
     try {
-      const ownerSignup = await ownerAgent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const ownerSignup = await verifiedOnboarding(ownerAgent, {
           email: `invite-owner-${suffix}@example.com`,
           password: "password123",
           name: "Tenant Owner",
@@ -25,9 +24,7 @@ describe("Auth invitations controller", () => {
 
       expect(ownerSignup.status).toBe(200);
 
-      const invitedSignup = await invitedAgent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const invitedSignup = await verifiedSignup(invitedAgent, {
           email: invitedEmail,
           password: "password123",
           name: "Invited Operator",
@@ -150,9 +147,7 @@ describe("Auth invitations controller", () => {
     const invitedEmail = `invited-new-${suffix}@example.com`;
 
     try {
-      const ownerSignup = await ownerAgent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const ownerSignup = await verifiedOnboarding(ownerAgent, {
           email: `invite-new-owner-${suffix}@example.com`,
           password: "password123",
           name: "Tenant Owner",
@@ -175,13 +170,12 @@ describe("Auth invitations controller", () => {
 
       expect(invitationResponse.status).toBe(201);
 
-      const acceptResponse = await invitedAgent
-        .post(`/api/auth/invitations/${invitationResponse.body.invitation.id}/accept`)
-        .send({
-          email: invitedEmail,
-          password: "password123",
-          name: "New Builder",
-        });
+      const credentials = { email: invitedEmail, password: "password123", name: "New Builder" };
+      const acceptPath = `/api/auth/invitations/${invitationResponse.body.invitation.id}/accept`;
+      expect((await invitedAgent.post(acceptPath).send(credentials)).status).not.toBe(200);
+      expect((await invitedAgent.get("/api/auth/context")).body.authenticated).toBe(false);
+      await verifyEmail(invitedAgent, invitedEmail);
+      const acceptResponse = await invitedAgent.post(acceptPath).send(credentials);
 
       expect(acceptResponse.status).toBe(200);
       expect(acceptResponse.headers["set-cookie"]).toEqual(
@@ -216,9 +210,7 @@ describe("Auth invitations controller", () => {
     const intendedEmail = `intended-${suffix}@example.com`;
 
     try {
-      const ownerSignup = await ownerAgent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const ownerSignup = await verifiedOnboarding(ownerAgent, {
           email: `invite-failure-owner-${suffix}@example.com`,
           password: "password123",
           name: "Tenant Owner",
@@ -237,9 +229,7 @@ describe("Auth invitations controller", () => {
 
       expect(invitationResponse.status).toBe(201);
 
-      const wrongSignup = await wrongAgent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const wrongSignup = await verifiedSignup(wrongAgent, {
           email: `wrong-${suffix}@example.com`,
           password: "password123",
           name: "Wrong Recipient",
@@ -258,9 +248,7 @@ describe("Auth invitations controller", () => {
         recoverable: false,
       });
 
-      const intendedSignup = await intendedAgent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const intendedSignup = await verifiedSignup(intendedAgent, {
           email: intendedEmail,
           password: "password123",
           name: "Intended Recipient",
@@ -300,17 +288,13 @@ describe("Auth invitations controller", () => {
     const expiredEmail = `expired-${suffix}@example.com`;
 
     try {
-      const ownerSignup = await ownerAgent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const ownerSignup = await verifiedOnboarding(ownerAgent, {
           email: `invite-revoke-owner-${suffix}@example.com`,
           password: "password123",
           name: "Tenant Owner",
           organizationName: `Revoke Invite Ops ${suffix}`,
         });
-      const otherOwnerSignup = await otherOwnerAgent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const otherOwnerSignup = await verifiedOnboarding(otherOwnerAgent, {
           email: `other-invite-owner-${suffix}@example.com`,
           password: "password123",
           name: "Other Owner",
@@ -360,9 +344,7 @@ describe("Auth invitations controller", () => {
         },
       });
 
-      const invitedSignup = await invitedAgent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const invitedSignup = await verifiedSignup(invitedAgent, {
           email: invitedEmail,
           password: "password123",
           name: "Revoked Recipient",
@@ -391,9 +373,7 @@ describe("Auth invitations controller", () => {
 
       expect(expiredInvitationResponse.status).toBe(201);
 
-      const expiredSignup = await expiredAgent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const expiredSignup = await verifiedSignup(expiredAgent, {
           email: expiredEmail,
           password: "password123",
           name: "Expired Recipient",

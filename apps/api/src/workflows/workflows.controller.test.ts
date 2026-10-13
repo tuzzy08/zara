@@ -16,6 +16,7 @@ import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
+import { verifiedOnboarding } from "../testing/verified-auth-fixture";
 import { withTestTenantAuth } from "../testing/tenant-auth-request";
 import type { IntegrationConnectionResponse, IntegrationProvider } from "../integrations/integrations.models";
 import {
@@ -56,9 +57,7 @@ describe("WorkflowsController", () => {
       expect(unauthenticatedResponse.status).toBe(401);
 
       const agent = request.agent(app.getHttpServer());
-      const signupResponse = await agent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const signupResponse = await verifiedOnboarding(agent, {
           email: `workflow-authz-${Date.now()}@example.com`,
           password: "password123",
           name: "Workflow Owner",

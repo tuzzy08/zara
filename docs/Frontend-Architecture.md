@@ -134,6 +134,8 @@ Tenant app auth rules:
 - The sign-in screen can request a password reset without account-enumeration feedback, `/reset-password?token=...` submits reset tokens through the shared auth client, and the Settings screen exposes account security controls for verification email and safe session revocation. Session rows use server-issued safe IDs; browser code never receives Better Auth session tokens.
 - the profile menu exposes sign-out and returns the app to the sign-in gate
 
+Signup (ISSUE-151): the form requires matching password confirmation and browser email syntax validation. The API enforces email verification before password sign-in. The form retains the verification-required state and resumes onboarding with credentials after the email link is opened. The link returns to `/signup?resume=true` so signup can continue after the original tab closes; this parameter selects the form action and does not grant authority. No password is saved in browser storage. Tenant screens and the marketing page load through deferred imports so `/signup` does not download the workflow builder or dashboard code.
+
 Platform admin app auth rules:
 
 - authenticated session required

@@ -5,19 +5,18 @@ import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME } from "@zara/core";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
+import { verifiedOnboarding } from "../testing/verified-auth-fixture";
 import { withTestTenantAuth } from "../testing/tenant-auth-request";
 import { AuthOnboardingGateway } from "./auth-onboarding.gateway";
 
 describe("Auth onboarding controller", () => {
-  it("creates a complete tenant owner onboarding state in one product action", async () => {
+  it("creates a complete tenant owner onboarding state after email verification", async () => {
     const app = await createTestApp();
     const agent = request.agent(app.getHttpServer());
     const email = `onboarding-owner-${Date.now()}@example.com`;
 
     try {
-      const response = await agent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const response = await verifiedOnboarding(agent, {
           email,
           password: "password123",
           name: "Tenant Owner",
@@ -32,7 +31,7 @@ describe("Auth onboarding controller", () => {
         ok: true,
         onboarding: {
           status: "complete",
-          resumed: false,
+          resumed: true,
         },
         user: {
           email,
@@ -123,9 +122,7 @@ describe("Auth onboarding controller", () => {
     const secondEmail = `onboarding-duplicate-blocked-${Date.now()}@example.com`;
 
     try {
-      const firstResponse = await request(app.getHttpServer())
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const firstResponse = await verifiedOnboarding(request.agent(app.getHttpServer()), {
           email: firstEmail,
           password: "password123",
           name: "Tenant Owner",
@@ -171,9 +168,7 @@ describe("Auth onboarding controller", () => {
     const email = `onboarding-repeat-${Date.now()}@example.com`;
 
     try {
-      const firstResponse = await agent
-        .post("/api/auth/onboarding/signup")
-        .send({
+      const firstResponse = await verifiedOnboarding(agent, {
           email,
           password: "password123",
           name: "Repeat Owner",

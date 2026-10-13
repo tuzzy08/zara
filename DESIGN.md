@@ -2,6 +2,8 @@
 
 ## 0. Current Marketing Direction
 
+Signup uses the dedicated auth layout, not the marketing hero. Keep Name, Organization name, Email, Password, and Confirm password as labelled fields. Show password mismatch errors in the form. Show email-verification instructions as a status message and keep a clear action to continue after verification. The form must fit a 390px viewport without horizontal scrolling.
+
 The public landing page uses a monochrome, editorial signal-system direction distinct from the tenant app's restrained operational shell. Its foundation is near-black and warm-white panels, precise grid lines, large regular-weight sans-serif headings, monospaced operational labels, hand-drawn annotation accents, and full-width product evidence. Avoid pastel gradients, glass cards, generic SaaS blobs, and stock dashboard compositions on the public route.
 
 Use Zhara as the public landing-page brand. Position its services around voice agents, non-voice agent creation, go-to-market tasks, and company workflow automation. Explain concrete work such as prospect research, lead qualification, CRM updates, intake, document processing, approvals, and human handoff. The page sequence moves from the switchboard hero into a manifesto, capabilities, outcomes, use cases, voice workflow-builder proof, live telemetry, platform features, integrations, proof, pricing, principles, FAQ, and a final CTA. The Our approach section is removed. The static hero artwork is a replaceable media layer so a future approved motion version can be substituted without restructuring the hero.

@@ -5,6 +5,7 @@ import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME } from "@zara/core";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
+import { verifiedOnboarding, verifiedSignup } from "../testing/verified-auth-fixture";
 
 describe("Auth context controller", () => {
   it("returns a safe signed-out auth context", async () => {
@@ -45,9 +46,7 @@ describe("Auth context controller", () => {
     const agent = request.agent(app.getHttpServer());
     const email = `auth-context-${Date.now()}@example.com`;
 
-    const signupResponse = await agent
-      .post("/api/auth/onboarding/signup")
-      .send({
+    const signupResponse = await verifiedOnboarding(agent, {
         email,
         password: "password123",
         name: "Tenant Owner",
@@ -98,9 +97,7 @@ describe("Auth context controller", () => {
     const agent = request.agent(app.getHttpServer());
     const email = `auth-context-no-workspace-${Date.now()}@example.com`;
 
-    const signupResponse = await agent
-      .post("/api/auth/sign-up/email")
-      .send({
+    const signupResponse = await verifiedSignup(agent, {
         email,
         password: "password123",
         name: "Tenant Owner",
@@ -152,9 +149,7 @@ describe("Auth context controller", () => {
     const agent = request.agent(app.getHttpServer());
     const email = `auth-context-no-org-${Date.now()}@example.com`;
 
-    const signupResponse = await agent
-      .post("/api/auth/sign-up/email")
-      .send({
+    const signupResponse = await verifiedSignup(agent, {
         email,
         password: "password123",
         name: "Tenant User",
@@ -189,9 +184,7 @@ describe("Auth context controller", () => {
     const agent = request.agent(app.getHttpServer());
     const email = `auth-context-multi-org-${Date.now()}@example.com`;
 
-    const signupResponse = await agent
-      .post("/api/auth/sign-up/email")
-      .send({
+    const signupResponse = await verifiedSignup(agent, {
         email,
         password: "password123",
         name: "Tenant User",
@@ -251,9 +244,7 @@ describe("Auth context controller", () => {
     const agent = request.agent(app.getHttpServer());
     const email = `auth-context-platform-${Date.now()}@example.com`;
 
-    const signupResponse = await agent
-      .post("/api/auth/sign-up/email")
-      .send({
+    const signupResponse = await verifiedSignup(agent, {
         email,
         password: "password123",
         name: "Platform Staff",
@@ -309,9 +300,7 @@ describe("Auth context controller", () => {
     process.env.ZARA_PLATFORM_STAFF_ROLES = `${email}=platform_support`;
 
     try {
-      const signupResponse = await agent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const signupResponse = await verifiedSignup(agent, {
           email,
           password: "password123",
           name: "Staff Support",
@@ -353,9 +342,7 @@ describe("Auth context controller", () => {
     const agent = request.agent(app.getHttpServer());
     const email = `auth-context-tenant-only-${Date.now()}@example.com`;
 
-    const signupResponse = await agent
-      .post("/api/auth/onboarding/signup")
-      .send({
+    const signupResponse = await verifiedOnboarding(agent, {
         email,
         password: "password123",
         name: "Tenant Owner",

@@ -43,7 +43,7 @@ describe("tenant application shell", () => {
     );
 
     expect(
-      screen.getAllByRole("link", { name: "Sign in" })
+      (await screen.findAllByRole("link", { name: "Sign in" }))
         .every((link) => link.getAttribute("href") === "/login"),
     ).toBe(true);
     expect(screen.queryByLabelText("Tenant")).toBeNull();

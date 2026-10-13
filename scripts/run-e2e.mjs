@@ -19,7 +19,7 @@ writeFileSync(`${artifact}/run.json`, JSON.stringify({
   commit: run("git", ["rev-parse", "HEAD"], true).trim(),
   diffHash: hash(run("git", ["diff", "HEAD"], true)),
   lockHash: hash(readFileSync("package-lock.json")),
-  inputHashes: Object.fromEntries(["playwright.config.ts", "tests/e2e/signup-isolation.spec.ts", "tests/e2e/compose.yml", "tests/e2e/Caddyfile", "tests/e2e/mail.mjs", "scripts/run-e2e.mjs"].map((path) => [path, hash(readFileSync(path))])),
+  inputHashes: Object.fromEntries(["playwright.config.ts", "tests/e2e/signup-isolation.spec.ts", "tests/e2e/signup-load.spec.ts", "tests/e2e/compose.yml", "tests/e2e/Caddyfile", "tests/e2e/mail.mjs", "scripts/run-e2e.mjs"].map((path) => [path, hash(readFileSync(path))])),
   startedAt: new Date().toISOString(),
   target: "https://127.0.0.1:8443", data: "disposable", billingDelivery: false,
 }, null, 2));

@@ -4,6 +4,7 @@ import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
+import { verifiedSignup } from "../testing/verified-auth-fixture";
 import { PlatformAdminModule } from "./platform-admin.module";
 import { TELEPHONY_STATE_REPOSITORY } from "../telephony/telephony-state.repository";
 import { PostgresTenantStatusRepository } from "../persistence/tenant-status.repository";
@@ -64,9 +65,7 @@ describe("PlatformAdminController", () => {
     process.env.ZARA_PLATFORM_STAFF_ROLES = `${email}=platform_support`;
 
     try {
-      const signupResponse = await agent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const signupResponse = await verifiedSignup(agent, {
           email,
           password: "password123",
           name: "Staff Support",
@@ -112,9 +111,7 @@ describe("PlatformAdminController", () => {
     process.env.ZARA_PLATFORM_STAFF_ROLES = `${email}=platform_admin`;
 
     try {
-      const signupResponse = await agent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const signupResponse = await verifiedSignup(agent, {
           email,
           password: "password123",
           name: "Staff Admin",
@@ -156,9 +153,7 @@ describe("PlatformAdminController", () => {
     process.env.ZARA_PLATFORM_STAFF_ROLES = `${email}=platform_admin`;
 
     try {
-      const signupResponse = await agent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const signupResponse = await verifiedSignup(agent, {
           email,
           password: "password123",
           name: "Staff Admin",

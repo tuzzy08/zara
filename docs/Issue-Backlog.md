@@ -3913,13 +3913,15 @@ Implementation notes:
 - Area: Auth
 - Milestone: Auth Flow Hardening
 - Labels: auth, backend, frontend, security, testing, tdd-required
-- Status: Implemented
+- Status: In Progress
 - Blocked by: ISSUE-150
 - Handover: [docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md](../docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md)
 - External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
 
 Acceptance criteria:
 - Signup creates or resumes the complete tenant onboarding state without leaving users stranded after partial Better Auth organization failures
+- Signup requires matching password confirmation, validates email syntax, and requires verified email before password sign-in. Email-link recovery must work after the original tab closes.
+- Signup avoids loading unrelated tenant screens and produces repeatable browser load/flow evidence.
 - A new owner lands in an active organization with a default workspace and owner membership after signup
 - Blank/duplicate unsafe tenant names return actionable errors before irreversible writes where possible
 - Failed partial onboarding is visible as a recoverable state with safe retry behavior

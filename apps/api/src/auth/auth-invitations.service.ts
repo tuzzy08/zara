@@ -466,7 +466,7 @@ async function authenticateRecipient(
     name: input.name,
   });
 
-  if (signupResult.ok) {
+  if (signupResult.ok && typeof asRecord(signupResult.body)["token"] === "string") {
     return normalizeRequiredUser(signupResult.body);
   }
 
@@ -481,7 +481,7 @@ async function authenticateRecipient(
 
   throw new UnauthorizedException(invitationError(
     "invitation_auth_failed",
-    signupResult.message,
+    signinResult.message,
     false,
   ));
 }

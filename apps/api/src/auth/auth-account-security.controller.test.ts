@@ -4,6 +4,7 @@ import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
+import { verifiedSignup, verifyEmail } from "../testing/verified-auth-fixture";
 import {
   clearAuthEmailDeliveriesForTests,
   getAuthEmailDeliveriesForTests,
@@ -47,7 +48,7 @@ describe("Auth account security controller", () => {
         message: "If this email exists in Zara, a password reset link has been sent.",
       });
       expect(unknownResponse.body).toEqual(knownResponse.body);
-      expect(getAuthEmailDeliveriesForTests()).toEqual([
+      expect(getAuthEmailDeliveriesForTests().filter((item) => item.kind === "password_reset")).toEqual([
         expect.objectContaining({
           kind: "password_reset",
           to: email,
@@ -60,16 +61,14 @@ describe("Auth account security controller", () => {
     }
   }, 15_000);
 
-  it("queues verification email for the signed-in user's account", async () => {
+  it("does not send another verification email for a verified signed-in account", async () => {
     clearAuthEmailDeliveriesForTests();
     const app = await createTestApp();
     const agent = request.agent(app.getHttpServer());
     const email = `verify-${Date.now()}@example.com`;
 
     try {
-      const signupResponse = await agent
-        .post("/api/auth/sign-up/email")
-        .send({
+      const signupResponse = await verifiedSignup(agent, {
           email,
           password: "password123",
           name: "Verify User",
@@ -86,7 +85,7 @@ describe("Auth account security controller", () => {
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
         ok: true,
-        delivery: "queued",
+        delivery: "not_required",
       });
       expect(getAuthEmailDeliveriesForTests()).toEqual([
         expect.objectContaining({
@@ -116,6 +115,10 @@ describe("Auth account security controller", () => {
           password: "password123",
           name: "Session User",
         });
+      await verifyEmail(firstAgent, email);
+      expect((await firstAgent.post("/api/auth/sign-in/email")
+        .set("user-agent", "First browser")
+        .send({ email, password: "password123" })).status).toBe(200);
       const signinResponse = await secondAgent
         .post("/api/auth/sign-in/email")
         .set("user-agent", "Second browser")

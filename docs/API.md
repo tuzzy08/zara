@@ -1,5 +1,7 @@
 # API Docs
 
+Auth email delivery supports native Resend using server-only `RESEND_API_KEY` and `ZARA_AUTH_EMAIL_FROM`. Both must be set; partial configuration fails closed. When both exist, Resend takes priority over the legacy `ZARA_AUTH_EMAIL_WEBHOOK_URL`, which remains supported for existing installations and isolated browser email capture. Resend sends verification and password-reset links with text/HTML content, a deterministic request key, a 10-second per-attempt timeout and at most three attempts for network/429/5xx failures. Other provider errors fail without exposing response bodies or secrets. A provider message ID proves API acceptance, not inbox delivery. Only memory-mode tests retain email payloads in the in-process journal.
+
 ## API Style
 
 The control plane is a NestJS API. All tenant-scoped routes require authenticated organization membership. Public telephony webhooks require provider signature verification and idempotency keys.
@@ -44,6 +46,8 @@ Unauthenticated callers receive HTTP 200 with `authenticated: false`, null user/
 Platform staff authority is resolved from the signed-in Better Auth user email against `ZARA_PLATFORM_STAFF_ROLES` using `email=platform_role` entries, with non-production tests/local runs still able to inject `x-zara-platform-role`. Staff reads require a non-expired admin session. Mutating staff operations require `mfa` or `passkey` assurance and a fresh 15-minute step-up window; readonly roles never mutate, support roles can only run support-scoped actions after step-up, and impersonation requires admin/owner plus step-up.
 
 Self-serve tenant signup goes through the server-owned onboarding action rather than a client-side Better Auth sequence. The shared client still rejects blank tenant organization names before calling the API, then preserves server-owned duplicate/recoverable error messages for the auth form. Because Better Auth starts fresh sign-in sessions with no active organization by default, tenant email sign-in restores the tenant organization only when the server-owned context reports exactly one membership. Multi-tenant users remain signed in with memberships but no active organization until they choose one; the shared client then sets the chosen organization active through `POST /api/auth/organization/set-active`. `GET /api/auth/context` returns memberships even when no active organization is selected, and returns an active workspace only when the signed-in user has an active workspace membership. The tenant app only opens the dashboard once the context has an active organization and active member role.
+
+Signup verification contract (ISSUE-151): email/password signup sends a verification link and returns `{ ok: true, onboarding: { status: "verification_required" } }` without a session or tenant authority. After verification, submit the same credentials and organization name with `resume: true`. The server authenticates the credentials before creating the organization. `callbackURL` controls navigation only; it is validated by Better Auth and cannot assert verification. Required verification also applies to existing unverified accounts at new password sign-in. Verification alone does not sign the user in.
 
 Tenant invitations use Zara-owned API routes in front of Better Auth organization invitations:
 
