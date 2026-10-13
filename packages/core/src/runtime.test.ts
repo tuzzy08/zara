@@ -1768,13 +1768,3 @@ describe("cost optimized sandwich runtime adapter", () => {
     );
   });
 });
-
-function assertManifest(manifest: CompiledRuntimeManifest) {
-  expect(manifest.entryAgentId).toBeTruthy();
-}
-
-describe("runtime manifest test helpers", () => {
-  it("keeps the helper type anchored to the public compiled manifest", () => {
-    assertManifest(compileManifest());
-  });
-});

@@ -13,13 +13,6 @@ const migrationPath = resolve(repositoryRoot,
 const rollbackPath = resolve(repositoryRoot,
   "docs/Runbooks/rollback-0025-subscription-payg-pins.sql");
 
-describe("subscription PAYG pin migration artifacts", () => {
-  it("ships an append-only migration and guarded rollback", async () => {
-    await expect(Promise.all([readFile(migrationPath, "utf8"), readFile(rollbackPath, "utf8")]))
-      .resolves.toEqual([expect.any(String), expect.any(String)]);
-  });
-});
-
 describe.skipIf(connectionString === undefined)("subscription PAYG pin migration", () => {
   let pool: Pool;
 

@@ -56,26 +56,21 @@ Do not create repo-local issues only. Every issue added to `docs/Issue-Backlog.m
 - Keep local status, handover status, and external tracker status synchronized whenever work starts, pauses, completes, or is blocked.
 - If the external tracker is unavailable, do not add the local issue silently; tell the user what is blocked.
 
-## TDD Rule
+## Test-First And E2E Rules
 
-No production code without a failing test first. Follow RED/GREEN/REFACTOR for every production-code change.
-
-Cycle:
-
-1. RED: write the smallest failing test for one behavior.
-2. GREEN: write the smallest production change that passes.
-3. REFACTOR: clean up while the suite remains green.
-
-If a test passes immediately, it did not prove the new behavior. Fix the test before writing code.
+- Never write unit tests after you write code. Tests for new behavior must fail for the intended reason before production code changes. Keep RED/GREEN/REFACTOR.
+- Highly prefer end-to-end (E2E) tests as the sole testing mechanism. Use them to verify that complex features work across the real application boundaries. A mocked component or isolated service test is not E2E evidence.
+- Use a medium-to-hard, representative scenario for E2E verification, not the simplest happy path. Include relevant failure, recovery, authorization, or state-transition behavior.
+- At the end of an E2E run, produce a verifiable and repeatable artifact: the exact command, revision, setup and fixture details, assertions and results, plus a trace, report, or other inspectable evidence. Redact secrets and personal data. Screenshots alone do not prove behavior.
+- If a system must be tested in isolation, first write down all identified ways it could fail and why the E2E suite cannot cover them reliably. Then write the failing behavior test before the production code.
+- Tautological tests are harmful. Do not derive the expected result from the same code or fixture being tested.
+- Change-detector tests are harmful. Do not freeze source text, private call order, decorative values, or implementation shape without an observable behavior contract.
+- Do not create regression tests for bug fixes without a genuine gap in behavior testing. First run the existing behavior test. Add or extend a test only when it misses the failure; record the gap.
+- Remove a unit test when it adds no useful bug coverage: it is tautological, only detects implementation changes, or duplicates behavior already exercised by an existing E2E test. Record the reason and the retained coverage. Do not assume coverage from a test filename or delete unique security, tenant-isolation, billing, recovery, or edge-case checks without evidence.
 
 ## UI Testing Guidance
 
-Do not spend much time on UI tests. Use light smoke/critical-flow tests for UI. Prioritize:
-
-- unit tests for domain logic
-- integration tests for APIs, runtime, telephony, auth, and connectors
-- contract tests for public interfaces
-- security and tenant-isolation tests
+Prefer a small number of meaningful E2E journeys over many isolated UI assertions. Keep existing critical smoke tests until equivalent behavior is covered. Do not add presentation-only tests or duplicate assertions across layers. See `docs/Testing-Strategy.md` for current commands and evidence limits.
 
 ## UI Quality Rule
 
@@ -149,7 +144,7 @@ The test: Every changed line should trace directly to the user's request.
 
 Transform tasks into verifiable goals:
 - "Add validation" -> "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" -> "Write a test that reproduces it, then make it pass"
+- "Fix the bug" -> "Reproduce it with existing behavior tests; add a test only for a genuine coverage gap, then make it pass"
 - "Refactor X" -> "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:

@@ -1,18 +1,6 @@
-import { MODULE_METADATA } from "@nestjs/common/constants";
 import { Test } from "@nestjs/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PremiumRealtimeConversationPolicyModule } from "../premium-realtime-policy/premium-realtime-conversation-policy.module";
-import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
-import { PremiumRealtimeRuntimeModule } from "../runtime-sessions/premium-realtime-runtime.module";
-import { PstnAdmissionModule } from "../telephony/pstn-admission.module";
-import { TelephonyController } from "../telephony/telephony.controller";
-import { TelephonyModule } from "../telephony/telephony.module";
-import { RuntimeSessionsModule } from "../runtime-sessions/runtime-sessions.module";
-import { WorkflowsModule } from "../workflows/workflows.module";
-import { PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY } from "../workflows/published-workflow-manifest.repository";
-import { AppModule } from "../app.module";
-import { BillingRuntimeFundingModule } from "../billing/billing-runtime-funding.module";
 import { BillingCustomerStateReconciliationScheduler } from "../billing/billing-customer-state-reconciliation.scheduler";
 import { BillingPolarOutboxScheduler } from "../billing/billing-polar-outbox.scheduler";
 import { TrustedPaygActiveCallFundingService } from "../billing/trusted-payg-active-call-funding.service";
@@ -23,66 +11,18 @@ import { TrustedSubscriptionCallLifecycleService } from "../billing/trusted-subs
 import { TerminalBillingRecoveryRepository } from "../billing/terminal-billing-recovery.repository";
 import { TrustedTerminalBillingRecoveryService } from "../billing/trusted-terminal-billing-recovery.service";
 import { TerminalBillingRecoveryScheduler } from "../billing/terminal-billing-recovery.scheduler";
-import { PstnRealtimeWorkerHealthController } from "./pstn-realtime-worker-health.controller";
 import {
   createPstnRealtimeWorkerRegistry,
-  PSTN_REALTIME_WORKER_CONFIG,
   PstnRealtimeWorkerModule,
   resolvePstnRealtimeWorkerIdentity,
 } from "./pstn-realtime-worker.module";
 import { PstnRealtimeWorkerRegistry } from "./pstn-realtime-worker-registry";
-import { PstnPremiumFinalizationReconciler } from "./pstn-premium-finalization-reconciler";
 import { TelephonyService } from "../telephony/telephony.service";
 import { PstnPremiumCallExecution } from "../telephony/pstn-premium-call-execution";
 
 describe("PstnRealtimeWorkerModule", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
-  });
-
-  it("imports only the controller-free runtime dependencies", () => {
-    const imports = moduleMetadata<unknown[]>("imports");
-
-    expect(imports).toEqual(expect.arrayContaining([
-      PremiumRealtimeRuntimeModule,
-      PstnAdmissionModule,
-      PremiumRealtimeConversationPolicyModule,
-      RuntimePromptPolicyModule,
-      BillingRuntimeFundingModule,
-    ]));
-    expect(imports).not.toEqual(expect.arrayContaining([
-      AppModule,
-      TelephonyModule,
-      RuntimeSessionsModule,
-      WorkflowsModule,
-    ]));
-  });
-
-  it("exposes only the worker health controller", () => {
-    expect(moduleMetadata<unknown[]>("controllers")).toEqual([
-      PstnRealtimeWorkerHealthController,
-    ]);
-    expect(moduleMetadata<unknown[]>("controllers")).not.toContain(
-      TelephonyController,
-    );
-  });
-
-  it("declares worker config and registry providers without control-plane controllers", () => {
-    const providers = moduleMetadata<Array<
-      | { provide?: unknown }
-      | (new (...args: never[]) => unknown)
-    >>("providers");
-    const providedTokens = providers.map((provider) =>
-      typeof provider === "function" ? provider : provider.provide
-    );
-
-    expect(providedTokens).toEqual(expect.arrayContaining([
-      PSTN_REALTIME_WORKER_CONFIG,
-      PstnRealtimeWorkerRegistry,
-      PstnPremiumFinalizationReconciler,
-      PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY,
-    ]));
-    expect(providedTokens).not.toContain(TelephonyController);
   });
 
   it("compiles the production worker dependency graph", async () => {
@@ -172,13 +112,6 @@ describe("worker identity and registry factories", () => {
     ).toThrow("PSTN admission Redis is required");
   });
 });
-
-function moduleMetadata<T>(key: "imports" | "controllers" | "providers") {
-  return Reflect.getMetadata(
-    MODULE_METADATA[key.toUpperCase() as Uppercase<typeof key>],
-    PstnRealtimeWorkerModule,
-  ) as T;
-}
 
 function workerEnvironment() {
   return {

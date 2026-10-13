@@ -5358,6 +5358,8 @@ Implementation progress:
 - Handover: [docs/Handovers/ISSUE-232-test-suite-rationalization.md](../docs/Handovers/ISSUE-232-test-suite-rationalization.md)
 - External: [Linear ZAR-236](https://linear.app/zara-voice/issue/ZAR-236/spec-test-suite-rationalization-and-ui-smoke-test-boundary)
 
+2026-10-12 follow-up: implemented and locally verified. New Linear issue creation hit the workspace limit, so this matching issue tracks the pass. Cleanup checks passed: 59 declarations removed, 23 whole files deleted; API 1,836 passed/69 skipped, packages 208 passed, frontend 136 passed. Audit reports record deletions and retained behavior. Playwright signup and tenant-isolation journeys passed on two fresh databases; final one-command run passed two tests in 20.7 seconds and removed all test services. CI runs the same command and saves reports, traces, logs and source/image metadata for seven days. Remote CI awaits an authorized push. The original slice below is historical; no production behavior is changed.
+
 Acceptance criteria:
 - Ordinary unit, API/integration, and UI-smoke layers are independently runnable while runtime and PSTN eval gates remain separate.
 - Frontend and platform-admin DOM coverage is reduced to a documented allowlist of 15-25 critical smoke tests while client-owned logic tests remain protected.

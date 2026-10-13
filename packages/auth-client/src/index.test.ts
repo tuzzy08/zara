@@ -718,51 +718,6 @@ describe("tenant auth client", () => {
     expect(useActiveMember).not.toHaveBeenCalled();
   });
 
-  it("does not mount Better Auth session or organization readers during normal tenant rendering", async () => {
-    sessionSnapshot = {
-      data: {
-        session: {
-          activeOrganizationId: "org-acme",
-        },
-        user: {
-          id: "user-1",
-          name: "Acme Owner",
-          email: "owner@acme.example",
-        },
-      },
-      error: null,
-      isPending: false,
-    };
-    activeOrganizationSnapshot = {
-      data: {
-        id: "org-acme",
-        name: "Acme Voice Ops",
-      },
-      error: null,
-      isPending: false,
-    };
-    activeMemberSnapshot = {
-      data: {
-        userId: "user-1",
-        organizationId: "org-acme",
-        role: "owner",
-      },
-      error: null,
-      isPending: false,
-    };
-
-    const { tenantAuthClient } = await import("./index");
-
-    expect(tenantAuthClient.useSession()).toEqual({
-      data: null,
-      isPending: false,
-      error: null,
-    });
-    expect(useBetterAuthSession).not.toHaveBeenCalled();
-    expect(useActiveOrganization).not.toHaveBeenCalled();
-    expect(useActiveMember).not.toHaveBeenCalled();
-  });
-
   it("restores tenant organization role from the server-owned auth context", async () => {
     sessionSnapshot = {
       data: {
