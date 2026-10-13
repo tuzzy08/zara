@@ -1,5 +1,7 @@
 # API Docs
 
+Auth email delivery supports native Resend using server-only `RESEND_API_KEY` and `ZARA_AUTH_EMAIL_FROM`. Both must be set; partial configuration fails closed. When both exist, Resend takes priority over the legacy `ZARA_AUTH_EMAIL_WEBHOOK_URL`, which remains supported for existing installations and isolated browser email capture. Resend sends verification and password-reset links with text/HTML content, a deterministic request key, a 10-second per-attempt timeout and at most three attempts for network/429/5xx failures. Other provider errors fail without exposing response bodies or secrets. A provider message ID proves API acceptance, not inbox delivery. Only memory-mode tests retain email payloads in the in-process journal.
+
 ## API Style
 
 The control plane is a NestJS API. All tenant-scoped routes require authenticated organization membership. Public telephony webhooks require provider signature verification and idempotency keys.

@@ -3913,7 +3913,7 @@ Implementation notes:
 - Area: Auth
 - Milestone: Auth Flow Hardening
 - Labels: auth, backend, frontend, security, testing, tdd-required
-- Status: Implemented
+- Status: In Progress
 - Blocked by: ISSUE-150
 - Handover: [docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md](../docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md)
 - External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)

@@ -1,5 +1,11 @@
 # Roadmap
 
+Resend follow-up (2026-10-13, ISSUE-151): In Progress. User approved sender support@zharaai.com, the provider-boundary tests, one owner-inbox delivery check, and merge/deployment after green checks. Native server-side Resend delivery, bounded idempotent retries and partial-config rejection are implemented; final regression and CI checks remain. Local Docker failed to read a test image, so browser tests did not start. The saved production key is still absent; live delivery and deployment remain blocked. No production settings changed.
+
+Signup release preflight (2026-10-13, ISSUE-151): merge/deployment approved, but the running production API auth email webhook points to placeholder host `example.com`. Release is stopped pending real mail delivery setup and verified sender. PRs #127/#128 remain open and green. Production and billing settings are unchanged. This supersedes the earlier approval-pending note.
+
+Signup CI completion (2026-10-12, ISSUE-151): exact PR #128 head `7c91b70` passes CI, Browser E2E, Migration Check, security and preview. The uploaded E2E artifact is available and not expired. No CI repair was needed. Monitoring is complete; merge and production deployment still need approval. This local completion record supersedes the pending checks below.
+
 Signup push checkpoint (2026-10-12, ISSUE-151): commit `9fd2da6` is pushed in PR #128, stacked on test-cleanup PR #127. Security and preview pass; CI, migration and browser checks are running. The signup CI monitor is active. No merge or production deployment is authorized. This supersedes the pre-push state below.
 
 Signup follow-up (2026-10-12, ISSUE-151): Implemented and locally verified. Password confirmation, email syntax validation, required verification before password sign-in and closed-tab signup recovery are complete. Deferred tenant/marketing imports reduce measured initial signup JavaScript from 860,198 to 272,435 bytes (68.3%). All 83 focused regressions and three browser tests pass; type, lint, build and test-boundary checks pass. Evidence: `artifacts/e2e/signup-final-verification/`. Existing unverified accounts must verify before new password sign-in, as approved by the user. No signup changes are committed or deployed; release approval, CI and real inbox/live timing checks remain separate.

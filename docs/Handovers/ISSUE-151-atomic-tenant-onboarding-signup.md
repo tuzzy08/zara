@@ -1,10 +1,16 @@
 # ISSUE-151: Atomic tenant onboarding signup
 
-Status: Implemented (locally verified; remote CI pending; not deployed)
+Status: In Progress (Resend follow-up verification pending; production key missing; not merged or deployed)
 Date: 2026-05-31
 External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
 
 ## Work Completed
+
+- Resend follow-up (2026-10-13): user approved the existing browser signup boundary and the external Resend API boundary. Sender is `support@zharaai.com`; one live delivery test to the owner's supplied inbox is authorized. Failure analysis before isolated tests: missing/partial config, stale webhook taking priority, invalid provider credentials/domain, malformed success response, network timeout, provider throttling/outage, duplicate sends on retry, and secret/token leakage. Browser E2E captures email through a local webhook and cannot reliably force real provider failures or duplicate-delivery outcomes; a provider-boundary test is needed for these gaps. No internal auth modules will be mocked. Native browser verification coverage remains required. Last saved-key check found no RESEND_API_KEY; live verification and deployment wait for it.
+
+- Release preflight (2026-10-13): user approved checking email settings, merging PRs #127/#128 and deploying after green checks. Both PR heads still pass all checks and remain open. Read-only SSH inspection of the running production API confirms `NODE_ENV=production`, correct public auth origin, release `1a146eba9fa2bc3ed06a1d8d9a8866992c92396d`, charge delivery false, but the configured auth email webhook host is `example.com`. No URL path, token or secret was displayed. This is a placeholder, not a configured delivery service. Stopped before merge/deployment because required email verification would prevent users from completing signup without working mail delivery. No email or account was created and no production setting changed.
+
+- CI completion (2026-10-12): exact PR #128 head `7c91b70e5d09e01169b0615edf4e4f1cd8fee287` passes CI (38311285681), Browser E2E (38311285669), Migration Check (38311285652), GitGuardian and Vercel preview checks. E2E artifact `e2e-6fa164a975ca5abd240e97cdf72714d023a6d332-1` is available, 6,642,566 bytes, not expired. No repair was needed. CI monitor is complete. This local completion record supersedes pending-CI notes below; no new code commit is needed. Unrelated changes remain untouched.
 
 - Push checkpoint: signup commit `9fd2da6b4cb691d6d24a6847b33ff6e8fa95901c` is published in [PR #128](https://github.com/tuzzy08/zara/pull/128). Security and preview pass; CI, Migration Check and Browser E2E are running. Monitor `zara-signup-ci` checks every five minutes and permits only in-scope repairs. Linear ZAR-97 is updated. No merge or production deployment occurred. This supersedes the pre-push notes below.
 
@@ -34,6 +40,12 @@ External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-a
 
 ## Tests Run
 
+- Latest Resend/auth regression run passes 21 tests in four files: provider delivery, native security configuration, onboarding and account security. Scoped ESLint passes. Local E2E is blocked by Docker image I/O, not a browser assertion. Remote CI must provide fresh browser evidence before merge/deploy. No real Resend request was made because the saved key is absent.
+
+- Resend RED/GREEN: provider-selection test first failed because the request went to the old webhook; it passed after native Resend REST delivery was added. Lost-response/503 retry test failed before bounded retries and then passed with one provider idempotency key. Partial-configuration and invalid-success tests then failed as expected; fixes are under regression verification. The adapter uses the existing native fetch transport rather than adding a dependency for one API call.
+- Latest local browser attempt did not execute tests: Docker returned an input/output error reading its Caddy image blob. No Docker reset, image removal or unrelated container change was attempted. Fresh CI browser evidence is required.
+- Saved Dokploy environment recheck still reports no RESEND_API_KEY (presence-only output). No live email was sent.
+
 - Final GREEN: `artifacts/e2e/signup-final-verification/report/index.html`, three browser tests passed in 101.6s with no skips. Fresh disposable database, real API and email capture, production-mode cookies and rate limiting. App images are the unchanged images from `zara-e2e-23340-1791839280188`; only the test header lookup changed to the installed provider's `X-Retry-After`. `run.md` records commands, image IDs and test hash. Teardown removed all seven test containers, both networks and disposable volumes; shell exit 0.
 - Final load evidence: 272,435 decoded script bytes versus 860,198 before deferred imports (68.3% reduction); 390x844 viewport fits, no page errors. Mobile screenshot inspected. Local FCP 816ms is a single sample, not a production timing guarantee.
 - Final `npm run typecheck --workspace @zara/web` passed after the closed-tab recovery change. API production build also passed. All 83 focused regressions, focused lint, syntax, boundary and diff checks passed. Earlier failed runs below are RED or test-harness correction evidence, not unresolved failures.
@@ -60,8 +72,10 @@ External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-a
 
 ## Pending Work
 
-- No implementation acceptance work remains in this signup slice.
-- Commit/push and remote CI are approved and in progress. Deployment needs separate approval. Before deployment, verify the production auth email webhook and sender. After deployment, check real inbox delivery and live load timing. Local email capture does not prove inbox delivery.
+- Replace the placeholder production auth-email webhook with a real delivery service and verify the sender. User input needed: existing delivery endpoint installed privately in Dokploy, or the chosen mail provider and sender address so the required integration can be scoped. Do not request secret values in chat. Then resume approved merge sequence, exact merge-commit checks, backup, non-overlapping worker replacement and deployment verification.
+
+- Original signup work is complete. The approved Resend follow-up requires passing provider/auth regression checks, fresh browser CI and a live delivery check.
+- Commit/push and remote CI are complete. Merge and deployment need separate approval. Before deployment, verify the production auth email webhook and sender. After deployment, check real inbox delivery and live load timing. Local email capture does not prove inbox delivery.
 
 ## Risks
 
@@ -77,4 +91,4 @@ External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-a
 
 ## Next Recommended Step
 
-- Commit and push only signup-related changes, then check remote CI and fix in-scope failures. Leave unrelated billing, deployment and semantic-design edits untouched. Do not merge or deploy without approval.
+- Obtain approval for the PR #127/#128 merge sequence and production release. Preserve unrelated changes. Verify production email delivery settings before release. This completion record remains local so the verified PR head does not change merely to record its own check results.
