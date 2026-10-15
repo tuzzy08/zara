@@ -3,7 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from "@nestjs/common";
-import { resolveDefaultWorkspace, slugifyWorkspaceName, type TenantRole } from "@zara/core";
+import { slugifyWorkspaceName, type TenantRole } from "@zara/core";
 
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { AuthOnboardingGateway, type AuthOnboardingHttpRequest, type AuthOnboardingHttpResponse, type AuthOnboardingSessionGateway } from "./auth-onboarding.gateway";
@@ -129,7 +129,7 @@ export class AuthOnboardingService {
       throw recoverableOnboardingError("active_organization", setActiveResult.message);
     }
 
-    const activeWorkspace = this.ensureDefaultWorkspaceOwner({
+    const activeWorkspace = await this.ensureDefaultWorkspaceOwner({
       organizationId: activeOrganization.id,
       userId: user.id,
     });
@@ -239,7 +239,7 @@ export class AuthOnboardingService {
       throw recoverableOnboardingError("active_organization", setActiveResult.message);
     }
 
-    const activeWorkspace = this.ensureDefaultWorkspaceOwner({
+    const activeWorkspace = await this.ensureDefaultWorkspaceOwner({
       organizationId: input.organizationId,
       userId: user.id,
     });
@@ -260,24 +260,16 @@ export class AuthOnboardingService {
     };
   }
 
-  private ensureDefaultWorkspaceOwner(input: {
+  private async ensureDefaultWorkspaceOwner(input: {
     organizationId: string;
     userId: string;
   }) {
-    const state = this.workspacesService.getWorkspaceState(input.organizationId);
-    const workspace = resolveDefaultWorkspace(state.workspaces);
-
-    if (workspace === undefined) {
-      throw recoverableOnboardingError("workspace", "No default workspace is available for this tenant.");
-    }
-
-    this.workspacesService.setMembershipRole({
-      organizationId: input.organizationId,
-      workspaceId: workspace.id,
-      userId: input.userId,
-      role: "owner",
-      actorUserId: input.userId,
+    const workspace = await this.workspacesService.ensureDefaultMembership({
+      organizationId: input.organizationId, userId: input.userId, role: "owner",
     });
+    if (workspace === null) {
+      throw recoverableOnboardingError("workspace", "Default workspace access is unavailable. Contact your organization owner.");
+    }
 
     return {
       id: workspace.id,

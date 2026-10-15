@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAgentToolAvailableAction, parseAgentActionText, resolveRuntimeAgent, type InstructionImprovementResult } from "@zara/core";
 import { InstructionImprovementService } from "../agents/instruction-improvement.service";
+import { InMemoryWorkspaceRepository } from "../workspaces/workspace.repository";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import type { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import type { PostgresPoolService } from "../database/postgres-pool.service";
@@ -20,8 +21,8 @@ describe("live instruction improvement comparison", () => {
   const assignment = manifest.agentToolAssignments[0]!;
   beforeAll(async () => {
     if (!process.env.OPENAI_API_KEY || !process.env.GEMINI_API_KEY) throw new Error("Live comparison requires OpenAI and Gemini credentials.");
-    const workspaces = new WorkspacesService();
-    workspaces.setMembershipRole({ organizationId: "synthetic-eval", workspaceId: "workspace-default", userId: "eval-builder", role: "builder", actorUserId: "eval-builder" });
+    const workspaces = new WorkspacesService(new InMemoryWorkspaceRepository());
+    await workspaces.setMembershipRole({ organizationId: "synthetic-eval", workspaceId: "workspace-default", userId: "eval-builder", role: "builder", actorUserId: "eval-builder" });
     const service = new InstructionImprovementService(workspaces,
       { getPromptPolicy: async () => defaultRuntimePromptPolicy } as unknown as RuntimePromptPolicyService,
       { pool: { query: async () => ({ rows: [{ count: 1 }] }) } } as unknown as PostgresPoolService,

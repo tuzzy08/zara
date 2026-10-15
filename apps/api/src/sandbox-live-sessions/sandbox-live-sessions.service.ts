@@ -232,7 +232,7 @@ export class SandboxLiveSessionsService {
     input: CreateLiveSandboxSessionRequest,
   ): Promise<LiveSandboxSessionResponse> {
     this.assertVoiceInputMode(input);
-    this.assertUserCanAccessWorkspace({
+    await this.assertUserCanAccessWorkspace({
       organizationId,
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId,
@@ -461,7 +461,7 @@ export class SandboxLiveSessionsService {
     now?: string | undefined;
   }): Promise<LiveSandboxPostCallSummaryResponse> {
     const session = this.requireSession(input.organizationId, input.sessionId);
-    this.assertUserCanAccessWorkspace({ organizationId: input.organizationId,
+    await this.assertUserCanAccessWorkspace({ organizationId: input.organizationId,
       workspaceId: session.workspaceId, actorUserId: input.actorUserId });
     this.expireIfNeeded(session);
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
@@ -510,7 +510,7 @@ export class SandboxLiveSessionsService {
     const createdAt = input.now ?? new Date().toISOString();
     const summaryId = `post-call-summary-${randomUUID()}`;
     const judgment = await judgePostCallEvidence(evidence, this.postCallMode, this.postCallClient);
-    this.assertUserCanAccessWorkspace({ organizationId: input.organizationId,
+    await this.assertUserCanAccessWorkspace({ organizationId: input.organizationId,
       workspaceId: session.workspaceId, actorUserId: input.actorUserId });
     const currentEvents = this.eventsBySessionKey.get(sessionKey) ?? [];
     if (createHash("sha256").update(JSON.stringify(buildPostCallEvidence(currentEvents))).digest("hex") !== sourceRevision) {
@@ -598,15 +598,15 @@ export class SandboxLiveSessionsService {
       .map((summary) => buildPostCallCrmSyncStatus(summary, session, events));
   }
 
-  retryPostCallCrmSync(input: {
+  async retryPostCallCrmSync(input: {
     organizationId: string;
     sessionId: string;
     summaryId: string;
     actorUserId: string;
     now?: string | undefined;
-  }): LiveSandboxPostCallCrmSyncStatusResponse {
+  }): Promise<LiveSandboxPostCallCrmSyncStatusResponse> {
     const session = this.requireSession(input.organizationId, input.sessionId);
-    this.assertUserCanAccessWorkspace({
+    await this.assertUserCanAccessWorkspace({
       organizationId: input.organizationId,
       workspaceId: session.workspaceId,
       actorUserId: input.actorUserId,
@@ -704,14 +704,14 @@ export class SandboxLiveSessionsService {
     return toSessionMemoryResponse(getOrCreateSessionMemory(session));
   }
 
-  endSession(input: {
+  async endSession(input: {
     organizationId: string;
     sessionId: string;
     actorUserId: string;
     now?: string | undefined;
-  }): LiveSandboxSessionResponse {
+  }): Promise<LiveSandboxSessionResponse> {
     const session = this.requireSession(input.organizationId, input.sessionId);
-    this.assertUserCanAccessWorkspace({
+    await this.assertUserCanAccessWorkspace({
       organizationId: input.organizationId,
       workspaceId: session.workspaceId,
       actorUserId: input.actorUserId,
@@ -748,14 +748,14 @@ export class SandboxLiveSessionsService {
     });
   }
 
-  issueReconnectToken(input: {
+  async issueReconnectToken(input: {
     organizationId: string;
     sessionId: string;
     actorUserId: string;
     now?: string | undefined;
   }) {
     const session = this.requireSession(input.organizationId, input.sessionId);
-    this.assertUserCanAccessWorkspace({
+    await this.assertUserCanAccessWorkspace({
       organizationId: input.organizationId,
       workspaceId: session.workspaceId,
       actorUserId: input.actorUserId,
@@ -1092,12 +1092,12 @@ export class SandboxLiveSessionsService {
     return next;
   }
 
-  private assertUserCanAccessWorkspace(input: {
+  private async assertUserCanAccessWorkspace(input: {
     organizationId: string;
     workspaceId: string;
     actorUserId: string;
   }) {
-    const state = this.workspacesService.getWorkspaceState(input.organizationId);
+    const state = await this.workspacesService.getWorkspaceState(input.organizationId);
     const workspaceExists = state.workspaces.some((workspace) => workspace.id === input.workspaceId);
 
     if (!workspaceExists) {

@@ -383,6 +383,7 @@ export interface PublishWorkflowVersionInput extends BuildRuntimeManifestPreview
   createdBy: ID;
   createdAt?: string | undefined;
   existingVersions: PublishedWorkflowVersion[];
+  versionNumber?: number | undefined;
 }
 
 export const publishedWorkflowVersionSchemaVersion = "zara.published-workflow.v2" as const;
@@ -1318,11 +1319,14 @@ export function publishWorkflowVersion(
     throw new Error("Workflow must validate before it can publish.");
   }
 
-  const versionNumber =
+  const versionNumber = input.versionNumber ?? (
     input.existingVersions.reduce(
       (highestVersion, version) => Math.max(highestVersion, version.version),
       0,
-    ) + 1;
+    ) + 1);
+  if (!Number.isSafeInteger(versionNumber) || versionNumber < 1) {
+    throw new Error("Published workflow version must be a positive safe integer.");
+  }
   const versionId = `${input.workflowId}-v${versionNumber}`;
   const graph = createWorkflowGraph(input.graph);
   const manifestPreview = buildRuntimeManifestPreview({

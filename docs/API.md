@@ -231,6 +231,12 @@ Twilio `<Connect><Stream>` responses use queryless `wss://` stream URLs. They in
 - Payment webhooks and trusted server billing facts are idempotent.
 - Published versions are immutable.
 
+## Workflow Publication Contract
+
+`POST /organizations/:orgId/workflows/:workflowId/publish` accepts `expectedVersion`: 0 for the first publication, or the latest version known to the editor. The server reads the durable version, checks this value, allocates the next version, and stores the immutable manifest in one Postgres transaction. Concurrent requests with the same expected version cannot both succeed. A stale request returns HTTP 409 with `code: "workflow_publish_conflict"` and `currentVersion`. Reusing a workflow ID in another workspace also returns 409.
+
+The browser sends `expectedVersion`. Older callers may send `existingVersions`; the server uses its highest version only as the expected base, never as the stored version history. Tenant version sequences remain separate. Successful responses contain the stored manifest. Published manifests and active-call pins remain immutable.
+
 ## Workflow Validation Contract
 
 Workflow validation is shared through `@zara/core` so the tenant builder and future NestJS workflow routes use the same contract. Validation returns actionable errors with stable codes, messages, suggestions, and optional node or edge references.
@@ -729,6 +735,9 @@ State payload:
 Current behavior:
 
 - The tenant shell loads workspace directory state from Nest instead of browser-local persistence.
+- Postgres stores workspaces, memberships, membership history, and audit entries. Tenant-scoped transactions protect concurrent mutations and final-owner checks across API instances. Directory users come from native organization membership.
+- New workspaces have stable UUID-based IDs and grant their creator owner access in the same transaction. Renaming a workspace does not change its ID.
+- Revoked memberships are omitted from state responses. Membership history survives removal and replacement of organization membership, so auth-context reads and repeated onboarding do not restore deliberately removed workspace access.
 - Tenant onboarding initializes the default workspace state and grants the new tenant owner `owner` membership on `workspace-default` before the tenant shell opens.
 - Active workspace selection is still stored locally in the browser for UX continuity, but the accessible workspace list, memberships, and audit trail come from the API.
 - Rename, archive, restore, membership role changes, membership revocation, and workspace-access audit writes all round-trip through the Nest module.

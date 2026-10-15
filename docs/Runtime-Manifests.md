@@ -2,6 +2,8 @@
 
 Runtime manifests are compiled from published workflow versions and tenant configuration. They are immutable for a call.
 
+Publication uses a tenant/workflow transaction lock and an editor-supplied expected version. The server selects the next version from durable manifests and returns success only after storing it. Stale editors receive a conflict. A workflow identity cannot move between workspaces through publication. Existing manifest IDs and active-call version pins remain unchanged.
+
 The current shared compiler lives in `@zara/core` and compiles from the published version snapshot, not the mutable draft graph. Compiled manifest IDs are deterministic and derived from a stable hash of the published version plus runtime configuration. Workspace ID participates in that hash, so the same workflow published into a different workspace produces a distinct runtime manifest.
 
 ## Manifest Contents

@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable } from "@nestjs/common";
 import {
   compileRuntimeManifest,
   createWorkflowGraph,
@@ -20,6 +20,7 @@ import { ToolPermissionGrantsService } from "../integrations/tool-permission-gra
 import { MemoryService } from "../memory/memory.service";
 import {
   PUBLISHED_WORKFLOW_MANIFEST_REPOSITORY,
+  WorkflowPublicationConflictError,
   type PublishedWorkflowManifestRepository,
 } from "./published-workflow-manifest.repository";
 
@@ -29,6 +30,7 @@ export interface PublishWorkflowRequest {
   environment?: TenantEnvironment | undefined;
   graph?: WorkflowGraph | undefined;
   existingVersions?: PublishedWorkflowVersion[] | undefined;
+  expectedVersion?: number | undefined;
   runtime?: VoiceRuntimeKind | undefined;
   runtimeProfile?: RuntimeProfileId | undefined;
   telephonyProvider?: TelephonyProvider | undefined;
@@ -58,47 +60,33 @@ export class WorkflowsService {
     const graph = readWorkflowGraph(input.request.graph);
     const memory = readRequiredObject(input.request.memory, "memory");
     const budget = readRequiredObject(input.request.budget, "budget");
-    const candidatePublishedVersion = publishWorkflowVersion({
-      tenantId: input.organizationId,
-      workspaceId,
-      environment: input.request.environment ?? "production",
-      workflowId: input.workflowId,
-      graph,
-      existingVersions: input.request.existingVersions ?? [],
-      runtime: input.request.runtime ?? "sandwich-pipeline",
-      runtimeProfile: input.request.runtimeProfile,
-      telephonyProvider: input.request.telephonyProvider ?? "browser-webrtc",
-      memory,
-      budget,
-      createdBy: actorUserId,
-      createdAt: input.request.now,
-    });
-    const manifest = compileRuntimeManifest({
-      publishedVersion: candidatePublishedVersion,
-      modelRouting: input.request.modelRouting ?? defaultModelRouting,
-      telemetry: input.request.telemetry ?? defaultTelemetry,
-    });
-    await this.toolPermissionGrantsService.ensureToolGrantsForPublish({
-      organizationId: input.organizationId,
-      workspaceId,
-      actorUserId,
-      now: input.request.now,
-      manifest,
-    });
-    const grantValidation = await this.toolPermissionGrantsService.validateToolGrantsForPublish({
-      organizationId: input.organizationId,
-      workspaceId,
-      manifest,
-    });
-
-    if (!grantValidation.ok) {
-      throw new BadRequestException({
-        message: "Workflow publish blocked by invalid integration tool grants.",
-        code: "workflow_publish_tool_grants_invalid",
-        errors: grantValidation.errors,
+    const expectedVersion = readExpectedVersion(input.request);
+    const createPublication = (versionNumber: number) => {
+      const publishedVersion = publishWorkflowVersion({
+        tenantId: input.organizationId,
+        workspaceId,
+        environment: input.request.environment ?? "production",
+        workflowId: input.workflowId,
+        graph,
+        existingVersions: [],
+        versionNumber,
+        runtime: input.request.runtime ?? "sandwich-pipeline",
+        runtimeProfile: input.request.runtimeProfile,
+        telephonyProvider: input.request.telephonyProvider ?? "browser-webrtc",
+        memory,
+        budget,
+        createdBy: actorUserId,
+        createdAt: input.request.now,
       });
-    }
-
+      return {
+        publishedVersion,
+        manifest: compileRuntimeManifest({
+          publishedVersion,
+          modelRouting: input.request.modelRouting ?? defaultModelRouting,
+          telemetry: input.request.telemetry ?? defaultTelemetry,
+        }),
+      };
+    };
     const knowledgeConflictValidation = await this.memoryService.validateKnowledgeConflictsForPublish({
       organizationId: input.organizationId,
       workspaceId,
@@ -115,14 +103,48 @@ export class WorkflowsService {
       });
     }
 
-    await this.publishedWorkflowManifestRepository.save(manifest);
-
-    return {
-      publishedVersion: candidatePublishedVersion,
-      manifest,
-      grantValidation,
-      knowledgeConflictValidation,
-    };
+    try {
+      const publication = await this.publishedWorkflowManifestRepository.publish({
+        organizationId: input.organizationId,
+        workspaceId,
+        workflowId: input.workflowId,
+        expectedVersion,
+        createPublication: async (versionNumber) => {
+          const candidate = createPublication(versionNumber);
+          await this.toolPermissionGrantsService.ensureToolGrantsForPublish({
+            organizationId: input.organizationId,
+            workspaceId,
+            actorUserId,
+            now: input.request.now,
+            manifest: candidate.manifest,
+          });
+          const grantValidation = await this.toolPermissionGrantsService.validateToolGrantsForPublish({
+            organizationId: input.organizationId,
+            workspaceId,
+            manifest: candidate.manifest,
+          });
+          if (!grantValidation.ok) {
+            throw new BadRequestException({
+              message: "Workflow publish blocked by invalid integration tool grants.",
+              code: "workflow_publish_tool_grants_invalid",
+              errors: grantValidation.errors,
+            });
+          }
+          return { ...candidate, grantValidation };
+        },
+      });
+      return { ...publication, knowledgeConflictValidation };
+    } catch (error) {
+      if (error instanceof WorkflowPublicationConflictError) {
+        throw new ConflictException({
+          message: error.message,
+          code: "workflow_publish_conflict",
+          expectedVersion,
+          ...(error.currentVersion === undefined ? {} : { currentVersion: error.currentVersion }),
+        });
+      }
+      throw error;
+    }
   }
 
   getPublishedManifest(input: {
@@ -131,6 +153,26 @@ export class WorkflowsService {
   }) {
     return this.publishedWorkflowManifestRepository.load(input);
   }
+}
+
+function readExpectedVersion(request: PublishWorkflowRequest) {
+  let expectedVersion = request.expectedVersion;
+  if (expectedVersion === undefined) {
+    if (request.existingVersions !== undefined && !Array.isArray(request.existingVersions)) {
+      throw new BadRequestException("Workflow publish requires a valid version history.");
+    }
+    expectedVersion = 0;
+    for (const version of request.existingVersions ?? []) {
+      if (version === null || !Number.isSafeInteger(version.version) || version.version < 1) {
+        throw new BadRequestException("Workflow publish requires a valid version history.");
+      }
+      expectedVersion = Math.max(expectedVersion, version.version);
+    }
+  }
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0 || expectedVersion >= Number.MAX_SAFE_INTEGER) {
+    throw new BadRequestException("Workflow publish expectedVersion must be a non-negative safe integer below the version limit.");
+  }
+  return expectedVersion;
 }
 
 function readRequiredString(value: string | undefined, fieldName: string) {

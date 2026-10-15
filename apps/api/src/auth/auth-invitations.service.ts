@@ -96,7 +96,7 @@ export class AuthInvitationsService {
     const actor = await requireAuthenticatedUser(session);
 
     if (normalizedInput.workspaceAccess !== null) {
-      this.requireActiveWorkspace(normalizedInput.organizationId, normalizedInput.workspaceAccess.workspaceId);
+      await this.requireActiveWorkspace(normalizedInput.organizationId, normalizedInput.workspaceAccess.workspaceId);
     }
 
     const invitationResult = await session.createInvitation({
@@ -242,7 +242,7 @@ export class AuthInvitationsService {
     ];
     const activeWorkspace = rawInvitation.workspaceAccess === null
       ? null
-      : this.grantWorkspaceAccess({
+      : await this.grantWorkspaceAccess({
           organizationId: rawInvitation.organizationId,
           userId: user.id,
           actorUserId: user.id,
@@ -281,8 +281,8 @@ export class AuthInvitationsService {
     };
   }
 
-  private requireActiveWorkspace(organizationId: string, workspaceId: string) {
-    const workspace = this.workspacesService.getWorkspaceState(organizationId).workspaces.find(
+  private async requireActiveWorkspace(organizationId: string, workspaceId: string) {
+    const workspace = (await this.workspacesService.getWorkspaceState(organizationId)).workspaces.find(
       (candidate) => candidate.id === workspaceId && candidate.tenantId === organizationId,
     );
 
@@ -295,14 +295,14 @@ export class AuthInvitationsService {
     }
   }
 
-  private grantWorkspaceAccess(input: {
+  private async grantWorkspaceAccess(input: {
     organizationId: string;
     userId: string;
     actorUserId: string;
     workspaceAccess: InvitationWorkspaceAccess;
   }) {
     try {
-      const state = this.workspacesService.setMembershipRole({
+      const state = await this.workspacesService.setMembershipRole({
         organizationId: input.organizationId,
         workspaceId: input.workspaceAccess.workspaceId,
         userId: input.userId,

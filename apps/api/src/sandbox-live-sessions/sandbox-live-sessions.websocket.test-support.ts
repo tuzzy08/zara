@@ -414,27 +414,27 @@ export function createAgentRoutePolicyManifest(workspaceId: string): CompiledRun
   });
 }
 
-export function ensureWorkspaceAccess(workspacesService: WorkspacesService) {
+export async function ensureWorkspaceAccess(workspacesService: WorkspacesService) {
   const organizationId = "tenant-west-africa";
   const workspaceId = "workspace-default";
   const actorUserId = "user-ops-lead";
-  const state = workspacesService.getWorkspaceState(organizationId);
+  const state = await workspacesService.getWorkspaceState(organizationId);
 
   if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) {
-    workspacesService.createWorkspace({
+    await workspacesService.createWorkspace({
       organizationId,
       name: "Default workspace",
       actorUserId,
     });
   }
 
-  const nextState = workspacesService.getWorkspaceState(organizationId);
+  const nextState = await workspacesService.getWorkspaceState(organizationId);
   if (!nextState.memberships.some((membership) =>
     membership.workspaceId === workspaceId
     && membership.tenantId === organizationId
     && membership.userId === actorUserId
   )) {
-    workspacesService.setMembershipRole({
+    await workspacesService.setMembershipRole({
       organizationId,
       workspaceId,
       userId: actorUserId,
