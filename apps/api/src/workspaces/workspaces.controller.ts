@@ -15,13 +15,13 @@ export class WorkspacesController {
   }
 
   @Post()
-  createWorkspace(
+  async createWorkspace(
     @Param("organizationId") organizationId: string,
     @Body() body: { name: string },
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      state: this.workspacesService.createWorkspace({
+      state: await this.workspacesService.createWorkspace({
         organizationId,
         name: body.name,
         actorUserId: tenantAuth.userId,
@@ -30,7 +30,7 @@ export class WorkspacesController {
   }
 
   @Patch(":workspaceId")
-  mutateWorkspace(
+  async mutateWorkspace(
     @Param("organizationId") organizationId: string,
     @Param("workspaceId") workspaceId: string,
     @Body()
@@ -43,7 +43,7 @@ export class WorkspacesController {
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      state: this.workspacesService.mutateWorkspace({
+      state: await this.workspacesService.mutateWorkspace({
         organizationId,
         workspaceId,
         actorUserId: tenantAuth.userId,
@@ -56,13 +56,13 @@ export class WorkspacesController {
 
   @Post(":workspaceId/accessed")
   @HttpCode(200)
-  markWorkspaceAccessed(
+  async markWorkspaceAccessed(
     @Param("organizationId") organizationId: string,
     @Param("workspaceId") workspaceId: string,
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      state: this.workspacesService.markWorkspaceAccessed({
+      state: await this.workspacesService.markWorkspaceAccessed({
         organizationId,
         workspaceId,
         actorUserId: tenantAuth.userId,
@@ -71,7 +71,7 @@ export class WorkspacesController {
   }
 
   @Put(":workspaceId/memberships/:userId")
-  setMembershipRole(
+  async setMembershipRole(
     @Param("organizationId") organizationId: string,
     @Param("workspaceId") workspaceId: string,
     @Param("userId") userId: string,
@@ -79,7 +79,7 @@ export class WorkspacesController {
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      state: this.workspacesService.setMembershipRole({
+      state: await this.workspacesService.setMembershipRole({
         organizationId,
         workspaceId,
         userId,
@@ -91,14 +91,14 @@ export class WorkspacesController {
 
   @Post(":workspaceId/memberships/:userId/revoke")
   @HttpCode(200)
-  revokeMembership(
+  async revokeMembership(
     @Param("organizationId") organizationId: string,
     @Param("workspaceId") workspaceId: string,
     @Param("userId") userId: string,
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      state: this.workspacesService.revokeMembership({
+      state: await this.workspacesService.revokeMembership({
         organizationId,
         workspaceId,
         userId,

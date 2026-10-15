@@ -31,7 +31,7 @@ export class InstructionImprovementService {
 
   async improve(body: unknown, actor: TenantAuthContext): Promise<InstructionImprovementResult> {
     const input = parseRequest(body);
-    const state = this.workspaces.getWorkspaceState(actor.organizationId);
+    const state = await this.workspaces.getWorkspaceState(actor.organizationId);
     const builderRoles = ["owner", "admin", "builder"];
     if (!builderRoles.includes(actor.role)
       || !state.workspaces.some(workspace => workspace.id === input.workspaceId && workspace.status === "active")

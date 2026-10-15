@@ -189,7 +189,7 @@ export class SandboxLiveSessionsController {
 
   @Post(":sessionId/crm-sync/:summaryId/retry")
   @HttpCode(200)
-  retryPostCallCrmSync(
+  async retryPostCallCrmSync(
     @Param("organizationId") organizationId: string,
     @Param("sessionId") sessionId: string,
     @Param("summaryId") summaryId: string,
@@ -197,7 +197,7 @@ export class SandboxLiveSessionsController {
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      crmSyncStatus: this.sandboxLiveSessionsService.retryPostCallCrmSync({
+      crmSyncStatus: await this.sandboxLiveSessionsService.retryPostCallCrmSync({
         organizationId,
         sessionId,
         summaryId,
@@ -209,14 +209,14 @@ export class SandboxLiveSessionsController {
 
   @Post(":sessionId/reconnect")
   @HttpCode(200)
-  reconnectSession(
+  async reconnectSession(
     @Param("organizationId") organizationId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: { actorUserId: string; now?: string | undefined },
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      session: this.sandboxLiveSessionsService.issueReconnectToken({
+      session: await this.sandboxLiveSessionsService.issueReconnectToken({
         organizationId,
         sessionId,
         actorUserId: tenantAuth.userId,
@@ -237,14 +237,14 @@ export class SandboxLiveSessionsController {
 
   @Post(":sessionId/end")
   @HttpCode(200)
-  endSession(
+  async endSession(
     @Param("organizationId") organizationId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: { actorUserId: string; now?: string | undefined },
     @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      session: this.sandboxLiveSessionsService.endSession({
+      session: await this.sandboxLiveSessionsService.endSession({
         organizationId,
         sessionId,
         actorUserId: tenantAuth.userId,

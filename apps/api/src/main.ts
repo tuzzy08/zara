@@ -11,6 +11,7 @@ import { runtimeEnvironment } from "./config/runtime-env";
 export async function bootstrap() {
   initializeApiObservability();
   const app = await NestFactory.create(AppModule, { rawBody: true });
+  app.enableShutdownHooks(["SIGTERM", "SIGINT"], { useProcessExit: true });
   configureCors(app);
   await app.listen(runtimeEnvironment.port);
   return app;

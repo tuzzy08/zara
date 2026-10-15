@@ -203,6 +203,55 @@ export const authMembers = pgTable(
   }),
 );
 
+export const workspaces = pgTable("workspaces", {
+  tenantId: text("tenant_id").notNull().references(() => authOrganizations.id, { onDelete: "cascade" }),
+  id: text("id").notNull(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  status: text("status").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").notNull(),
+}, table => ({
+  primaryKey: primaryKey({ columns: [table.tenantId, table.id] }),
+  slugUnique: uniqueIndex("workspaces_tenant_slug_unique").on(table.tenantId, table.slug),
+  statusCheck: check("workspaces_status_check", sql`${table.status} in ('active', 'archived')`),
+}));
+
+export const workspaceMemberships = pgTable("workspace_memberships", {
+  tenantId: text("tenant_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  userId: text("user_id").notNull(),
+  role: text("role").notNull(),
+  revoked: boolean("revoked").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  primaryKey: primaryKey({ columns: [table.tenantId, table.workspaceId, table.userId] }),
+  workspaceForeignKey: foreignKey({ columns: [table.tenantId, table.workspaceId], foreignColumns: [workspaces.tenantId, workspaces.id] }).onDelete("cascade"),
+  memberForeignKey: foreignKey({ columns: [table.userId, table.tenantId], foreignColumns: [authMembers.userId, authMembers.organizationId] }).onDelete("cascade"),
+  roleCheck: check("workspace_memberships_role_check", sql`${table.role} in ('owner', 'admin', 'builder', 'operator', 'viewer')`),
+}));
+
+export const workspaceAuditEntries = pgTable("workspace_audit_entries", {
+  id: text("id").primaryKey(),
+  sequence: bigserial("sequence", { mode: "number" }).notNull(),
+  tenantId: text("tenant_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  actorUserId: text("actor_user_id").notNull(),
+  action: text("action").notNull(),
+  summary: text("summary").notNull(),
+  at: timestamp("at", { withTimezone: true }).notNull(),
+}, table => ({
+  workspaceForeignKey: foreignKey({ columns: [table.tenantId, table.workspaceId], foreignColumns: [workspaces.tenantId, workspaces.id] }).onDelete("cascade"),
+  tenantSequenceIndex: index("workspace_audit_entries_tenant_sequence_idx").on(table.tenantId, table.sequence),
+}));
+
+export const workspaceMembershipHistory = pgTable("workspace_membership_history", {
+  tenantId: text("tenant_id").notNull().references(() => authOrganizations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+}, table => ({
+  primaryKey: primaryKey({ columns: [table.tenantId, table.userId] }),
+}));
+
 export const authInvitations = pgTable(
   "invitation",
   {

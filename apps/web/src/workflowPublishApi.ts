@@ -36,13 +36,14 @@ export interface PublishTenantWorkflowResponse {
 export function publishTenantWorkflow(
   input: PublishTenantWorkflowInput,
 ): Promise<PublishTenantWorkflowResponse> {
-  const { organizationId, workflowId, ...body } = input;
+  const { organizationId, workflowId, existingVersions, ...body } = input;
+  const expectedVersion = existingVersions.reduce((latest, version) => Math.max(latest, version.version), 0);
 
   return requestJson<PublishTenantWorkflowResponse>(
     `/organizations/${encodeURIComponent(organizationId)}/workflows/${encodeURIComponent(workflowId)}/publish`,
     {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, expectedVersion }),
     },
   );
 }

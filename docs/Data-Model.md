@@ -78,6 +78,10 @@ Drain calls created by the previous release before replacing their workers. Olde
 
 Workspaces belong to one tenant organization and scope product work without replacing Better Auth organizations. Workspace rows include tenant ID, name, URL-safe slug, status, created actor, and timestamps. Workspace membership rows include tenant ID, workspace ID, user ID, role, and status.
 
+Migration `0044_durable_workspaces.sql` adds `workspaces`, `workspace_memberships`, `workspace_membership_history`, and `workspace_audit_entries`. Workspace identity and slug uniqueness are tenant-scoped. Live memberships reference native organization members. Revoked rows remain hidden from public state. The separate tenant/user history references the organization and user, so removing an organization member cannot erase the record used to prevent automatic access repair. Audit entries have a stable sequence for response ordering. New workspace IDs use UUIDs; the default workspace keeps `workspace-default`.
+
+Apply migration 0044 before running the new API. It cannot recover workspace data held only in an old process. Before replacing a deployed API, export each tenant's workspace state and prepare a reviewed import or restoration procedure. Preserve existing IDs and audit records during that procedure. This change does not deploy or import production data.
+
 Workflow drafts, workflow versions, runtime manifests, sandbox sessions, monitoring views, and future workspace settings must carry workspace ID. The first implemented slice stores workspace IDs on published workflow versions, draft manifest previews, compiled runtime manifests, and browser-local sandbox workflow selection.
 
 ## Telephony

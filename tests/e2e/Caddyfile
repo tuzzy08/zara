@@ -5,6 +5,13 @@
 
 https://127.0.0.1 {
   tls internal
+  @peer {
+    path /api/* /organizations/* /health /health/*
+    header X-E2E-API peer
+  }
+  handle @peer {
+    reverse_proxy api-peer:4010
+  }
   @api path /api/* /organizations/* /platform-admin/* /health /health/*
   handle @api {
     reverse_proxy api:4010

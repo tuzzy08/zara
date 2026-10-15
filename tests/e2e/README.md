@@ -29,10 +29,24 @@ The suite covers:
   unchanged owner data, and continued access to the second tenant's own data.
 
 The email capture service replaces only the external email delivery boundary.
-Auth, sessions, organization membership and API authorization are real. Workspace
-state is currently process-local in the app; this suite does not claim persistence
-across API restarts. Signup does not yet require email verification, and this suite
-does not add password confirmation or a new signup policy.
+Auth, sessions, organization membership and API authorization are real. Two API
+instances share a disposable Postgres database. The control-plane tests verify
+workspace state and audit records across concurrent writes and restart, last-owner
+protection, revoked access after organization membership replacement, stable
+workspace identity after name reuse, publication conflicts and durable manifests.
+They also check API SIGTERM exit and session recovery. A companion real
+Nest/Postgres integration probe checks database availability during drain and pool
+closure afterward; it does not simulate a live provider call. A synthetic Zendesk
+configuration checks that rejected publication cannot create tool grants without
+calling an external provider. Signup requires email verification. The fixture then resumes
+onboarding with the original credentials and organization name through the
+existing signup endpoint.
+Tests respect the provider's sign-in rate limit and its bounded Retry-After.
+Better Auth applies a separate sign-up/sign-in limit of three requests per
+10-second window. The control-plane signup helper retries a rate-limited signup
+once after 11 seconds. Its suite also waits 11 seconds in `afterAll`, outside the
+browser test clock, so its shared-IP signup traffic does not consume the next
+browser suite's allowance. The production limiter remains enabled and unchanged.
 
 Artifacts are in `artifacts/e2e/<run-id>/`: HTML report, JUnit results, browser traces,
 failure screenshots, service logs, image IDs and run metadata with source/lock hashes.

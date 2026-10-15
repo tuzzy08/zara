@@ -85,7 +85,7 @@ export class AuthContextController {
       memberships,
       activeWorkspace: activeOrganization === null
         ? null
-        : this.resolveActiveWorkspace(activeOrganization.id, user.id, activeOrganization.role),
+        : await this.resolveActiveWorkspace(activeOrganization.id, user.id, activeOrganization.role),
       platformRole,
       platformAuth,
       permissions: {
@@ -121,14 +121,14 @@ export class AuthContextController {
     };
   }
 
-  private resolveActiveWorkspace(organizationId: string, userId: string, tenantRole: TenantRole): AuthContextWorkspace | null {
-    const state = this.workspacesService.getWorkspaceState(organizationId);
+  private async resolveActiveWorkspace(organizationId: string, userId: string, tenantRole: TenantRole): Promise<AuthContextWorkspace | null> {
+    const state = await this.workspacesService.getWorkspaceState(organizationId);
     const userMemberships = state.memberships.filter(
       (membership) => membership.tenantId === organizationId && membership.userId === userId,
     );
     const workspace =
       findActiveWorkspace(state.workspaces, userMemberships.map((membership) => membership.workspaceId))
-      ?? this.repairDefaultWorkspaceMembership({
+      ?? await this.repairDefaultWorkspaceMembership({
         organizationId,
         userId,
         tenantRole,
@@ -144,13 +144,13 @@ export class AuthContextController {
         };
   }
 
-  private repairDefaultWorkspaceMembership(input: {
+  private async repairDefaultWorkspaceMembership(input: {
     organizationId: string;
     userId: string;
     tenantRole: TenantRole;
     workspaces: Workspace[];
     existingMembershipCount: number;
-  }): Workspace | null {
+  }): Promise<Workspace | null> {
     if (input.existingMembershipCount > 0 || !canRepairWorkspaceMembership(input.tenantRole)) {
       return null;
     }
@@ -161,15 +161,12 @@ export class AuthContextController {
       return null;
     }
 
-    this.workspacesService.setMembershipRole({
+    return this.workspacesService.ensureDefaultMembership({
       organizationId: input.organizationId,
-      workspaceId: workspace.id,
       userId: input.userId,
       role: input.tenantRole === "owner" ? "owner" : "admin",
-      actorUserId: input.userId,
     });
 
-    return workspace;
   }
 }
 

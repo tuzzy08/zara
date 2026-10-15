@@ -366,7 +366,7 @@ describe("Sandbox live session websocket agent-actions", () => {
       const app: INestApplication = createTestingApplication(moduleRef);
       await app.listen(0);
 
-      ensureWorkspaceAccess(moduleRef.get(WorkspacesService));
+      await ensureWorkspaceAccess(moduleRef.get(WorkspacesService));
       const service = moduleRef.get(SandboxLiveSessionsService);
       const manifest = createAgentRoutePolicyManifest("workspace-default");
       const createResponse = await request(app.getHttpServer())

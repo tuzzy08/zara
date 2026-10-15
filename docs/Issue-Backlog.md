@@ -5714,3 +5714,29 @@ Implementation status:
 - 2026-09-09 return-page fix: bounded, non-overlapping client refreshes now update billing after checkout without a manual reload. Tenant changes and screen exit stop refreshes and ignore late responses. The heading is `Subscription details`. Nine focused tests, type-check, lint, and in-app request/heading checks pass. No new UI test or payment was added. This resolves the preceding browser display race; prolonged provider outages remain outside the bounded refresh window.
 - 2026-09-09 browser completion: after user confirmation, the new-account Starter sandbox payment completed. Zara and the customer portal show Active, USD 49.00, and the paid invoice. The local tenant has exactly one subscription and one invoice; all three received events are processed without errors. The first return page required a refresh after the later subscription event arrived. Automatic post-checkout refresh remains a UI gap. No live money or charge-delivery setting changed.
 - 2026-09-09 browser follow-up: signup passed, and test-first API-client fixes now open the subscription, PAYG, and portal URLs. Three non-DOM navigation tests pass; no new UI tests were added. In-app Starter and PAYG navigation passed after an isolated test catalog correction. Full browser payment, webhook, subscription, invoice, and portal verification remain pending because the former public webhook hostname no longer resolves. A new user-started tunnel was requested. No production setting or charge delivery changed.
+
+
+## Stage 1 reliability slice
+
+Status: Implemented. Standalone PR branch `codex/stage1-reliability` excludes all uncommitted signup changes. Its migration is `0044_durable_workspaces`. The separate branch passed all 10 E2E tests with clean teardown; evidence is `artifacts/e2e/zara-e2e-37092-1792093073482/` in `zara-stage1-pr`. Earlier combined-tree evidence follows. ISSUE-250 through ISSUE-252 cover durable workspaces, atomic workflow publication, and API shutdown. GitHub tracking was approved on 2026-10-15 after Linear reached its issue limit. All 10 real-service E2E tests pass, with clean teardown. Evidence: `artifacts/e2e/zara-e2e-19392-1792089998685/`. Changes are local and not deployed. Migration 0044 and a reviewed export/import of existing process-local workspace data are required before rollout.
+
+### ISSUE-250: Durable workspace state and access records
+
+- Status: Implemented
+- External: https://github.com/tuzzy08/zara/issues/129
+- Handover: [ISSUE-250](Handovers/ISSUE-250-durable-workspace-state.md)
+- Acceptance: See the linked external issue. RED/GREEN evidence and verification limits are recorded in the issue handover. Acceptance is implemented locally.
+
+### ISSUE-251: Atomic concurrent workflow publishing
+
+- Status: Implemented
+- External: https://github.com/tuzzy08/zara/issues/130
+- Handover: [ISSUE-251](Handovers/ISSUE-251-atomic-workflow-publishing.md)
+- Acceptance: See the linked external issue. RED/GREEN evidence and verification limits are recorded in the issue handover. Acceptance is implemented locally.
+
+### ISSUE-252: Signal-driven API shutdown and database drain ordering
+
+- Status: Implemented
+- External: https://github.com/tuzzy08/zara/issues/131
+- Handover: [ISSUE-252](Handovers/ISSUE-252-api-shutdown.md)
+- Acceptance: See the linked external issue. RED/GREEN evidence and verification limits are recorded in the issue handover. Acceptance is implemented locally.

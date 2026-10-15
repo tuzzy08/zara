@@ -1,14 +1,15 @@
+import { randomUUID } from "node:crypto";
 import {
   ConflictException,
   Injectable,
+  Inject,
   NotFoundException,
 } from "@nestjs/common";
 import {
   archiveWorkspace,
-  createDefaultWorkspaceSeedState,
   createWorkspace,
+  DEFAULT_WORKSPACE_ID,
   createWorkspaceAuditEntry,
-  normalizeDefaultWorkspaceSeedState,
   restoreWorkspace,
   revokeWorkspaceMembership,
   setWorkspaceMembershipRole,
@@ -23,6 +24,8 @@ import {
   type WorkspaceMembership,
 } from "@zara/core";
 
+import { WORKSPACE_REPOSITORY, type WorkspaceRepository } from "./workspace.repository";
+
 export interface WorkspaceStateResponse {
   organizationId: string;
   directoryUsers: WorkspaceDirectoryUser[];
@@ -31,26 +34,40 @@ export interface WorkspaceStateResponse {
   auditEntries: WorkspaceAuditEntry[];
 }
 
-type WorkspaceStateStore = WorkspaceStateResponse;
-
 @Injectable()
 export class WorkspacesService {
-  private readonly stateByOrganizationId = new Map<string, WorkspaceStateStore>();
+  constructor(@Inject(WORKSPACE_REPOSITORY) private readonly repository: WorkspaceRepository) {}
 
-  getWorkspaceState(organizationId: string): WorkspaceStateResponse {
-    return cloneWorkspaceState(this.getOrCreateState(organizationId));
+  async getWorkspaceState(organizationId: string): Promise<WorkspaceStateResponse> {
+    return cloneWorkspaceState(await this.repository.read(organizationId));
+  }
+
+  ensureDefaultMembership(input: { organizationId: string; userId: string; role: TenantRole }): Promise<Workspace | null> {
+    return this.repository.mutate(input.organizationId, state => {
+      const workspace = state.workspaces.find(row => row.id === DEFAULT_WORKSPACE_ID && row.status === "active");
+      if (workspace === undefined) return null;
+      const existing = state.memberships.find(row => row.workspaceId === workspace.id && row.userId === input.userId);
+      if (existing !== undefined) return { ...workspace };
+      if (state.membershipHistoryUserIds.includes(input.userId)) return null;
+      state.memberships = setWorkspaceMembershipRole({ memberships: state.memberships,
+        tenantId: input.organizationId, workspaceId: workspace.id, userId: input.userId, role: input.role });
+      state.auditEntries.unshift(buildAuditEntry({ organizationId: input.organizationId,
+        workspaceId: workspace.id, actorUserId: input.userId, action: "membership.granted",
+        summary: `Granted ${input.role} access to ${input.userId}.` }));
+      return { ...workspace };
+    });
   }
 
   createWorkspace(input: {
     organizationId: string;
     name: string;
     actorUserId: string;
-  }): WorkspaceStateResponse {
-    const state = this.getOrCreateState(input.organizationId);
-    const validation = validateWorkspaceCreate({
-      tenantId: input.organizationId,
-      name: input.name,
-      existingWorkspaces: state.workspaces,
+  }): Promise<WorkspaceStateResponse> {
+    return this.repository.mutate(input.organizationId, state => {
+      const validation = validateWorkspaceCreate({
+        tenantId: input.organizationId,
+        name: input.name,
+        existingWorkspaces: state.workspaces,
     });
 
     if (!validation.ok) {
@@ -59,7 +76,7 @@ export class WorkspacesService {
 
     const slug = slugifyWorkspaceName(input.name);
     const workspace = createWorkspace({
-      id: `workspace-${slug}`,
+        id: `workspace-${randomUUID()}`,
       tenantId: input.organizationId,
       name: input.name,
       slug,
@@ -67,6 +84,8 @@ export class WorkspacesService {
     });
 
     state.workspaces = [...state.workspaces, workspace];
+    state.memberships = setWorkspaceMembershipRole({ memberships: state.memberships,
+      tenantId: input.organizationId, workspaceId: workspace.id, userId: input.actorUserId, role: "owner" });
     state.auditEntries = [
       buildAuditEntry({
         organizationId: input.organizationId,
@@ -74,12 +93,12 @@ export class WorkspacesService {
         actorUserId: input.actorUserId,
         action: "workspace.accessed",
         summary: `Created workspace ${workspace.name}.`,
-        currentLength: state.auditEntries.length,
       }),
       ...state.auditEntries,
     ];
 
     return cloneWorkspaceState(state);
+    });
   }
 
   mutateWorkspace(input: {
@@ -89,102 +108,100 @@ export class WorkspacesService {
     action: "rename" | "archive" | "restore";
     nextName?: string | undefined;
     activeSessionCount?: number | undefined;
-  }): WorkspaceStateResponse {
-    const state = this.getOrCreateState(input.organizationId);
-    const workspace = requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
+  }): Promise<WorkspaceStateResponse> {
+    return this.repository.mutate(input.organizationId, state => {
+      const workspace = requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
 
-    try {
-      switch (input.action) {
-        case "rename": {
-          state.workspaces = renameWorkspace({
-            workspaces: state.workspaces,
-            workspaceId: input.workspaceId,
-            tenantId: input.organizationId,
-            nextName: input.nextName ?? workspace.name,
-          });
-          const renamedWorkspace = requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
+      try {
+        switch (input.action) {
+          case "rename": {
+            state.workspaces = renameWorkspace({
+              workspaces: state.workspaces,
+              workspaceId: input.workspaceId,
+              tenantId: input.organizationId,
+              nextName: input.nextName ?? workspace.name,
+            });
+            const renamedWorkspace = requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
 
-          state.auditEntries = [
-            buildAuditEntry({
-              organizationId: input.organizationId,
+            state.auditEntries = [
+              buildAuditEntry({
+                organizationId: input.organizationId,
+                workspaceId: input.workspaceId,
+                actorUserId: input.actorUserId,
+                action: "workspace.renamed",
+                summary: `Renamed workspace to ${renamedWorkspace.name}.`,
+              }),
+              ...state.auditEntries,
+            ];
+            break;
+          }
+          case "archive": {
+            state.workspaces = archiveWorkspace({
+              workspaces: state.workspaces,
               workspaceId: input.workspaceId,
-              actorUserId: input.actorUserId,
-              action: "workspace.renamed",
-              summary: `Renamed workspace to ${renamedWorkspace.name}.`,
-              currentLength: state.auditEntries.length,
-            }),
-            ...state.auditEntries,
-          ];
-          break;
-        }
-        case "archive": {
-          state.workspaces = archiveWorkspace({
-            workspaces: state.workspaces,
-            workspaceId: input.workspaceId,
-            tenantId: input.organizationId,
-            activeSessionCount: input.activeSessionCount,
-          });
-          state.auditEntries = [
-            buildAuditEntry({
-              organizationId: input.organizationId,
+              tenantId: input.organizationId,
+              activeSessionCount: input.activeSessionCount,
+            });
+            state.auditEntries = [
+              buildAuditEntry({
+                organizationId: input.organizationId,
+                workspaceId: input.workspaceId,
+                actorUserId: input.actorUserId,
+                action: "workspace.archived",
+                summary: `Archived workspace ${workspace.name}.`,
+              }),
+              ...state.auditEntries,
+            ];
+            break;
+          }
+          case "restore": {
+            state.workspaces = restoreWorkspace({
+              workspaces: state.workspaces,
               workspaceId: input.workspaceId,
-              actorUserId: input.actorUserId,
-              action: "workspace.archived",
-              summary: `Archived workspace ${workspace.name}.`,
-              currentLength: state.auditEntries.length,
-            }),
-            ...state.auditEntries,
-          ];
-          break;
+              tenantId: input.organizationId,
+            });
+            state.auditEntries = [
+              buildAuditEntry({
+                organizationId: input.organizationId,
+                workspaceId: input.workspaceId,
+                actorUserId: input.actorUserId,
+                action: "workspace.restored",
+                summary: `Restored workspace ${workspace.name}.`,
+              }),
+              ...state.auditEntries,
+            ];
+            break;
+          }
         }
-        case "restore": {
-          state.workspaces = restoreWorkspace({
-            workspaces: state.workspaces,
-            workspaceId: input.workspaceId,
-            tenantId: input.organizationId,
-          });
-          state.auditEntries = [
-            buildAuditEntry({
-              organizationId: input.organizationId,
-              workspaceId: input.workspaceId,
-              actorUserId: input.actorUserId,
-              action: "workspace.restored",
-              summary: `Restored workspace ${workspace.name}.`,
-              currentLength: state.auditEntries.length,
-            }),
-            ...state.auditEntries,
-          ];
-          break;
-        }
+      } catch (error) {
+        throw toConflictException(error);
       }
-    } catch (error) {
-      throw toConflictException(error);
-    }
 
-    return cloneWorkspaceState(state);
+      return cloneWorkspaceState(state);
+    });
   }
 
   markWorkspaceAccessed(input: {
     organizationId: string;
     workspaceId: string;
     actorUserId: string;
-  }): WorkspaceStateResponse {
-    const state = this.getOrCreateState(input.organizationId);
-    const workspace = requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
+  }): Promise<WorkspaceStateResponse> {
+    return this.repository.mutate(input.organizationId, state => {
+      const workspace = requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
 
-    state.auditEntries = [
-      buildAuditEntry({
-        organizationId: input.organizationId,
-        workspaceId: input.workspaceId,
-        actorUserId: input.actorUserId,
-        action: "workspace.accessed",
-        summary: `Switched active workspace to ${workspace.name}.`,
-        currentLength: state.auditEntries.length,
-      }),
-      ...state.auditEntries,
-    ];
+      state.auditEntries = [
+        buildAuditEntry({
+          organizationId: input.organizationId,
+          workspaceId: input.workspaceId,
+          actorUserId: input.actorUserId,
+          action: "workspace.accessed",
+          summary: `Switched active workspace to ${workspace.name}.`,
+        }),
+        ...state.auditEntries,
+      ];
 
-    return cloneWorkspaceState(state);
+      return cloneWorkspaceState(state);
+    });
   }
 
   setMembershipRole(input: {
@@ -193,8 +210,8 @@ export class WorkspacesService {
     userId: string;
     role: TenantRole;
     actorUserId: string;
-  }): WorkspaceStateResponse {
-    const state = this.getOrCreateState(input.organizationId);
+  }): Promise<WorkspaceStateResponse> {
+    return this.repository.mutate(input.organizationId, state => {
     requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
     const existingMembership = state.memberships.find(
       (candidate) =>
@@ -225,12 +242,12 @@ export class WorkspacesService {
         summary: existingMembership === undefined
           ? `Granted ${input.role} access to ${userName}.`
           : `Changed ${userName} to ${input.role}.`,
-        currentLength: state.auditEntries.length,
       }),
       ...state.auditEntries,
     ];
 
     return cloneWorkspaceState(state);
+    });
   }
 
   revokeMembership(input: {
@@ -238,8 +255,8 @@ export class WorkspacesService {
     workspaceId: string;
     userId: string;
     actorUserId: string;
-  }): WorkspaceStateResponse {
-    const state = this.getOrCreateState(input.organizationId);
+  }): Promise<WorkspaceStateResponse> {
+    return this.repository.mutate(input.organizationId, state => {
     requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
     const userName = state.directoryUsers.find((user) => user.id === input.userId)?.name ?? input.userId;
 
@@ -261,35 +278,15 @@ export class WorkspacesService {
         actorUserId: input.actorUserId,
         action: "membership.revoked",
         summary: `Revoked access for ${userName}.`,
-        currentLength: state.auditEntries.length,
       }),
       ...state.auditEntries,
     ];
 
     return cloneWorkspaceState(state);
+    });
   }
 
-  private getOrCreateState(organizationId: string): WorkspaceStateStore {
-    const existingState = this.stateByOrganizationId.get(organizationId);
 
-    if (existingState !== undefined) {
-      return existingState;
-    }
-
-    const seededState = normalizeDefaultWorkspaceSeedState(createDefaultWorkspaceSeedState({
-      tenantId: organizationId,
-    }));
-    const nextState: WorkspaceStateStore = {
-      organizationId,
-      directoryUsers: seededState.directoryUsers,
-      workspaces: seededState.workspaces,
-      memberships: seededState.memberships,
-      auditEntries: seededState.auditEntries,
-    };
-
-    this.stateByOrganizationId.set(organizationId, nextState);
-    return nextState;
-  }
 }
 
 function requireWorkspace(workspaces: Workspace[], organizationId: string, workspaceId: string) {
@@ -310,10 +307,9 @@ function buildAuditEntry(input: {
   actorUserId: string;
   action: WorkspaceAuditAction;
   summary: string;
-  currentLength: number;
 }) {
   return createWorkspaceAuditEntry({
-    id: `audit-${input.workspaceId}-${input.currentLength + 1}`,
+    id: `audit-${randomUUID()}`,
     workspaceId: input.workspaceId,
     tenantId: input.organizationId,
     actorUserId: input.actorUserId,
@@ -323,7 +319,7 @@ function buildAuditEntry(input: {
   });
 }
 
-function cloneWorkspaceState(state: WorkspaceStateStore): WorkspaceStateResponse {
+function cloneWorkspaceState(state: WorkspaceStateResponse): WorkspaceStateResponse {
   return {
     organizationId: state.organizationId,
     directoryUsers: state.directoryUsers.map((user) => ({

@@ -27,7 +27,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-  api:
+  api: &api
     build:
       context: ../..
       target: api
@@ -51,6 +51,8 @@ services:
         condition: service_started
       mail:
         condition: service_started
+  api-peer:
+    <<: *api
   web:
     build:
       context: ../..
@@ -64,7 +66,7 @@ services:
       - "127.0.0.1:8443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    depends_on: [api, web]
+    depends_on: [api, api-peer, web]
     networks: [default, browser]
 networks:
   default:
