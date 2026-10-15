@@ -5718,12 +5718,13 @@ Implementation status:
 
 ## Stage 1 reliability slice
 
-Status: Implemented. Standalone PR branch `codex/stage1-reliability` excludes all uncommitted signup changes. Its migration is `0044_durable_workspaces`. The separate branch passed all 10 E2E tests with clean teardown; evidence is `artifacts/e2e/zara-e2e-37092-1792093073482/` in `zara-stage1-pr`. Earlier combined-tree evidence follows. ISSUE-250 through ISSUE-252 cover durable workspaces, atomic workflow publication, and API shutdown. GitHub tracking was approved on 2026-10-15 after Linear reached its issue limit. All 10 real-service E2E tests pass, with clean teardown. Evidence: `artifacts/e2e/zara-e2e-19392-1792089998685/`. Changes are local and not deployed. Migration 0044 and a reviewed export/import of existing process-local workspace data are required before rollout.
+Status: Implemented. PR [#132](https://github.com/tuzzy08/zara/pull/132) is open against `dev`; implementation commit `9ced8cd`. Standalone PR branch `codex/stage1-reliability` excludes all uncommitted signup changes. Its migration is `0044_durable_workspaces`. The separate branch passed all 10 E2E tests with clean teardown; evidence is `artifacts/e2e/zara-e2e-37092-1792093073482/` in `zara-stage1-pr`. Earlier combined-tree evidence follows. ISSUE-250 through ISSUE-252 cover durable workspaces, atomic workflow publication, and API shutdown. GitHub tracking was approved on 2026-10-15 after Linear reached its issue limit. All 10 real-service E2E tests pass, with clean teardown. Evidence: `artifacts/e2e/zara-e2e-19392-1792089998685/`. Changes are local and not deployed. Migration 0044 and a reviewed export/import of existing process-local workspace data are required before rollout.
 
 ### ISSUE-250: Durable workspace state and access records
 
 - Status: Implemented
 - External: https://github.com/tuzzy08/zara/issues/129
+- Pull request: https://github.com/tuzzy08/zara/pull/132
 - Handover: [ISSUE-250](Handovers/ISSUE-250-durable-workspace-state.md)
 - Acceptance: See the linked external issue. RED/GREEN evidence and verification limits are recorded in the issue handover. Acceptance is implemented locally.
 
@@ -5731,6 +5732,7 @@ Status: Implemented. Standalone PR branch `codex/stage1-reliability` excludes al
 
 - Status: Implemented
 - External: https://github.com/tuzzy08/zara/issues/130
+- Pull request: https://github.com/tuzzy08/zara/pull/132
 - Handover: [ISSUE-251](Handovers/ISSUE-251-atomic-workflow-publishing.md)
 - Acceptance: See the linked external issue. RED/GREEN evidence and verification limits are recorded in the issue handover. Acceptance is implemented locally.
 
@@ -5738,5 +5740,6 @@ Status: Implemented. Standalone PR branch `codex/stage1-reliability` excludes al
 
 - Status: Implemented
 - External: https://github.com/tuzzy08/zara/issues/131
+- Pull request: https://github.com/tuzzy08/zara/pull/132
 - Handover: [ISSUE-252](Handovers/ISSUE-252-api-shutdown.md)
 - Acceptance: See the linked external issue. RED/GREEN evidence and verification limits are recorded in the issue handover. Acceptance is implemented locally.

@@ -2,6 +2,7 @@
 
 Status: Implemented
 External: https://github.com/tuzzy08/zara/issues/131
+Pull request: https://github.com/tuzzy08/zara/pull/132
 
 ## Work completed
 
@@ -43,7 +44,7 @@ External: https://github.com/tuzzy08/zara/issues/131
 
 ## Next step
 
-Review the local changes for release. Before deployment, complete the workspace data export/import plan and apply migration 0044. No deployment was performed. See the standalone PR section for commit and review status.
+Review PR #132 for release. Before deployment, complete the workspace data export/import plan and apply migration 0044. No deployment was performed. See the standalone PR section for commit and review status.
 
 ## Standalone PR verification, 2026-10-15
 
@@ -53,4 +54,5 @@ Review the local changes for release. Before deployment, complete the workspace 
 - The E2E fixture uses the existing verified credential recovery flow. The full standalone run passed all 10 tests with no failures or skips in 170.73 seconds. Test and cleanup exit codes are 0. Exact command: `npm run test:e2e`. Evidence: `artifacts/e2e/zara-e2e-37092-1792093073482/` in the `zara-stage1-pr` checkout. It contains run metadata, source hashes, image IDs, reports, traces and service logs. All 862 source hashes match the verified tree.
 - Archive cleanup removed source directories through shared workspace links. Recovery used retained Git objects and the Docker source cache. All 865 final-run source hashes match after recovery. No missing tracked file remains. This PR checkout has its own dependencies and no shared directory links.
 - Migration generation, scoped lint, runner syntax, diff checks and independent separation review passed. The generated standalone SQL exactly matches the prior verified workspace SQL. The ignored runner file was checked with `node --check scripts/run-e2e.mjs`.
-- Pending work: commit, push, open the PR and synchronize its link.
+- Implementation commit: `9ced8cd`. PR [#132](https://github.com/tuzzy08/zara/pull/132) is open against `dev`. The GitHub issues remain completed because their acceptance work is implemented; merge and deployment remain separate.
+- Pending work: PR review and merge. No Stage 1 implementation work remains.
