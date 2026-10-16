@@ -44,6 +44,7 @@ import { NavSection } from "./NavSection";
 import { ResetPasswordScreen } from "./ResetPasswordScreen";
 import { TenantAccessRequiredScreen } from "./TenantAccessRequiredScreen";
 import { TenantLoginScreen } from "./TenantLoginScreen";
+import { SignupVerifiedScreen } from "./SignupVerifiedScreen";
 import { TenantOrganizationChooserScreen } from "./TenantOrganizationChooserScreen";
 import {
   createInitialWorkspaceState,
@@ -108,7 +109,7 @@ function authContextToSession(context: ZaraAuthContext | null): ZaraAuthSession 
 }
 
 function isPublicAuthPath(pathname: string) {
-  return pathname === "/" || pathname === "/login" || pathname === "/signup" || pathname === "/reset-password";
+  return pathname === "/" || pathname === "/login" || pathname === "/signup" || pathname === "/signup/success" || pathname === "/signup/verified" || pathname === "/reset-password";
 }
 
 interface AppProps {
@@ -722,6 +723,13 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
     return <AuthLoadingScreen />;
   }
 
+  if (currentPathname === "/signup/verified") {
+    return <SignupVerifiedScreen onComplete={() => {
+      void refreshAuth();
+      navigate("/", { replace: true });
+    }} />;
+  }
+
   if (currentSession === null) {
     if (authContextLoading && !isPublicAuthPath(currentPathname)) {
       return <AuthLoadingScreen />;
@@ -743,7 +751,7 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
     return (
       <TenantLoginScreen
         authClient={authClient}
-        mode={currentPathname === "/signup" ? "signup" : "signin"}
+        mode={currentPathname === "/signup" || currentPathname === "/signup/success" ? "signup" : "signin"}
         onAuthChanged={refreshAuth}
       />
     );
@@ -767,7 +775,7 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
     return <TenantAccessRequiredScreen authClient={authClient} onAuthChanged={refreshAuth} />;
   }
 
-  if (currentPathname === "/login" || currentPathname === "/signup") {
+  if (currentPathname === "/login" || currentPathname === "/signup" || currentPathname === "/signup/success") {
     return <Navigate to="/" replace />;
   }
 

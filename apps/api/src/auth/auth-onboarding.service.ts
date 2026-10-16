@@ -2,10 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Optional,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { slugifyWorkspaceName, type TenantRole } from "@zara/core";
 
 import { WorkspacesService } from "../workspaces/workspaces.service";
+import { PostgresPoolService } from "../database/postgres-pool.service";
+import { resolveAuthDatabaseMode, zaraAuth } from "./better-auth.instance";
 import { AuthOnboardingGateway, type AuthOnboardingHttpRequest, type AuthOnboardingHttpResponse, type AuthOnboardingSessionGateway } from "./auth-onboarding.gateway";
 
 export interface AuthenticatedOnboardingUser {
@@ -51,7 +55,82 @@ export class AuthOnboardingService {
   constructor(
     private readonly gateway: AuthOnboardingGateway,
     private readonly workspacesService: WorkspacesService,
+    @Optional() private readonly postgres?: PostgresPoolService,
   ) {}
+
+  async verificationStatus(request: AuthOnboardingHttpRequest) {
+    const user = await this.requireVerifiedUser(request);
+    return { ok: true, verified: true, email: user.email };
+  }
+
+  async complete(request: AuthOnboardingHttpRequest, response: AuthOnboardingHttpResponse) {
+    const user = await this.requireVerifiedUser(request);
+    const connection = resolveAuthDatabaseMode(process.env) === "postgres"
+      ? await this.postgres!.pool.connect() : null;
+    try {
+      if (connection) {
+        await connection.query("BEGIN");
+        await connection.query("SET LOCAL lock_timeout = '5s'");
+        await connection.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`signup:${user.id}`]);
+      }
+      const result = await this.completeVerifiedUser(request, response);
+      if (connection) await connection.query("COMMIT");
+      return result;
+    } catch (error) {
+      if (connection) await connection.query("ROLLBACK");
+      throw error;
+    } finally { connection?.release(); }
+  }
+
+  private async requireVerifiedUser(request: AuthOnboardingHttpRequest) {
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(request.headers)) {
+      if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join("; ") : value);
+    }
+    const session = await zaraAuth.api.getSession({ headers, query: { disableCookieCache: true } });
+    if (!session) throw new UnauthorizedException("Open your verification email, or sign in to continue.");
+    const context = await zaraAuth.$context;
+    const user = await context.internalAdapter.findUserById(session.user.id);
+    if (!user?.emailVerified) throw new UnauthorizedException("Verify your email before you continue.");
+    return user;
+  }
+
+  private async completeVerifiedUser(request: AuthOnboardingHttpRequest, response: AuthOnboardingHttpResponse) {
+    const user = await this.requireVerifiedUser(request);
+    const context = await zaraAuth.$context;
+    const name = stringValue(asRecord(user).signupOrganizationName);
+    const slug = slugifyWorkspaceName(name);
+    if (!slug) throw recoverableOnboardingError("organization", "Your saved setup details are unavailable. Contact Zara support.");
+    const session = this.gateway.createSession(request, response);
+    const organizations = await session.listOrganizations();
+    if (!organizations.ok) throw recoverableOnboardingError("organization", organizations.message);
+    const savedId = stringValue(asRecord(user).signupOrganizationId);
+    let organization = organizations.body.map(asRecord).find((item) => savedId
+      ? item.id === savedId : item.slug === slug);
+    if (!organization && savedId) throw new UnauthorizedException("You no longer have access to this organization.");
+    if (!organization) {
+      const created = await session.createOrganization({ name, slug });
+      if (!created.ok) {
+        if (isOrganizationSlugTaken(created.message)) throw tenantNameUnavailable();
+        throw recoverableOnboardingError("organization", created.message);
+      }
+      organization = asRecord(created.body);
+    }
+    const activeOrganization = normalizeOrganization(organization);
+    const member = await context.adapter.findOne<{ role: string }>({ model: "member", where: [
+      { field: "organizationId", value: activeOrganization.id }, { field: "userId", value: user.id },
+    ] });
+    if (member?.role !== "owner") throw new UnauthorizedException("Organization owner access is required.");
+    await context.internalAdapter.updateUser(user.id, { signupOrganizationId: activeOrganization.id });
+    const selected = await session.setActiveOrganization({ organizationId: activeOrganization.id });
+    if (!selected.ok) throw recoverableOnboardingError("active_organization", selected.message);
+    const activeWorkspace = await this.ensureDefaultWorkspaceOwner({ organizationId: activeOrganization.id, userId: user.id });
+    return {
+      ok: true, onboarding: { status: "complete", resumed: Boolean(savedId) },
+      user: { id: user.id, email: user.email, name: user.name },
+      activeOrganization: { ...activeOrganization, role: "owner" }, activeWorkspace,
+    };
+  }
 
   async signup(
     request: AuthOnboardingHttpRequest,
@@ -169,6 +248,7 @@ export class AuthOnboardingService {
       email: input.email,
       password: input.password,
       name: input.name,
+      organizationName: input.organizationName,
       ...(input.callbackURL ? { callbackURL: input.callbackURL } : {}),
     });
 

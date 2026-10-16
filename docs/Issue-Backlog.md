@@ -3913,7 +3913,7 @@ Implementation notes:
 - Area: Auth
 - Milestone: Auth Flow Hardening
 - Labels: auth, backend, frontend, security, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: ISSUE-150
 - Handover: [docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md](../docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md)
 - External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
@@ -3921,12 +3921,16 @@ Implementation notes:
 Acceptance criteria:
 - Signup creates or resumes the complete tenant onboarding state without leaving users stranded after partial Better Auth organization failures
 - Signup requires matching password confirmation, validates email syntax, and requires verified email before password sign-in. Email-link recovery must work after the original tab closes.
+- Verification-required signup redirects to a separate success page with destination email and next steps. Recovery is distinct from new signup, password fields have show/hide controls, and verification email has a responsive design with a working action and plain-text alternative.
+- After server-confirmed email verification, Email verified and Continue setup use durable original signup details to complete the owned organization and open the dashboard without form re-entry. Forged URL state, anonymous completion and signed-out token replay cannot grant access; repeated completion cannot create another organization.
 - Signup avoids loading unrelated tenant screens and produces repeatable browser load/flow evidence.
 - A new owner lands in an active organization with a default workspace and owner membership after signup
 - Blank/duplicate unsafe tenant names return actionable errors before irreversible writes where possible
 - Failed partial onboarding is visible as a recoverable state with safe retry behavior
 - API, auth-client, workspace, and tenant UI smoke tests cover success, partial failure, retry, and duplicate-name paths
 - Auth, workspace, API, and roadmap docs describe the new onboarding contract
+
+2026-10-14 follow-up: implemented locally, not committed or deployed. Latest three-browser-test run passes at `artifacts/e2e/zara-e2e-16024-1791972106407`, including server-confirmed verified page and direct dashboard entry from saved organization details, repeat completion and denied token replay. Auth/provider regressions pass 24 tests and auth-client regressions pass 23. Migration 0044 is additive; old discarded signup details cannot be reconstructed. Screenshot review includes desktop/mobile verified page. No real account, email send or production setting changed. See the handover for RED/GREEN evidence and release limits.
 
 TDD notes:
 - Start with failing server onboarding tests for user/org/workspace creation as one product action.
@@ -3943,6 +3947,13 @@ Implementation notes:
 - Partial failures after user creation return a recoverable onboarding response; retrying the same payload can finish setup instead of stranding the user.
 - Duplicate tenant names from either known onboarding state or Better Auth slug collisions return the standardized `tenant_name_unavailable` response and keep the tenant UI on the signup form.
 - `packages/auth-client` now calls the onboarding endpoint for tenant signup and preserves duplicate/recoverable server messages for the UI.
+- 2026-10-13: password confirmation, email validation, required verification, recovery and deferred signup loading are deployed in `4b3cab4`. Resend mail-server delivery is verified. Exact-merge CI, migration and three browser tests pass; all seven production services are healthy. No real account was created during release verification; billing remains off.
+
+CI verification (2026-10-16, PR #133): all six checks passed for head `53471d5bc3dc0cd5251d67737c531b613add68a3`. [CI](https://github.com/tuzzy08/zara/actions/runs/38878544851), [Browser E2E](https://github.com/tuzzy08/zara/actions/runs/38878545048), and [Migration Check](https://github.com/tuzzy08/zara/actions/runs/38878545130) passed, as did security and both preview checks. E2E artifact `12036452716` is available and not expired. This supersedes the failed and pending checkpoints below. The invitation fixture repair is verified. Status remains Implemented / Linear Done. No merge or deployment occurred.
+
+CI repair (2026-10-16, PR #133): CI run 38874890542 passed 2,200 tests and failed one invitation fixture that expected session creation after verification had already signed in. The existing test reproduced the same failure locally. Its setup now signs out after verification and confirms anonymous context before acceptance. All original cookie, organization and workspace assertions remain. No production code changed. All four invitation tests pass in 32.28s with `npm.cmd exec -- vitest run apps/api/src/auth/auth-invitations.controller.test.ts --maxWorkers=1 --pool=threads --reporter=dot`. Full CI rerun is pending; browser E2E, migration, security and preview passed on the previous head. The five-minute PR monitor is active; no merge or deployment is authorized.
+
+Signup PR verification (2026-10-16): the existing signup changes are isolated on `codex/signup-verified-completion`, based on merged Stage 1 `0666468`. Migration `0045_auth_signup_completion` follows unchanged `0044_durable_workspaces`. All 10 real-service E2E tests and 56 focused regressions pass. Typecheck, scoped lint, migration drift and test-boundary checks pass. Evidence: `artifacts/e2e/zara-e2e-452-1792139038724/`, with clean teardown and 865 matching source hashes. ISSUE-151 remains Implemented; Linear ZAR-97 remains Done. Implementation commit `48c40d8` is pushed in [PR #133](https://github.com/tuzzy08/zara/pull/133) against `dev`. Remote CI is pending. No deployment occurred.
 
 ### ISSUE-152: Tenant organization and workspace chooser
 

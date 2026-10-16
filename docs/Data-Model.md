@@ -1,5 +1,9 @@
 # Data Model
 
+## Signup Completion
+
+Migration `0045_auth_signup_completion.sql` adds nullable `user.signupOrganizationName` and `user.signupOrganizationId`. The name is captured once during native account creation from the normalized onboarding request. The ID records the owned organization selected during completion. Both fields are server-owned, excluded from public auth user output and cannot be changed through user-input fields. No plaintext password or verification token is added. Retain these additive columns on application rollback. Existing rows remain null; old discarded signup details cannot be reconstructed. Completion is serialized per user with a transaction-scoped Postgres advisory lock and verifies current owner membership before selecting the organization or granting workspace access.
+
 ## TypeSafe Decision Evidence
 
 Post-call summaries include `businessResolution` and `sourceRevision`. Lifecycle `outcome` can be `unknown`. Completed calls do not imply resolved requests. Summary revisions retain stable action IDs and prior CRM sync records in the existing process-local store.

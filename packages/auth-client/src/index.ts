@@ -206,6 +206,24 @@ export interface ZaraAuthClient {
 export const authClientPackageName = "@zara/auth-client";
 
 export const tenantAuthClient = createZaraBetterAuthClient("tenant");
+
+export async function getTenantSignupVerification(): Promise<{ ok: true; email: string } | { ok: false; message: string }> {
+  const result = await requestProductJson(resolveAuthBaseUrl("tenant"), "/api/auth/onboarding/verification-status");
+  if (!result.ok) return result;
+  const payload = asRecord(result.payload);
+  return payload.verified === true && typeof payload.email === "string"
+    ? { ok: true, email: payload.email }
+    : { ok: false, message: "Email verification is not confirmed. Open the link in your email." };
+}
+
+export async function completeTenantSignup(): Promise<ZaraAuthActionResult> {
+  const result = await requestProductJson(resolveAuthBaseUrl("tenant"), "/api/auth/onboarding/complete", {
+    method: "POST", body: JSON.stringify({}),
+  });
+  if (!result.ok) return result;
+  return asRecord(asRecord(result.payload).onboarding).status === "complete"
+    ? { ok: true } : { ok: false, message: "Setup is not complete. Please try again." };
+}
 export const platformAdminAuthClient = createZaraBetterAuthClient("platform-admin");
 
 export async function enablePlatformMfa(password: string): Promise<

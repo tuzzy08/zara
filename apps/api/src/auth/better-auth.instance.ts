@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter, type MemoryDB } from "better-auth/adapters/memory";
 import { twoFactor } from "better-auth/plugins/two-factor";
 import { Pool } from "pg";
+import { slugifyWorkspaceName } from "@zara/core";
 
 import { resolveTrustedOrigins } from "../config/trusted-origins";
 import { resolveAuthEmailDeliveryConfig, sendAuthEmail } from "./auth-email-delivery";
@@ -35,6 +36,26 @@ export const zaraAuth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:4010",
   database: authDatabase.database,
   advanced: authRuntimeSecurity.advanced,
+  user: { additionalFields: {
+    signupOrganizationName: { type: "string", required: false, input: false, returned: false },
+    signupOrganizationId: { type: "string", required: false, input: false, returned: false },
+  } },
+  databaseHooks: {
+    user: { create: { before: async (user, context) => {
+      const name = context?.path === "/sign-up/email" && typeof context.body?.organizationName === "string"
+        ? context.body.organizationName.trim() : "";
+      return { data: { ...user, signupOrganizationName: slugifyWorkspaceName(name) ? name : null, signupOrganizationId: null } };
+    } } },
+    session: { create: { before: async (session, context) => {
+      if (context?.path === "/verify-email") {
+        const user = await context.context.internalAdapter.findUserById(session.userId);
+        // Email ownership cannot replace an enrolled second factor. Verification
+        // still succeeds, but this account must use its normal MFA sign-in.
+        if ((user as (typeof user & { twoFactorEnabled?: boolean }))?.twoFactorEnabled) return false;
+      }
+      return { data: session };
+    } } },
+  },
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
@@ -52,6 +73,7 @@ export const zaraAuth = betterAuth({
     },
   },
   emailVerification: {
+    autoSignInAfterVerification: true,
     expiresIn: authRuntimeSecurity.emailVerification.expiresIn,
     sendOnSignIn: authRuntimeSecurity.emailVerification.sendOnSignIn,
     sendOnSignUp: authRuntimeSecurity.emailVerification.sendOnSignUp,

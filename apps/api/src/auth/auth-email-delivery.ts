@@ -83,12 +83,9 @@ export function resolveAuthEmailDeliveryConfig(
 }
 
 async function postResendEmail(apiKey: string, from: string, delivery: AuthEmailDelivery) {
-  const action = delivery.kind === "email_verification" ? "Verify your email" : "Reset your password";
-  const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
   const body = JSON.stringify({
     from, to: [delivery.to], subject: delivery.subject,
-    text: `${action} for Zara:\n\n${delivery.url}\n\nIf you did not request this email, ignore it.`,
-    html: `<p>${action} for Zara.</p><p><a href="${escape(delivery.url)}">${action}</a></p><p>If you did not request this email, ignore it.</p>`,
+    ...renderAuthEmail(delivery),
   });
   const request = {
     method: "POST", body,
@@ -115,7 +112,7 @@ async function postResendEmail(apiKey: string, from: string, delivery: AuthEmail
 
 async function postAuthEmailWebhook(webhookUrl: string, delivery: AuthEmailDelivery) {
   const response = await fetch(webhookUrl, {
-    body: JSON.stringify(delivery),
+    body: JSON.stringify({ ...delivery, ...renderAuthEmail(delivery) }),
     headers: {
       "content-type": "application/json",
     },
@@ -125,4 +122,45 @@ async function postAuthEmailWebhook(webhookUrl: string, delivery: AuthEmailDeliv
   if (!response.ok) {
     throw new Error(`Auth email webhook failed with ${response.status}.`);
   }
+}
+
+function renderAuthEmail(delivery: AuthEmailDelivery) {
+  const escape = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+  const url = escape(delivery.url);
+  if (delivery.kind === "password_reset") return {
+    text: `Reset your password for Zara:\n\n${delivery.url}\n\nIf you did not request this email, ignore it.`,
+    html: `<p>Reset your password for Zara.</p><p><a href="${url}">Reset your password</a></p><p>If you did not request this email, ignore it.</p>`,
+  };
+
+  return {
+    text: `ZARA\n\nVerify your email\n\nConfirm this email address to continue setting up your Zara workspace.\n\nVerify email:\n${delivery.url}\n\nAfter verification, select Continue setup to open your dashboard. Your original signup details are saved. If the link has expired, return to signup and select Continue an existing signup to request a new link.\n\nIf you did not create a Zara account, you can ignore this email.\nNeed help? Contact support@zharaai.com.`,
+    html: `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Verify your Zara email</title></head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;color:#171717;font-family:Arial,Helvetica,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Verify your email to finish setting up your Zara workspace.</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f5f5f5;table-layout:fixed;">
+    <tr><td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;table-layout:fixed;">
+        <tr><td style="padding:24px 28px;background-color:#171717;color:#ffffff;font-size:22px;font-weight:600;letter-spacing:4px;">ZARA</td></tr>
+        <tr><td style="padding:32px 28px;background-color:#ffffff;">
+          <p style="margin:0 0 12px;color:#666666;font-size:12px;line-height:18px;letter-spacing:1px;">ACCOUNT SETUP</p>
+          <h1 style="margin:0 0 16px;font-size:28px;line-height:34px;font-weight:600;letter-spacing:-0.6px;">Verify your email</h1>
+          <p style="margin:0 0 24px;color:#4d4d4d;font-size:16px;line-height:25px;">Confirm this email address to continue setting up your Zara workspace.</p>
+          <table role="presentation" cellspacing="0" cellpadding="0" width="100%"><tr><td align="center" bgcolor="#171717" style="border-radius:6px;">
+            <a href="${url}" style="display:block;padding:15px 20px;color:#ffffff;text-decoration:none;font-size:16px;line-height:22px;font-weight:600;">Verify email</a>
+          </td></tr></table>
+          <p style="margin:24px 0 0;color:#4d4d4d;font-size:16px;line-height:25px;">After verification, select Continue setup to open your dashboard. Your original signup details are saved.</p>
+          <p style="margin:24px 0 8px;color:#666666;font-size:13px;line-height:20px;">Button not working? Copy this link into your browser:</p>
+          <p style="margin:0;font-size:12px;line-height:19px;word-break:break-all;overflow-wrap:anywhere;"><a href="${url}" style="color:#0072f5;text-decoration:underline;word-break:break-all;">${url}</a></p>
+          <p style="margin:24px 0 0;color:#666666;font-size:13px;line-height:20px;">If the link has expired, return to signup and select Continue an existing signup to request a new link.</p>
+        </td></tr>
+        <tr><td style="padding:24px 28px;color:#666666;font-size:13px;line-height:20px;">
+          <p style="margin:0 0 8px;">If you did not create a Zara account, you can ignore this email.</p>
+          <p style="margin:0;">Need help? <a href="mailto:support@zharaai.com" style="color:#4d4d4d;text-decoration:underline;">Contact Zara support</a></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+  };
 }

@@ -3527,7 +3527,31 @@ button {
     0 0 0 4px rgba(10, 114, 239, 0.12);
 }
 
+.auth-password-control {
+  position: relative;
+}
+
+.auth-password-control input {
+  width: 100%;
+  padding-right: 48px;
+}
+
+.auth-password-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 42px;
+  min-height: 40px;
+  padding: 0;
+  color: #4d4d4d;
+}
+
+.auth-password-toggle:hover:not(:disabled) {
+  background: #ebebeb;
+}
+
 .auth-submit {
+  text-decoration: none;
   display: inline-flex;
   min-height: 42px;
   align-items: center;
@@ -3553,6 +3577,10 @@ button {
 .auth-success {
   color: var(--zara-green) !important;
   font-size: 13px !important;
+}
+
+.auth-email-address {
+  overflow-wrap: anywhere;
 }
 
 .auth-link-button {
