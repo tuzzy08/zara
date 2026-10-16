@@ -1,7 +1,9 @@
 # ISSUE-253: Shared durable integration state
 
-Status: Implemented (locally verified; PR publication in progress)
+Status: Implemented (PR #137 open; remote CI pending)
 External: [GitHub #134](https://github.com/tuzzy08/zara/issues/134)
+
+PR: [#137](https://github.com/tuzzy08/zara/pull/137). Implementation commit: `c903b9fae77124cae0e6fbde6396259542a26260`. GitHub #134 is closed as implemented. The PR targets `dev` and is ready for review. Remote CI remains pending. `npm.cmd run db:check` passed after commit. No deployment occurred.
 
 ## Scope and decisions
 
@@ -43,7 +45,7 @@ Alternative designs were transactional aggregate mutation and normalized connect
 
 ## Pending work
 
-- Commit and publish the first Stage 2 PR. Remote CI is not yet verified.
+- Review PR #137 and verify remote CI. No merge of this PR is authorized by the PR #133 merge instruction.
 - Before deployment, perform a reviewed import of existing integration files with their encrypted envelopes and grants. Deployment is not authorized by this pass.
 
 ## Risks
@@ -55,4 +57,4 @@ Alternative designs were transactional aggregate mutation and normalized connect
 
 ## Next step
 
-Publish the verified storage slice. Continue with ISSUE-254 on a separate dependent branch. Keep live Zendesk qualification separate from protocol fixture evidence.
+Continue with ISSUE-254 on a separate dependent branch. Keep live Zendesk qualification separate from protocol fixture evidence.

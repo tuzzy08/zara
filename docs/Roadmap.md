@@ -1,5 +1,7 @@
 # Roadmap
 
+Stage 2 storage PR (2026-10-16): [#137](https://github.com/tuzzy08/zara/pull/137) is open against `dev`, with implementation commit `c903b9f`. ISSUE-253 and GitHub #134 are complete. Remote CI is pending. OAuth and durable CRM delivery remain separate pending work. No deployment occurred.
+
 Stage 2 storage verification (2026-10-16): ISSUE-253 is Implemented locally. Migration 0046 adds shared encrypted integration state, safe stale-write conflicts and missing-key envelope preservation. All 11 real-service E2E tests and 80 integration regressions pass; typecheck, scoped lint, test boundaries and migration drift checks pass. Evidence: `artifacts/e2e/zara-e2e-24248-1792156462744/`. A reviewed import of existing integration files is required before rollout. ISSUE-254 and ISSUE-255 remain Pending. No deployment occurred.
 
 Stage 2 start (2026-10-16): In Progress. ISSUE-253 adds shared durable integration state. Zendesk is the stated default for the first customer journey. ISSUE-254 covers real OAuth; ISSUE-255 covers durable call evidence, summary and recoverable CRM delivery. These two issues remain Pending. The final live test needs a registered Zara OAuth client and an authorized test account. Work is on `codex/stage2-customer-journey` from merged `f09f621`. No deployment occurred.

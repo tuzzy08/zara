@@ -5735,7 +5735,7 @@ Status: In Progress. The first dependency is shared durable integration state (I
 
 ### ISSUE-253: Shared durable integration state
 
-Status: Implemented. All 11 real-service E2E tests and 80 integration regressions pass. Typecheck, scoped lint, test boundaries and migration drift checks pass. Evidence: `artifacts/e2e/zara-e2e-24248-1792156462744/`, with clean teardown and 869 matching source hashes. PR publication is in progress. Existing integration files require a reviewed import before deployment.
+Status: Implemented in [PR #137](https://github.com/tuzzy08/zara/pull/137), commit `c903b9f`. All 11 real-service E2E tests and 80 integration regressions pass. Typecheck, scoped lint, test boundaries and migration drift checks pass. Evidence: `artifacts/e2e/zara-e2e-24248-1792156462744/`, with clean teardown and 869 matching source hashes. GitHub #134 is closed; remote CI is pending. Existing integration files require a reviewed import before deployment.
 External: [GitHub #134](https://github.com/tuzzy08/zara/issues/134)
 - Handover: [ISSUE-253](Handovers/ISSUE-253-durable-integrations.md)
 - Acceptance: shared encrypted tenant state across API instances; durable restart; visible deletion; cross-tenant denial; stale-write conflicts; real-service E2E evidence.
