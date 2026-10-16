@@ -21,9 +21,13 @@ No production service, database, email address, or provider token is required.
 
 The suite covers:
 
-- Signup through the browser, a real verification token delivered to the local
-  inbox, rejected invalid verification token, successful verification, sign-out,
-  rejected password, and successful sign-in. Session cookies must be secure and HTTP-only.
+- Signup through the browser, recovery-mode correction, password confirmation and
+  show/hide controls, a separate success page, a real verification token delivered
+  to the local inbox, rejected invalid verification token, rendered verification
+  email action, server-confirmed verified page, direct dashboard entry from saved
+  organization details without form re-entry, concurrent repeated completion,
+  denied anonymous completion and verification-link replay, sign-out, rejected
+  password, and successful sign-in. Session cookies must be secure and HTTP-only.
 - Two separate browser sessions and organizations, an owner-created workspace,
   denied cross-tenant reads and writes, forged test-auth headers, anonymous access,
   unchanged owner data, and continued access to the second tenant's own data.
@@ -38,9 +42,10 @@ They also check API SIGTERM exit and session recovery. A companion real
 Nest/Postgres integration probe checks database availability during drain and pool
 closure afterward; it does not simulate a live provider call. A synthetic Zendesk
 configuration checks that rejected publication cannot create tool grants without
-calling an external provider. Signup requires email verification. The fixture then resumes
-onboarding with the original credentials and organization name through the
-existing signup endpoint.
+calling an external provider. Original signup organization details are stored in Postgres.
+Signup requires email verification before password sign-in. Native verification
+creates a session; the waiting-page URL itself grants no access. The verified
+page reads server status and completes the owned organization on Continue setup.
 Tests respect the provider's sign-in rate limit and its bounded Retry-After.
 Better Auth applies a separate sign-up/sign-in limit of three requests per
 10-second window. The control-plane signup helper retries a rate-limited signup

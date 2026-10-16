@@ -116,6 +116,9 @@ describe("Auth account security controller", () => {
           name: "Session User",
         });
       await verifyEmail(firstAgent, email);
+      // Verification now signs in. End that setup session before creating the
+      // two named browser sessions whose listing and revocation this test covers.
+      expect((await firstAgent.post("/api/auth/sign-out").send({})).status).toBe(200);
       expect((await firstAgent.post("/api/auth/sign-in/email")
         .set("user-agent", "First browser")
         .send({ email, password: "password123" })).status).toBe(200);

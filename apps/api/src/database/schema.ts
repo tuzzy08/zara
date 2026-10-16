@@ -74,6 +74,8 @@ export const authUsers = pgTable(
     email: text("email").notNull(),
     emailVerified: boolean("emailVerified").notNull(),
     twoFactorEnabled: boolean("twoFactorEnabled").default(false),
+    signupOrganizationName: text("signupOrganizationName"),
+    signupOrganizationId: text("signupOrganizationId"),
     image: text("image"),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull(),

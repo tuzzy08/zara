@@ -34,6 +34,7 @@ export interface AuthOnboardingSessionGateway {
     email: string;
     password: string;
     name: string;
+    organizationName?: string;
     callbackURL?: string;
   }) => Promise<AuthOperationResult>;
   signInEmail: (input: {
@@ -74,7 +75,7 @@ class BetterAuthOnboardingSessionGateway implements AuthOnboardingSessionGateway
     this.captureCookieHeader(request.headers["cookie"]);
   }
 
-  signUpEmail(input: { email: string; password: string; name: string; callbackURL?: string }) {
+  signUpEmail(input: { email: string; password: string; name: string; organizationName?: string; callbackURL?: string }) {
     return this.send("/sign-up/email", "POST", input);
   }
 
