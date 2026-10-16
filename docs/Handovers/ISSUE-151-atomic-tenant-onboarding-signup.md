@@ -1,12 +1,12 @@
 # ISSUE-151: Atomic tenant onboarding signup
 
-Status: Implemented (separate signup branch verified; commit and PR in progress)
+Status: Implemented (PR #133 open; remote CI pending)
 Date: 2026-05-31
 External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
 
 ## Current verification, 2026-10-16
 
-This checkpoint supersedes the historical pending-work and release notes below. The owner authorized the separate commit and PR. Merge and deployment are not part of this pass.
+Implementation commit `48c40d8` is pushed in [PR #133](https://github.com/tuzzy08/zara/pull/133) against `dev`. This checkpoint supersedes the historical pending-work and release notes below. The owner authorized the separate commit and PR. Merge and deployment are not part of this pass.
 
 - Work completed: isolated the existing signup changes on `codex/signup-verified-completion`, based on merged Stage 1 `066646871ec0f28a5379177b3258125e6e63f89e`. Generated `0045_auth_signup_completion` after unchanged `0044_durable_workspaces`. The new migration adds only two nullable signup fields; its snapshot links to the Stage 1 snapshot.
 - TDD: retained the prior recovery, password-control, email-template and direct-entry RED/GREEN evidence. No new behavior was added in this packaging pass. Independent review found no material defect. Removed three redundant comment blocks.
@@ -14,11 +14,11 @@ This checkpoint supersedes the historical pending-work and release notes below. 
 - Evidence: `run.json` records the base revision, diff and fixture hashes; `executed-source-inputs.json` includes tracked and new files. `source-verification.json` confirms all 865 executed source files match this branch. The HTML report, JUnit report, traces, image IDs and service logs are retained. Seven desktop/mobile screenshots were inspected; no clipping or horizontal overflow was found.
 - Existing regressions: 56 unique tests passed across nine files. The initial eight-file run passed 48 tests, hit one 15-second onboarding timeout and failed to start the app worker. The unchanged onboarding suite passed all six tests on a serial rerun; all three existing MFA tests passed. After building the workspace packages, the app suite passed all four tests in 23.49 seconds. No assertion or timeout was weakened.
 - Commands: `npm.cmd exec -- vitest run apps/api/src/auth/auth-email-delivery.test.ts apps/api/src/auth/better-auth.instance.test.ts apps/api/src/auth/auth-onboarding.controller.test.ts apps/api/src/auth/auth-account-security.controller.test.ts apps/api/src/auth/better-auth.controller.test.ts packages/auth-client/src/index.test.ts packages/auth-client/src/mfa.test.ts apps/web/src/app.test.tsx --maxWorkers=1 --pool=threads --reporter=dot`; serial rerun `npm.cmd exec -- vitest run apps/api/src/auth/auth-onboarding.controller.test.ts apps/api/src/auth/auth-mfa.test.ts apps/web/src/app.test.tsx --maxWorkers=1 --pool=forks --reporter=dot`; final app run `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --maxWorkers=1 --pool=threads --reporter=dot`.
-- Other checks: `npm.cmd run typecheck`, scoped ESLint over every changed TypeScript file and the new verified screen, `npm.cmd run test:boundaries`, and `git diff --check` passed. `npm.cmd run db:generate` reports no schema changes. API/web production builds passed in the E2E run.
+- Other checks: `npm.cmd run typecheck`, scoped ESLint over every changed TypeScript file and the new verified screen, `npm.cmd run test:boundaries`, and `git diff --check` passed. `npm.cmd run db:generate` reports no schema changes; `npm.cmd run db:check` passed after staging the generated migration. API/web production builds passed in the E2E run.
 - Environment recovery: the first E2E attempt failed before tests due to Docker blob I/O. The previously approved Docker Desktop restart restored access. The complete retry passed. No Docker reset or data deletion was used. Earlier app-worker startup failures and a missing local compiled package were setup failures; the final app run passed.
 - Risks: older accounts have no saved original signup details and require the existing recovery path or support. Apply migration 0045 after 0044 before release; retain additive columns on rollback. Chromium email rendering does not prove all email clients or live inbox delivery.
-- Pending work: commit, push, open the PR against dev, link it in local records and Linear ZAR-97, and inspect initial CI status.
-- Next step: create the authorized PR. No production deployment, live email or billing change occurred.
+- Pending work: remote CI and PR review. Local implementation and required local verification are complete. Linear ZAR-97 remains Done.
+- Next step: review PR #133 and its remote checks. No production deployment, live email or billing change occurred.
 
 ## Work Completed (historical checkpoints)
 
