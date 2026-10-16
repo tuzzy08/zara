@@ -607,6 +607,8 @@ Behavior rules:
 
 ## Integrations Contract
 
+Local integration configuration writes can return HTTP 409 with code `integration_state_conflict` when another request changed the tenant state. Reload current state before retrying. This conflict never means that a provider-side OAuth exchange is safe to repeat. Production integration state is shared through Postgres; the revision is not exposed in public connection responses.
+
 The current integrations contract supports platform OAuth connect flows, provider-specific secure credential profiles, tenant-defined webhook HTTP tools, and explicit integration tool grants:
 
 - `POST /organizations/:orgId/integrations/:provider/connect`

@@ -3909,6 +3909,8 @@ Implementation notes:
 
 ### ISSUE-151: Atomic tenant onboarding signup
 
+Merge checkpoint (2026-10-16): PR [#133](https://github.com/tuzzy08/zara/pull/133) merged into `dev` at `f09f621075e8acb4491ed73b63f28be9db61cf2e`, 13:52 WAT. All six checks passed for final head `7726b4ab0cac5b0984c711e32a81468432f5c0dc`. Linear ZAR-97 is Done. The CI monitor is paused. This supersedes older pending PR notes. No deployment occurred.
+
 - Priority: P1
 - Area: Auth
 - Milestone: Auth Flow Hardening
@@ -5726,6 +5728,33 @@ Implementation status:
 - 2026-09-09 browser completion: after user confirmation, the new-account Starter sandbox payment completed. Zara and the customer portal show Active, USD 49.00, and the paid invoice. The local tenant has exactly one subscription and one invoice; all three received events are processed without errors. The first return page required a refresh after the later subscription event arrived. Automatic post-checkout refresh remains a UI gap. No live money or charge-delivery setting changed.
 - 2026-09-09 browser follow-up: signup passed, and test-first API-client fixes now open the subscription, PAYG, and portal URLs. Three non-DOM navigation tests pass; no new UI tests were added. In-app Starter and PAYG navigation passed after an isolated test catalog correction. Full browser payment, webhook, subscription, invoice, and portal verification remain pending because the former public webhook hostname no longer resolves. A new user-started tunnel was requested. No production setting or charge delivery changed.
 
+
+## Stage 2 customer journey
+
+Status: In Progress. The first dependency is shared durable integration state (ISSUE-253). Zendesk is the stated default for the first customer journey, pending any user correction. ISSUE-254 covers real OAuth and ISSUE-255 covers durable call evidence and CRM delivery. The full slice requires repeatable E2E recovery evidence. No deployment occurred.
+
+### ISSUE-253: Shared durable integration state
+
+Status: Implemented. All 11 real-service E2E tests and 80 integration regressions pass. Typecheck, scoped lint, test boundaries and migration drift checks pass. Evidence: `artifacts/e2e/zara-e2e-24248-1792156462744/`, with clean teardown and 869 matching source hashes. PR publication is in progress. Existing integration files require a reviewed import before deployment.
+External: [GitHub #134](https://github.com/tuzzy08/zara/issues/134)
+- Handover: [ISSUE-253](Handovers/ISSUE-253-durable-integrations.md)
+- Acceptance: shared encrypted tenant state across API instances; durable restart; visible deletion; cross-tenant denial; stale-write conflicts; real-service E2E evidence.
+
+### ISSUE-254: Real Zendesk OAuth lifecycle and ticket execution
+
+Status: Pending
+External: [GitHub #135](https://github.com/tuzzy08/zara/issues/135)
+- Handover: [ISSUE-254](Handovers/ISSUE-254-zendesk-oauth.md)
+- Depends on: ISSUE-253.
+- Acceptance: real consent and ticket requests, durable callback/refresh claims, expiry and revocation handling, no fabricated production OAuth, real-service failure/recovery tests and separate live qualification.
+
+### ISSUE-255: Durable call summaries and recoverable Zendesk delivery
+
+Status: Pending
+External: [GitHub #136](https://github.com/tuzzy08/zara/issues/136)
+- Handover: [ISSUE-255](Handovers/ISSUE-255-durable-crm-delivery.md)
+- Depends on: ISSUE-253 and ISSUE-254.
+- Acceptance: bounded durable call evidence, atomic summary/outbox, fixed payload and bounded idempotent retries, restart-safe authorized reads, no duplicate business action, full browser journey and usage evidence.
 
 ## Stage 1 reliability slice
 

@@ -112,6 +112,14 @@ Runtime webhook execution:
 - Retries transient 5xx or network failures according to the stored `maxAttempts` and `backoffMs`.
 - Aborts slow endpoints according to the stored `timeoutMs` and reports a structured timeout error to the live sandbox tool flow.
 
+## Shared integration storage
+
+The production API stores tenant integration state in Postgres `integration_tenant_states`. Connections, encrypted credentials, pending connections, grants and webhook definitions share one revision. Each read loads current state. A write based on an old revision returns HTTP 409 with code `integration_state_conflict`; it does not overwrite accepted changes. Callers must reload before retrying a local configuration change. An OAuth provider exchange cannot be assumed safe to repeat after a conflict.
+
+An unavailable encryption key makes the credential unusable. Metadata writes preserve its original encrypted envelope. Deletion still removes the credential and dependent grants. Credential health checks establish local credential availability, not successful provider authentication.
+
+Migration `0046_durable_integrations` creates empty shared storage. Before rollout, stop old file-backed writers and import reviewed tenant files with their encrypted envelopes and grants. Keep the same master keys and key versions on every API instance. Do not overwrite existing database rows or discard the source files. Verify tenant counts, connection reads and credential access before switching traffic. Production does not fall back to local files when Postgres fails. This migration is not an automatic import.
+
 ## Post-Call CRM Sync
 
 Post-call summaries can include a CRM sync target for supported providers such as HubSpot. The live-session summary route records only the intended provider, integration connection ID, object type, and optional external object ID, queues the sync state for downstream processing, and redacts transcript/tool content before the summary response is returned or summary metadata is emitted.

@@ -1,8 +1,17 @@
 # ISSUE-151: Atomic tenant onboarding signup
 
-Status: Implemented (PR #133 code and fixture checks passed)
+Status: Implemented (PR #133 merged)
 Date: 2026-05-31
 External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
+
+## Merge checkpoint, 2026-10-16
+
+- PR [#133](https://github.com/tuzzy08/zara/pull/133) merged into `dev` at `f09f621075e8acb4491ed73b63f28be9db61cf2e`, 13:52 WAT, after the user authorized merge.
+- All six checks passed for final head `7726b4ab0cac5b0984c711e32a81468432f5c0dc`: [CI](https://github.com/tuzzy08/zara/actions/runs/38879942593), [Browser E2E](https://github.com/tuzzy08/zara/actions/runs/38879942573), [Migration Check](https://github.com/tuzzy08/zara/actions/runs/38879942600), security and both previews. E2E artifact `12037371065` was available. The E2E synthetic merge was `82e2d96bb1409f907906d4725fa501c7b21eeeed`.
+- Linear ZAR-97 remains Done and has the merge checkpoint. The CI monitor remains paused.
+- Pending work: deployment remains separate. No deployment occurred in this pass. Earlier pending commit, PR and merge notes below are historical and are superseded by this checkpoint.
+- Risks: preserve migration order 0044 then 0045 and the existing account recovery limits.
+- Next step: continue Stage 2 on its separate branch. No further signup code change is planned.
 
 ## CI verification, 2026-10-16
 

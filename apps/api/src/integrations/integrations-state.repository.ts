@@ -37,6 +37,7 @@ export interface PersistedWebhookHttpToolSecretRecord {
 }
 
 export interface PersistedIntegrationStateRecord {
+  revision?: number | undefined;
   schemaVersion: 1;
   organizationId: string;
   pendingConnects: PersistedPendingOAuthConnectRecord[];

@@ -323,6 +323,13 @@
       "when": 1792101569736,
       "tag": "0045_auth_signup_completion",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1792156071332,
+      "tag": "0046_durable_integrations",
+      "breakpoints": true
     }
   ]
 }
