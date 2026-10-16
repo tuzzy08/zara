@@ -1,8 +1,18 @@
 # ISSUE-151: Atomic tenant onboarding signup
 
-Status: Implemented (PR #133 open; remote CI pending)
+Status: Implemented (PR #133 code and fixture checks passed)
 Date: 2026-05-31
 External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
+
+## CI verification, 2026-10-16
+
+CI verification (2026-10-16, PR #133): all six checks passed for head `53471d5bc3dc0cd5251d67737c531b613add68a3`. [CI](https://github.com/tuzzy08/zara/actions/runs/38878544851), [Browser E2E](https://github.com/tuzzy08/zara/actions/runs/38878545048), and [Migration Check](https://github.com/tuzzy08/zara/actions/runs/38878545130) passed, as did security and both preview checks. E2E artifact `12036452716` is available and not expired. This supersedes the failed and pending checkpoints below. The invitation fixture repair is verified. Status remains Implemented / Linear Done. No merge or deployment occurred.
+
+- Completed work: reproduced and corrected the existing invitation fixture without production changes or weakened assertions. All remote checks passed.
+- Evidence: the linked runs belong to PR head 53471d5; GitHub E2E runs use its synthetic merge revision e3bb559c381f4e87dad4c35e4208c1b8be02c0f9.
+- Pending work: PR review and release direction. The monitor will verify this documentation-only follow-up before it pauses; its final head result will be recorded in Linear to avoid repeated documentation-only CI runs.
+- Risks and decisions: original migration/release limits remain. No merge or deployment is authorized.
+- Next step: review PR #133 once its final documentation checks pass.
 
 ## CI repair, 2026-10-16
 
