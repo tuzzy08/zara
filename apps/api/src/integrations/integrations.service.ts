@@ -28,6 +28,7 @@ import { IntegrationSecretVault } from "./integrations-secret-vault";
 import {
   INTEGRATION_STATE_REPOSITORY,
   type IntegrationStateRepository,
+  type PersistedIntegrationCredentialRecord,
   type PersistedIntegrationStateRecord,
 } from "./integrations-state.repository";
 import {
@@ -59,10 +60,12 @@ interface StoredIntegrationCredential {
 }
 
 interface IntegrationStateStore {
+  revision: number;
   organizationId: string;
   pendingConnectsByState: Map<string, PendingOAuthConnectRecord>;
   connections: IntegrationConnectionResponse[];
   credentialVault: Map<string, StoredIntegrationCredential>;
+  unopenedCredentialRecords: Map<StoredIntegrationCredential, PersistedIntegrationCredentialRecord>;
   toolGrants: ToolPermissionGrantResponse[];
 }
 
@@ -86,8 +89,6 @@ const providerClientIds: Record<IntegrationProvider, string> = {
 
 @Injectable()
 export class IntegrationsService {
-  private readonly stateByOrganizationId = new Map<string, IntegrationStateStore>();
-
   constructor(
     @Inject(INTEGRATION_STATE_REPOSITORY)
     private readonly stateRepository: IntegrationStateRepository,
@@ -583,10 +584,7 @@ export class IntegrationsService {
   }
 
   private async findPendingConnect(state: string) {
-    for (const organizationId of new Set([
-      ...this.stateByOrganizationId.keys(),
-      ...(await this.stateRepository.listOrganizationIds()),
-    ])) {
+    for (const organizationId of await this.stateRepository.listOrganizationIds()) {
       const integrationState = await this.getOrCreateState(organizationId);
       const pendingConnect = integrationState.pendingConnectsByState.get(state);
 
@@ -602,18 +600,12 @@ export class IntegrationsService {
   }
 
   private async getOrCreateState(organizationId: string): Promise<IntegrationStateStore> {
-    const existingState = this.stateByOrganizationId.get(organizationId);
-    if (existingState !== undefined) {
-      return existingState;
-    }
-
     const persistedState = await this.stateRepository.load(organizationId);
     const nextState =
       persistedState === null
         ? createEmptyState(organizationId)
         : hydrateState(persistedState, this.secretVault);
 
-    this.stateByOrganizationId.set(organizationId, nextState);
     return nextState;
   }
 
@@ -834,10 +826,12 @@ function hasUsableIntegrationCredential(
 
 function createEmptyState(organizationId: string): IntegrationStateStore {
   return {
+    revision: 0,
     organizationId,
     pendingConnectsByState: new Map<string, PendingOAuthConnectRecord>(),
     connections: [],
     credentialVault: new Map<string, StoredIntegrationCredential>(),
+    unopenedCredentialRecords: new Map(),
     toolGrants: [],
   };
 }
@@ -847,6 +841,7 @@ function hydrateState(
   secretVault: IntegrationSecretVault,
 ): IntegrationStateStore {
   const credentialVault = new Map<string, StoredIntegrationCredential>();
+  const unopenedCredentialRecords = new Map<StoredIntegrationCredential, PersistedIntegrationCredentialRecord>();
 
   for (const credential of persistedState.credentials) {
     try {
@@ -855,16 +850,19 @@ function hydrateState(
         secretVault.open(credential.envelope) as unknown as StoredIntegrationCredential,
       );
     } catch {
-      credentialVault.set(credential.connectionId, {
+      const unavailableCredential: StoredIntegrationCredential = {
         accessToken: "",
         refreshToken: "",
         externalAccountId: "",
-      });
+      };
+      credentialVault.set(credential.connectionId, unavailableCredential);
+      unopenedCredentialRecords.set(unavailableCredential, credential);
     }
   }
 
   return {
     organizationId: persistedState.organizationId,
+    revision: persistedState.revision ?? 0,
     pendingConnectsByState: new Map(
       persistedState.pendingConnects.map((pendingConnect) => [
         pendingConnect.state,
@@ -876,6 +874,7 @@ function hydrateState(
     ),
     connections: persistedState.connections.map(cloneConnection),
     credentialVault,
+    unopenedCredentialRecords,
     toolGrants: (persistedState.toolGrants ?? [])
       .filter((grant) => !hasWorkflowScope(grant))
       .map(cloneGrant),
@@ -888,6 +887,7 @@ function dehydrateState(
 ): PersistedIntegrationStateRecord {
   return {
     schemaVersion: 1,
+    revision: state.revision,
     organizationId: state.organizationId,
     pendingConnects: [...state.pendingConnectsByState.values()].map((pendingConnect) => ({
       ...pendingConnect,
@@ -895,10 +895,11 @@ function dehydrateState(
       availability: cloneAvailability(pendingConnect.availability),
     })),
     connections: state.connections.map(cloneConnection),
-    credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
-      connectionId,
-      envelope: secretVault.seal(credential),
-    })),
+    credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) =>
+      state.unopenedCredentialRecords.get(credential) ?? {
+        connectionId,
+        envelope: secretVault.seal(credential),
+      }),
     toolGrants: state.toolGrants.map(cloneGrant),
   };
 }

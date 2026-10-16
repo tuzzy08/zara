@@ -42,6 +42,12 @@ import type { RuntimePromptPolicy } from "../runtime-prompt-policy/runtime-promp
 
 export const tenantStatus = pgEnum("tenant_status", ["active", "suspended", "archived"]);
 
+export const integrationTenantStates = pgTable("integration_tenant_states", {
+  organizationId: text("organization_id").primaryKey(),
+  state: jsonb("state").notNull(),
+  revision: integer("revision").notNull(),
+}, (table) => [check("integration_tenant_states_revision_positive", sql`${table.revision} > 0`)]);
+
 export const providerUsageRequests = pgTable("provider_usage_requests", {
   id: text("id").primaryKey(),
   connectionId: text("connection_id"),

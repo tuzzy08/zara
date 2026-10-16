@@ -1,5 +1,8 @@
 import { Module } from "@nestjs/common";
 import { join } from "node:path";
+import { DatabaseModule } from "../database/database.module";
+import { PostgresPoolService } from "../database/postgres-pool.service";
+import { PostgresIntegrationStateRepository } from "./postgres-integration-state.repository";
 
 import { ConnectorToolsService } from "./connector-tools.service";
 import {
@@ -24,6 +27,7 @@ import { ToolPermissionGrantsService } from "./tool-permission-grants.service";
 import { WebhookHttpToolsService } from "./webhook-http-tools.service";
 
 @Module({
+  imports: [DatabaseModule],
   providers: [
     IntegrationsService,
     ConnectorToolsService,
@@ -41,10 +45,13 @@ import { WebhookHttpToolsService } from "./webhook-http-tools.service";
     },
     {
       provide: INTEGRATION_STATE_REPOSITORY,
-      useFactory: () =>
-        new FileIntegrationStateRepository(
-          resolveIntegrationStateDirectory(process.env, process.cwd()),
-        ),
+      useFactory: (database: PostgresPoolService) =>
+        process.env.NODE_ENV === "test" && process.env.ZARA_AUTH_DATABASE !== "postgres"
+          ? new FileIntegrationStateRepository(
+            resolveIntegrationStateDirectory(process.env, process.cwd()),
+          )
+          : new PostgresIntegrationStateRepository(database.pool),
+      inject: [PostgresPoolService],
     },
     {
       provide: IntegrationSecretVault,

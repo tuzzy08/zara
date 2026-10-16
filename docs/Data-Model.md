@@ -96,6 +96,8 @@ Telephony connections include ownership mode, provider, region, status, credenti
 
 Integration connections include provider, OAuth app ownership, scopes, encrypted credential reference, health, connected actor, tenant, and revocation state.
 
+Migration `0046_durable_integrations` adds `integration_tenant_states` with an organization primary key, the encrypted integration aggregate and a positive integer revision. The revision column is authoritative and is excluded from the JSON state. Initial insert races and stale updates return a conflict. The aggregate contains connection metadata, encrypted credentials, pending connections, tool grants and webhook definitions. Existing file data requires a reviewed import before rollout; the migration does not import it.
+
 ## Memory
 
 Memory records include scope, subject reference, source call/transcript/tool, text/fact payload, embedding, confidence, approval state, retention state, and audit metadata.
