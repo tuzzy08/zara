@@ -175,6 +175,9 @@ describe("Auth invitations controller", () => {
       expect((await invitedAgent.post(acceptPath).send(credentials)).status).not.toBe(200);
       expect((await invitedAgent.get("/api/auth/context")).body.authenticated).toBe(false);
       await verifyEmail(invitedAgent, invitedEmail);
+      // Acceptance must still establish a session when verification happened in another browser.
+      expect((await invitedAgent.post("/api/auth/sign-out").send({})).status).toBe(200);
+      expect((await invitedAgent.get("/api/auth/context")).body.authenticated).toBe(false);
       const acceptResponse = await invitedAgent.post(acceptPath).send(credentials);
 
       expect(acceptResponse.status).toBe(200);

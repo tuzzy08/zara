@@ -4,6 +4,14 @@ Status: Implemented (PR #133 open; remote CI pending)
 Date: 2026-05-31
 External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
 
+## CI repair, 2026-10-16
+
+CI repair (2026-10-16, PR #133): CI run 38874890542 passed 2,200 tests and failed one invitation fixture that expected session creation after verification had already signed in. The existing test reproduced the same failure locally. Its setup now signs out after verification and confirms anonymous context before acceptance. All original cookie, organization and workspace assertions remain. No production code changed. All four invitation tests pass in 32.28s with `npm.cmd exec -- vitest run apps/api/src/auth/auth-invitations.controller.test.ts --maxWorkers=1 --pool=threads --reporter=dot`. Full CI rerun is pending; browser E2E, migration, security and preview passed on the previous head. The five-minute PR monitor is active; no merge or deployment is authorized.
+
+- Decision: preserve coverage for acceptance after verification in a different browser by removing the setup session. This is a fixture correction, not a new product behavior or a weaker assertion.
+- Pending work: monitor the new PR head until all remote checks pass, then record completion.
+- Risk: no runtime behavior change; prior signup migration and release limits remain.
+
 ## Current verification, 2026-10-16
 
 Implementation commit `48c40d8` is pushed in [PR #133](https://github.com/tuzzy08/zara/pull/133) against `dev`. This checkpoint supersedes the historical pending-work and release notes below. The owner authorized the separate commit and PR. Merge and deployment are not part of this pass.
